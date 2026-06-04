@@ -97,7 +97,10 @@ func (h *UserHandler) Update(c *gin.Context) {
 	}
 
 	var req services.UpdateUserRequest
-	c.ShouldBindJSON(&req)
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
 
 	user, err := h.svc.Update(uint(id), req)
 	if err != nil {
@@ -209,7 +212,10 @@ func (h *RoleHandler) Update(c *gin.Context) {
 	}
 
 	var req services.UpdateRoleRequest
-	c.ShouldBindJSON(&req)
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
 
 	role, err := h.svc.Update(uint(id), req)
 	if err != nil {

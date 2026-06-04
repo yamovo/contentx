@@ -87,7 +87,11 @@ func NewSEOHandler(svc *services.SEOService) *SEOHandler {
 // GET /api/v1/seo/:type/:id
 func (h *SEOHandler) GetSEOSetting(c *gin.Context) {
 	entityType := c.Param("type")
-	entityID, _ := strconv.ParseUint(c.Param("id"), 10, 64)
+	entityID, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid entity ID"})
+		return
+	}
 
 	setting, err := h.svc.GetSetting(entityType, uint(entityID))
 	if err != nil {
@@ -102,10 +106,17 @@ func (h *SEOHandler) GetSEOSetting(c *gin.Context) {
 // PUT /api/v1/seo/:type/:id
 func (h *SEOHandler) UpdateSEOSetting(c *gin.Context) {
 	entityType := c.Param("type")
-	entityID, _ := strconv.ParseUint(c.Param("id"), 10, 64)
+	entityID, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid entity ID"})
+		return
+	}
 
 	var req services.SEOSettingRequest
-	c.ShouldBindJSON(&req)
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
 
 	if err := h.svc.UpdateSetting(entityType, uint(entityID), req); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update SEO setting"})
@@ -226,7 +237,10 @@ func (h *MenuHandler) Get(c *gin.Context) {
 // POST /api/v1/menus
 func (h *MenuHandler) Create(c *gin.Context) {
 	var req services.CreateMenuRequest
-	c.ShouldBindJSON(&req)
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
 
 	menu, err := h.svc.Create(req)
 	if err != nil {
@@ -247,7 +261,10 @@ func (h *MenuHandler) Update(c *gin.Context) {
 	}
 
 	var req services.UpdateMenuRequest
-	c.ShouldBindJSON(&req)
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
 
 	if err := h.svc.Update(uint(id), req); err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Menu not found"})
@@ -284,7 +301,10 @@ func (h *MenuHandler) AddItem(c *gin.Context) {
 	}
 
 	var req services.AddMenuItemRequest
-	c.ShouldBindJSON(&req)
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
 
 	item, err := h.svc.AddItem(uint(menuID), req)
 	if err != nil {
@@ -305,7 +325,10 @@ func (h *MenuHandler) UpdateItem(c *gin.Context) {
 	}
 
 	var req services.UpdateMenuItemRequest
-	c.ShouldBindJSON(&req)
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
 
 	if err := h.svc.UpdateItem(uint(itemID), req); err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Menu item not found"})
@@ -334,7 +357,10 @@ func (h *MenuHandler) ReorderItems(c *gin.Context) {
 	var req struct {
 		Items []services.ReorderItem `json:"items" binding:"required"`
 	}
-	c.ShouldBindJSON(&req)
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
 
 	if err := h.svc.ReorderItems(req.Items); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to reorder items"})
@@ -421,7 +447,10 @@ func (h *AnalyticsHandler) DeviceBreakdown(c *gin.Context) {
 // POST /api/v1/analytics/record
 func (h *AnalyticsHandler) RecordView(c *gin.Context) {
 	var req services.RecordViewRequest
-	c.ShouldBindJSON(&req)
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
 
 	if err := h.svc.RecordView(req, c.ClientIP(), c.Request.UserAgent(),
 		c.GetHeader("Referer"), c.GetHeader("X-Session-ID")); err != nil {

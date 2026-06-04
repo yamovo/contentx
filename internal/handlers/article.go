@@ -3,10 +3,10 @@ package handlers
 import (
 	"net/http"
 	"strconv"
-	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/vortexcms/go-cms/internal/middleware"
+	"github.com/vortexcms/go-cms/internal/models"
 	"github.com/vortexcms/go-cms/internal/services"
 	"gorm.io/gorm"
 )
@@ -95,7 +95,10 @@ func (h *ArticleHandler) Create(c *gin.Context) {
 		return
 	}
 
-	user := middleware.GetCurrentUser(c)
+	user := getCurrentUser(c)
+	if user == nil {
+		return
+	}
 
 	article, err := h.svc.Create(req, user.ID)
 	if err != nil {
@@ -121,7 +124,10 @@ func (h *ArticleHandler) Update(c *gin.Context) {
 		return
 	}
 
-	user := middleware.GetCurrentUser(c)
+	user := getCurrentUser(c)
+	if user == nil {
+		return
+	}
 
 	article, err := h.svc.Update(uint(id), req, user.ID, user.IsEditor())
 	if err != nil {
@@ -141,7 +147,10 @@ func (h *ArticleHandler) Delete(c *gin.Context) {
 		return
 	}
 
-	user := middleware.GetCurrentUser(c)
+	user := getCurrentUser(c)
+	if user == nil {
+		return
+	}
 
 	if err := h.svc.Delete(uint(id), user.ID, user.IsEditor()); err != nil {
 		handleServiceError(c, err)
@@ -160,7 +169,10 @@ func (h *ArticleHandler) BulkAction(c *gin.Context) {
 		return
 	}
 
-	user := middleware.GetCurrentUser(c)
+	user := getCurrentUser(c)
+	if user == nil {
+		return
+	}
 	if !user.IsEditor() {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Insufficient permissions"})
 		return
@@ -211,7 +223,10 @@ func (h *ArticleHandler) RestoreRevision(c *gin.Context) {
 		return
 	}
 
-	user := middleware.GetCurrentUser(c)
+	user := getCurrentUser(c)
+	if user == nil {
+		return
+	}
 
 	if err := h.svc.RestoreRevision(uint(id), uint(revisionID), user.ID); err != nil {
 		handleServiceError(c, err)
@@ -266,5 +281,11 @@ func handleServiceError(c *gin.Context, err error) {
 	c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 }
 
-// Need time import for DTOs.
-var _ = time.Now()
+// getCurrentUser returns the authenticated user or sends a 401 response.
+func getCurrentUser(c *gin.Context) *models.User {
+	user := middleware.GetCurrentUser(c)
+	if user == nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Not authenticated"})
+	}
+	return user
+}

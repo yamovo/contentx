@@ -73,7 +73,10 @@ func (h *PluginHandler) UpdateConfig(c *gin.Context) {
 	}
 
 	var config map[string]interface{}
-	c.ShouldBindJSON(&config)
+	if err := c.ShouldBindJSON(&config); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
 
 	if err := h.svc.UpdateConfig(uint(id), config); err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Plugin not found"})
@@ -133,7 +136,10 @@ func (h *ThemeHandler) UpdateConfig(c *gin.Context) {
 	}
 
 	var config map[string]interface{}
-	c.ShouldBindJSON(&config)
+	if err := c.ShouldBindJSON(&config); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
 
 	if err := h.svc.UpdateConfig(uint(id), config); err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Theme not found"})

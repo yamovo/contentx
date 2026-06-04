@@ -86,7 +86,10 @@ func (h *AuthHandler) Logout(c *gin.Context) {
 	if claims != nil {
 		authHeader := c.GetHeader("Authorization")
 		if strings.HasPrefix(authHeader, "Bearer ") {
-			h.svc.Logout(authHeader[7:], claims.UserID)
+			if err := h.svc.Logout(authHeader[7:], claims.UserID); err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to logout"})
+				return
+			}
 		}
 	}
 
@@ -118,6 +121,10 @@ func (h *AuthHandler) Me(c *gin.Context) {
 // PUT /api/v1/auth/profile
 func (h *AuthHandler) UpdateProfile(c *gin.Context) {
 	user := middleware.GetCurrentUser(c)
+	if user == nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Not authenticated"})
+		return
+	}
 
 	var req struct {
 		DisplayName *string `json:"display_name"`
@@ -157,6 +164,10 @@ func (h *AuthHandler) UpdateProfile(c *gin.Context) {
 // PUT /api/v1/auth/password
 func (h *AuthHandler) ChangePassword(c *gin.Context) {
 	user := middleware.GetCurrentUser(c)
+	if user == nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Not authenticated"})
+		return
+	}
 
 	var req services.ChangePasswordRequest
 	if err := c.ShouldBindJSON(&req); err != nil {

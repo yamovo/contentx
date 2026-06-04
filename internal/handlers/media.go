@@ -54,6 +54,10 @@ func (h *MediaHandler) Upload(c *gin.Context) {
 	defer file.Close()
 
 	user := middleware.GetCurrentUser(c)
+	if user == nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Not authenticated"})
+		return
+	}
 
 	media, err := h.svc.Upload(file, header,
 		c.PostForm("folder"),
@@ -99,7 +103,10 @@ func (h *MediaHandler) Update(c *gin.Context) {
 	}
 
 	var req services.UpdateMediaRequest
-	c.ShouldBindJSON(&req)
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
 
 	if err := h.svc.Update(uint(id), req); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update media"})

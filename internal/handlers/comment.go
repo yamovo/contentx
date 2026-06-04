@@ -98,7 +98,10 @@ func (h *CommentHandler) Update(c *gin.Context) {
 	var req struct {
 		Content string `json:"content"`
 	}
-	c.ShouldBindJSON(&req)
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
 
 	if req.Content == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Content is required"})
