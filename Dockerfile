@@ -1,0 +1,39 @@
+# Build stage
+FROM golang:1.22-alpine AS backend-builder
+WORKDIR /app
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=1 GOOS=linux go build -o /vortexcms ./cmd/server/main.go
+
+# Frontend build stage
+FROM node:20-alpine AS frontend-builder
+WORKDIR /app/web
+COPY web/package.json web/package-lock.json* ./
+RUN npm install
+COPY web/ .
+RUN npm run build
+
+# Production stage
+FROM alpine:3.19
+RUN apk --no-cache add ca-certificates tzdata
+
+WORKDIR /app
+
+# Copy binary
+COPY --from=backend-builder /vortexcms .
+
+# Copy frontend
+COPY --from=frontend-builder /app/web/dist ./web/dist
+
+# Create directories
+RUN mkdir -p uploads backups logs plugins themes
+
+# Copy config template
+COPY deploy/docker/.env.example .env
+
+EXPOSE 8080
+
+VOLUME ["/app/uploads", "/app/backups", "/app/logs"]
+
+ENTRYPOINT ["./vortexcms"]

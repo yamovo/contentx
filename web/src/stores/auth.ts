@@ -1,0 +1,104 @@
+import { defineStore } from 'pinia'
+import { ref, computed } from 'vue'
+import { authApi, type User, type TokenPair } from '@/api'
+
+export const useAuthStore = defineStore('auth', () => {
+  // State.
+  const user = ref<User | null>(null)
+  const token = ref<string>(localStorage.getItem('access_token') || '')
+  const refreshToken = ref<string>(localStorage.getItem('refresh_token') || '')
+  const permissions = ref<string[]>([])
+  const loading = ref(false)
+
+  // Getters.
+  const isAuthenticated = computed(() => !!token.value)
+  const isAdmin = computed(() => user.value?.role?.slug === 'admin')
+  const isEditor = computed(() => ['admin', 'editor'].includes(user.value?.role?.slug || ''))
+
+  // Actions.
+  async function login(username: string, password: string) {
+    loading.value = true
+    try {
+      const res = await authApi.login({ username, password })
+      setTokens(res.data)
+      user.value = res.user
+      await fetchPermissions()
+      return res
+    } finally {
+      loading.value = false
+    }
+  }
+
+  async function register(data: { username: string; email: string; password: string; display_name?: string }) {
+    loading.value = true
+    try {
+      const res = await authApi.register(data)
+      setTokens(res.data)
+      user.value = res.user
+      await fetchPermissions()
+      return res
+    } finally {
+      loading.value = false
+    }
+  }
+
+  async function fetchUser() {
+    if (!token.value) return
+    try {
+      const res = await authApi.me()
+      user.value = res.data
+      permissions.value = res.permissions
+    } catch {
+      logout()
+    }
+  }
+
+  async function fetchPermissions() {
+    try {
+      const res = await authApi.me()
+      user.value = res.data
+      permissions.value = res.permissions
+    } catch {
+      // Ignore.
+    }
+  }
+
+  async function refreshAccessToken() {
+    if (!refreshToken.value) throw new Error('No refresh token')
+    const res = await authApi.refresh(refreshToken.value)
+    setTokens(res.data)
+  }
+
+  function setTokens(pair: TokenPair) {
+    token.value = pair.access_token
+    refreshToken.value = pair.refresh_token
+    localStorage.setItem('access_token', pair.access_token)
+    localStorage.setItem('refresh_token', pair.refresh_token)
+  }
+
+  function logout() {
+    user.value = null
+    token.value = ''
+    refreshToken.value = ''
+    permissions.value = []
+    localStorage.removeItem('access_token')
+    localStorage.removeItem('refresh_token')
+  }
+
+  function hasPermission(slug: string): boolean {
+    if (isAdmin.value) return true
+    return permissions.value.includes(slug)
+  }
+
+  // Initialize: fetch user if token exists.
+  if (token.value) {
+    fetchUser()
+  }
+
+  return {
+    user, token, refreshToken, permissions, loading,
+    isAuthenticated, isAdmin, isEditor,
+    login, register, fetchUser, fetchPermissions, refreshAccessToken,
+    setTokens, logout, hasPermission,
+  }
+})

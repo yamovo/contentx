@@ -1,0 +1,41 @@
+# Go
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+go-cms
+
+# Node
+web/node_modules/
+web/dist/
+web/.env.local
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Project
+uploads/
+backups/
+logs/
+*.db
+*.db-journal
+*.db-wal
+.env
+*.log
+
+# Backups
+.security-backup-*/
+
+# Coverage
+coverage.html
+coverage.txt

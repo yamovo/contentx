@@ -1,0 +1,406 @@
+// ─── VortexCMS Global Styles ─────────────────────────────
+
+// CSS Variables (Light Theme)
+:root {
+  --bg-primary: #f5f7fa;
+  --bg-secondary: #ffffff;
+  --bg-card: #ffffff;
+  --text-primary: #303133;
+  --text-secondary: #606266;
+  --text-muted: #909399;
+  --border-color: #ebeef5;
+  --header-bg: #ffffff;
+  --sidebar-bg: #1d1e2c;
+  --sidebar-text: rgba(255,255,255,0.7);
+  --sidebar-active: #409eff;
+}
+
+// Dark Theme
+.dark,
+[data-theme="dark"] {
+  --bg-primary: #1a1a2e;
+  --bg-secondary: #16213e;
+  --bg-card: #1f2940;
+  --text-primary: #e4e6eb;
+  --text-secondary: #b0b3b8;
+  --text-muted: #8a8d91;
+  --border-color: #2d3748;
+  --header-bg: #1f2940;
+  --sidebar-bg: #0f0f1a;
+  --sidebar-text: rgba(255,255,255,0.6);
+  --sidebar-active: #60a5fa;
+
+  // Override body
+  body {
+    background: var(--bg-primary);
+    color: var(--text-primary);
+  }
+
+  // Override Element Plus components
+  .el-card {
+    background: var(--bg-card);
+    border-color: var(--border-color);
+
+    .el-card__header {
+      border-bottom-color: var(--border-color);
+      color: var(--text-primary);
+    }
+  }
+
+  .el-table {
+    --el-table-bg-color: var(--bg-card);
+    --el-table-tr-bg-color: var(--bg-card);
+    --el-table-header-bg-color: #1a2332;
+    --el-table-row-hover-bg-color: #253247;
+    --el-table-border-color: var(--border-color);
+    --el-table-text-color: var(--text-primary);
+    --el-table-header-text-color: var(--text-secondary);
+    color: var(--text-primary);
+  }
+
+  .el-dialog {
+    background: var(--bg-card);
+    .el-dialog__header {
+      border-bottom-color: var(--border-color);
+    }
+    .el-dialog__title {
+      color: var(--text-primary);
+    }
+  }
+
+  .el-form-item__label {
+    color: var(--text-secondary);
+  }
+
+  .el-input__wrapper {
+    background-color: var(--bg-secondary);
+    box-shadow: 0 0 0 1px var(--border-color) inset;
+  }
+
+  .el-input__inner {
+    color: var(--text-primary);
+  }
+
+  .el-select .el-input__wrapper {
+    background-color: var(--bg-secondary);
+  }
+
+  // el-menu sidebar colors are handled by AdminLayout scoped styles
+
+  .el-breadcrumb__inner {
+    color: var(--text-muted);
+  }
+
+  .el-pagination {
+    --el-pagination-bg-color: var(--bg-card);
+    --el-pagination-text-color: var(--text-secondary);
+    --el-pagination-button-bg-color: var(--bg-card);
+  }
+
+  // Admin layout overrides
+  .admin-header {
+    background: var(--header-bg);
+    border-bottom-color: var(--border-color);
+    .header-right .el-icon, .header-right .el-dropdown {
+      color: var(--text-secondary);
+    }
+  }
+
+  .admin-main {
+    background: var(--bg-primary);
+  }
+
+  // Markdown
+  .markdown-body {
+    color: var(--text-primary);
+    blockquote {
+      background: var(--bg-secondary);
+      color: var(--text-secondary);
+    }
+    code {
+      background: var(--bg-secondary);
+    }
+    pre {
+      background: #0d1117;
+    }
+    table {
+      th, td { border-color: var(--border-color); }
+      th { background: var(--bg-secondary); }
+    }
+  }
+}
+
+// Reset & Base
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue',
+    Arial, 'Noto Sans', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  line-height: 1.6;
+  color: var(--text-primary, #303133);
+  background: var(--bg-primary, #f5f7fa);
+}
+
+a {
+  color: #409eff;
+  text-decoration: none;
+  &:hover {
+    color: #66b1ff;
+    text-decoration: underline;
+  }
+}
+
+img {
+  max-width: 100%;
+  height: auto;
+}
+
+// NProgress Customization
+#nprogress {
+  .bar {
+    background: #409eff !important;
+    height: 2px !important;
+  }
+  .spinner {
+    display: none !important;
+  }
+}
+
+// Scrollbar
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #c0c4cc;
+  border-radius: 3px;
+  &:hover {
+    background: #909399;
+  }
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+// Element Plus Overrides
+.el-card {
+  border: 1px solid #ebeef5;
+  border-radius: 8px;
+
+  .el-card__header {
+    padding: 16px 20px;
+    border-bottom: 1px solid #ebeef5;
+    font-weight: 600;
+    font-size: 15px;
+  }
+
+  .el-card__body {
+    padding: 20px;
+  }
+}
+
+.el-table {
+  --el-table-border-color: #ebeef5;
+  --el-table-header-bg-color: #fafafa;
+
+  th.el-table__cell {
+    font-weight: 600;
+    font-size: 13px;
+    color: #606266;
+  }
+}
+
+.el-button {
+  border-radius: 6px;
+}
+
+.el-input__wrapper {
+  border-radius: 6px;
+}
+
+.el-dialog {
+  border-radius: 12px;
+
+  .el-dialog__header {
+    border-bottom: 1px solid #ebeef5;
+    padding-bottom: 16px;
+  }
+}
+
+.el-form-item__label {
+  font-weight: 500;
+}
+
+// Page Header Pattern
+.page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+
+  h2 {
+    margin: 0;
+    font-size: 22px;
+    font-weight: 600;
+  }
+}
+
+// Filter Form
+.filter-form {
+  margin-bottom: 16px;
+
+  .el-form-item {
+    margin-bottom: 12px;
+  }
+}
+
+// Pagination Wrapper
+.pagination-wrapper {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 16px;
+}
+
+// Status Colors
+.status-draft { color: #909399; }
+.status-published { color: #67c23a; }
+.status-pending { color: #e6a23c; }
+.status-trash { color: #f56c6c; }
+
+// Transition Animations
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.2s ease;
+}
+
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+}
+
+.slide-enter-active,
+.slide-leave-active {
+  transition: all 0.3s ease;
+}
+
+.slide-enter-from {
+  transform: translateX(-20px);
+  opacity: 0;
+}
+
+.slide-leave-to {
+  transform: translateX(20px);
+  opacity: 0;
+}
+
+// Markdown Content Styles
+.markdown-body {
+  h1, h2, h3, h4, h5, h6 {
+    margin: 20px 0 10px;
+    font-weight: 600;
+  }
+
+  h1 { font-size: 28px; }
+  h2 { font-size: 24px; }
+  h3 { font-size: 20px; }
+
+  p {
+    margin: 12px 0;
+  }
+
+  blockquote {
+    border-left: 4px solid #409eff;
+    padding: 8px 16px;
+    margin: 16px 0;
+    color: #606266;
+    background: #f5f7fa;
+    border-radius: 0 4px 4px 0;
+  }
+
+  code {
+    background: #f5f7fa;
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-family: 'JetBrains Mono', 'Fira Code', monospace;
+    font-size: 0.9em;
+  }
+
+  pre {
+    background: #1d1e2c;
+    color: #abb2bf;
+    padding: 16px;
+    border-radius: 8px;
+    overflow-x: auto;
+    margin: 16px 0;
+
+    code {
+      background: none;
+      padding: 0;
+      color: inherit;
+    }
+  }
+
+  ul, ol {
+    padding-left: 24px;
+    margin: 12px 0;
+  }
+
+  img {
+    max-width: 100%;
+    border-radius: 8px;
+    margin: 16px 0;
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 16px 0;
+
+    th, td {
+      border: 1px solid #ebeef5;
+      padding: 10px 12px;
+      text-align: left;
+    }
+
+    th {
+      background: #fafafa;
+      font-weight: 600;
+    }
+  }
+
+  hr {
+    border: none;
+    border-top: 1px solid #ebeef5;
+    margin: 24px 0;
+  }
+
+  a {
+    color: #409eff;
+    text-decoration: none;
+    &:hover { text-decoration: underline; }
+  }
+}
+
+// Utility Classes
+.text-center { text-align: center; }
+.text-right { text-align: right; }
+.text-muted { color: #909399; }
+.text-danger { color: #f56c6c; }
+.text-success { color: #67c23a; }
+.mt-16 { margin-top: 16px; }
+.mb-16 { margin-bottom: 16px; }
+.flex-center { display: flex; align-items: center; justify-content: center; }
