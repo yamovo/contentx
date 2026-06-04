@@ -5,137 +5,173 @@ import (
 	"strconv"
 
 	"github.com/gin-gonic/gin"
-	"github.com/vortexcms/go-cms/internal/models"
-	"gorm.io/gorm"
+	"github.com/vortexcms/go-cms/internal/services"
 )
 
 // PluginHandler manages plugins.
-type PluginHandler struct{ db *gorm.DB }
+type PluginHandler struct {
+	svc *services.PluginService
+}
 
-func NewPluginHandler(db *gorm.DB) *PluginHandler { return &PluginHandler{db: db} }
+func NewPluginHandler(svc *services.PluginService) *PluginHandler {
+	return &PluginHandler{svc: svc}
+}
 
 // List returns all plugins.
 // GET /api/v1/plugins
 func (h *PluginHandler) List(c *gin.Context) {
-	var plugins []models.Plugin
-	h.db.Order("name ASC").Find(&plugins)
+	plugins, err := h.svc.List()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch plugins"})
+		return
+	}
+
 	c.JSON(http.StatusOK, gin.H{"data": plugins})
 }
 
 // Enable enables a plugin.
 // POST /api/v1/plugins/:id/enable
 func (h *PluginHandler) Enable(c *gin.Context) {
-	var plugin models.Plugin
-	if err := h.db.First(&plugin, c.Param("id")).Error; err != nil {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid plugin ID"})
+		return
+	}
+
+	if err := h.svc.Enable(uint(id)); err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Plugin not found"})
 		return
 	}
-	h.db.Model(&plugin).Update("is_enabled", true)
-	c.JSON(http.StatusOK, gin.H{"message": "Plugin enabled", "data": plugin})
+
+	c.JSON(http.StatusOK, gin.H{"message": "Plugin enabled"})
 }
 
 // Disable disables a plugin.
 // POST /api/v1/plugins/:id/disable
 func (h *PluginHandler) Disable(c *gin.Context) {
-	var plugin models.Plugin
-	if err := h.db.First(&plugin, c.Param("id")).Error; err != nil {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid plugin ID"})
+		return
+	}
+
+	if err := h.svc.Disable(uint(id)); err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Plugin not found"})
 		return
 	}
-	h.db.Model(&plugin).Update("is_enabled", false)
-	c.JSON(http.StatusOK, gin.H{"message": "Plugin disabled", "data": plugin})
+
+	c.JSON(http.StatusOK, gin.H{"message": "Plugin disabled"})
 }
 
 // UpdateConfig updates a plugin's configuration.
 // PUT /api/v1/plugins/:id/config
 func (h *PluginHandler) UpdateConfig(c *gin.Context) {
-	var plugin models.Plugin
-	if err := h.db.First(&plugin, c.Param("id")).Error; err != nil {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid plugin ID"})
+		return
+	}
+
+	var config map[string]interface{}
+	c.ShouldBindJSON(&config)
+
+	if err := h.svc.UpdateConfig(uint(id), config); err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Plugin not found"})
 		return
 	}
-	var config map[string]interface{}
-	c.ShouldBindJSON(&config)
-	h.db.Model(&plugin).Update("config", config)
-	c.JSON(http.StatusOK, gin.H{"message": "Plugin config updated", "data": plugin})
+
+	c.JSON(http.StatusOK, gin.H{"message": "Plugin config updated"})
 }
 
 // ---------- Theme Handler ----------
 
 // ThemeHandler manages themes.
-type ThemeHandler struct{ db *gorm.DB }
+type ThemeHandler struct {
+	svc *services.ThemeService
+}
 
-func NewThemeHandler(db *gorm.DB) *ThemeHandler { return &ThemeHandler{db: db} }
+func NewThemeHandler(svc *services.ThemeService) *ThemeHandler {
+	return &ThemeHandler{svc: svc}
+}
 
 // List returns all themes.
 // GET /api/v1/themes
 func (h *ThemeHandler) List(c *gin.Context) {
-	var themes []models.ThemeConfig
-	h.db.Order("name ASC").Find(&themes)
+	themes, err := h.svc.List()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch themes"})
+		return
+	}
+
 	c.JSON(http.StatusOK, gin.H{"data": themes})
 }
 
 // Activate activates a theme.
 // POST /api/v1/themes/:id/activate
 func (h *ThemeHandler) Activate(c *gin.Context) {
-	var theme models.ThemeConfig
-	if err := h.db.First(&theme, c.Param("id")).Error; err != nil {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid theme ID"})
+		return
+	}
+
+	if err := h.svc.Activate(uint(id)); err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Theme not found"})
 		return
 	}
 
-	// Deactivate all others.
-	h.db.Model(&models.ThemeConfig{}).Where("id != ?", theme.ID).Update("is_active", false)
-	h.db.Model(&theme).Update("is_active", true)
-
-	c.JSON(http.StatusOK, gin.H{"message": "Theme activated", "data": theme})
+	c.JSON(http.StatusOK, gin.H{"message": "Theme activated"})
 }
 
 // UpdateConfig updates theme configuration.
 // PUT /api/v1/themes/:id/config
 func (h *ThemeHandler) UpdateConfig(c *gin.Context) {
-	var theme models.ThemeConfig
-	if err := h.db.First(&theme, c.Param("id")).Error; err != nil {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid theme ID"})
+		return
+	}
+
+	var config map[string]interface{}
+	c.ShouldBindJSON(&config)
+
+	if err := h.svc.UpdateConfig(uint(id), config); err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Theme not found"})
 		return
 	}
-	var config map[string]interface{}
-	c.ShouldBindJSON(&config)
-	h.db.Model(&theme).Update("config", config)
-	c.JSON(http.StatusOK, gin.H{"message": "Theme config updated", "data": theme})
+
+	c.JSON(http.StatusOK, gin.H{"message": "Theme config updated"})
 }
 
 // ---------- System Handler ----------
 
 // SystemHandler provides system information and operations.
-type SystemHandler struct{ db *gorm.DB }
+type SystemHandler struct {
+	svc *services.SystemService
+}
 
-func NewSystemHandler(db *gorm.DB) *SystemHandler { return &SystemHandler{db: db} }
+func NewSystemHandler(svc *services.SystemService) *SystemHandler {
+	return &SystemHandler{svc: svc}
+}
 
 // Info returns system information.
 // GET /api/v1/system/info
 func (h *SystemHandler) Info(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{
-		"data": gin.H{
-			"name":        "VortexCMS",
-			"version":     "1.0.0",
-			"go_version":  "1.22+",
-			"database":    h.db.Dialector.Name(),
-		},
-	})
+	c.JSON(http.StatusOK, gin.H{"data": h.svc.Info()})
 }
 
 // Health returns the health status.
 // GET /api/v1/system/health
 func (h *SystemHandler) Health(c *gin.Context) {
-	dbOK := h.db.Exec("SELECT 1").Error == nil
+	ok, err := h.svc.Health()
 	status := "healthy"
 	code := http.StatusOK
-	if !dbOK {
+	if !ok || err != nil {
 		status = "unhealthy"
 		code = http.StatusServiceUnavailable
 	}
-	c.JSON(code, gin.H{"status": status, "database": dbOK})
+
+	c.JSON(code, gin.H{"status": status, "database": ok})
 }
 
 // ActivityLog returns the activity log.
@@ -144,22 +180,20 @@ func (h *SystemHandler) ActivityLog(c *gin.Context) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "50"))
 
-	var logs []models.ActivityLog
-	var total int64
+	params := services.ActivityLogParams{
+		Page:     page,
+		PageSize: pageSize,
+		Entity:   c.Query("entity"),
+		Action:   c.Query("action"),
+		UserID:   c.Query("user_id"),
+	}
 
-	query := h.db.Model(&models.ActivityLog{})
-	entity := c.Query("entity")
-	action := c.Query("action")
-	userID := c.Query("user_id")
-	if entity != "" { query = query.Where("entity = ?", entity) }
-	if action != "" { query = query.Where("action = ?", action) }
-	if userID != "" { query = query.Where("user_id = ?", userID) }
+	logs, total, err := h.svc.ActivityLog(params)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch activity log"})
+		return
+	}
 
-	query.Count(&total)
-	query.Order("created_at DESC").Offset((page - 1) * pageSize).Limit(pageSize).Find(&logs)
-
-	paginate := models.Paginate{Page: page, PageSize: pageSize, Total: total}
-	c.JSON(http.StatusOK, models.NewListResponse(logs, paginate))
+	paginate := paginateFrom(page, pageSize, total)
+	c.JSON(http.StatusOK, listResponse(logs, paginate))
 }
-
-// Need strconv for system handler.

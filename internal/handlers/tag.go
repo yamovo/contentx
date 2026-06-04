@@ -5,45 +5,34 @@ import (
 	"strconv"
 
 	"github.com/gin-gonic/gin"
-	"github.com/gosimple/slug"
-	"github.com/vortexcms/go-cms/internal/models"
-	"gorm.io/gorm"
+	"github.com/vortexcms/go-cms/internal/services"
 )
 
 // TagHandler handles tag CRUD operations.
-type TagHandler struct{ db *gorm.DB }
+type TagHandler struct {
+	svc *services.TagService
+}
 
-func NewTagHandler(db *gorm.DB) *TagHandler { return &TagHandler{db: db} }
+func NewTagHandler(svc *services.TagService) *TagHandler {
+	return &TagHandler{svc: svc}
+}
 
 // List returns all tags.
 // GET /api/v1/tags?sort=count&limit=50
 func (h *TagHandler) List(c *gin.Context) {
-	sort := c.DefaultQuery("sort", "name")
 	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "0"))
-	search := c.Query("search")
 
-	query := h.db.Model(&models.Tag{})
-	if search != "" {
-		query = query.Where("name LIKE ?", "%"+search+"%")
+	params := services.TagListParams{
+		Sort:   c.DefaultQuery("sort", "name"),
+		Limit:  limit,
+		Search: c.Query("search"),
 	}
 
-	switch sort {
-	case "count":
-		query = query.Order("count DESC")
-	case "newest":
-		query = query.Order("created_at DESC")
-	default:
-		query = query.Order("name ASC")
+	tags, total, err := h.svc.List(params)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch tags"})
+		return
 	}
-	if limit > 0 {
-		query = query.Limit(limit)
-	}
-
-	var tags []models.Tag
-	query.Find(&tags)
-
-	var total int64
-	h.db.Model(&models.Tag{}).Count(&total)
 
 	c.JSON(http.StatusOK, gin.H{"data": tags, "total": total})
 }
@@ -51,38 +40,32 @@ func (h *TagHandler) List(c *gin.Context) {
 // Get returns a single tag.
 // GET /api/v1/tags/:id
 func (h *TagHandler) Get(c *gin.Context) {
-	var tag models.Tag
-	if err := h.db.First(&tag, c.Param("id")).Error; err != nil {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid tag ID"})
+		return
+	}
+
+	tag, err := h.svc.Get(uint(id))
+	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Tag not found"})
 		return
 	}
+
 	c.JSON(http.StatusOK, gin.H{"data": tag})
 }
 
 // Create creates a new tag.
 // POST /api/v1/tags
 func (h *TagHandler) Create(c *gin.Context) {
-	var req struct {
-		Name  string `json:"name" binding:"required,max=64"`
-		Slug  string `json:"slug"`
-		Color string `json:"color"`
-	}
+	var req services.CreateTagRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	tag := models.Tag{Name: req.Name, Color: req.Color}
-	if req.Slug != "" {
-		tag.Slug = req.Slug
-	} else {
-		tag.Slug = slug.MakeLang(req.Name, "zh")
-		if tag.Slug == "" {
-			tag.Slug = slug.Make(req.Name)
-		}
-	}
-
-	if err := h.db.Create(&tag).Error; err != nil {
+	tag, err := h.svc.Create(req)
+	if err != nil {
 		c.JSON(http.StatusConflict, gin.H{"error": "Tag already exists"})
 		return
 	}
@@ -93,47 +76,40 @@ func (h *TagHandler) Create(c *gin.Context) {
 // Update updates a tag.
 // PUT /api/v1/tags/:id
 func (h *TagHandler) Update(c *gin.Context) {
-	var tag models.Tag
-	if err := h.db.First(&tag, c.Param("id")).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Tag not found"})
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid tag ID"})
 		return
 	}
 
-	var req struct {
-		Name  string `json:"name"`
-		Slug  string `json:"slug"`
-		Color string `json:"color"`
-	}
+	var req services.UpdateTagRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	updates := map[string]interface{}{}
-	if req.Name != "" {
-		updates["name"] = req.Name
+	if err := h.svc.Update(uint(id), req); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update tag"})
+		return
 	}
-	if req.Slug != "" {
-		updates["slug"] = req.Slug
-	}
-	if req.Color != "" {
-		updates["color"] = req.Color
-	}
-	h.db.Model(&tag).Updates(updates)
-	c.JSON(http.StatusOK, gin.H{"data": tag})
+
+	c.JSON(http.StatusOK, gin.H{"message": "Tag updated"})
 }
 
 // Delete removes a tag.
 // DELETE /api/v1/tags/:id
 func (h *TagHandler) Delete(c *gin.Context) {
-	var tag models.Tag
-	if err := h.db.First(&tag, c.Param("id")).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Tag not found"})
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid tag ID"})
 		return
 	}
-	// Remove associations.
-	h.db.Model(&tag).Association("Articles").Clear()
-	h.db.Delete(&tag)
+
+	if err := h.svc.Delete(uint(id)); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete tag"})
+		return
+	}
+
 	c.JSON(http.StatusOK, gin.H{"message": "Tag deleted"})
 }
 
@@ -150,28 +126,9 @@ func (h *TagHandler) Merge(c *gin.Context) {
 		return
 	}
 
-	var target models.Tag
-	if err := h.db.First(&target, req.TargetID).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Target tag not found"})
+	if err := h.svc.Merge(req.SourceIDs, req.TargetID, req.DeleteOld); err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 		return
-	}
-
-	// Re-point article_tags.
-	for _, srcID := range req.SourceIDs {
-		if srcID == req.TargetID {
-			continue
-		}
-		h.db.Exec("UPDATE OR IGNORE article_tags SET tag_id = ? WHERE tag_id = ?",
-			req.TargetID, srcID)
-		h.db.Exec("DELETE FROM article_tags WHERE tag_id = ?", srcID)
-	}
-
-	// Recalculate count.
-	h.db.Model(&target).Update("count",
-		h.db.Model(&models.Tag{}).Select("COUNT(*) FROM article_tags WHERE tag_id = ?", target.ID))
-
-	if req.DeleteOld {
-		h.db.Where("id IN ?", req.SourceIDs).Delete(&models.Tag{})
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "Tags merged"})

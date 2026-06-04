@@ -1,12 +1,11 @@
 package handlers
 
 import (
-	"strconv"
-
 	"github.com/gin-gonic/gin"
-	"github.com/vortexcms/go-cms/internal/config"
 	"github.com/vortexcms/go-cms/internal/auth"
+	"github.com/vortexcms/go-cms/internal/config"
 	"github.com/vortexcms/go-cms/internal/middleware"
+	"github.com/vortexcms/go-cms/internal/services"
 	"gorm.io/gorm"
 )
 
@@ -18,22 +17,39 @@ func RegisterRoutes(
 	jwtMgr *auth.JWTManager,
 	blacklist *auth.Blacklist,
 ) {
+	// Create services.
+	articleSvc := services.NewArticleService(db, cfg.Server.BaseURL)
+	authSvc := services.NewAuthService(db, jwtMgr, blacklist)
+	userSvc := services.NewUserService(db)
+	roleSvc := services.NewRoleService(db)
+	categorySvc := services.NewCategoryService(db)
+	tagSvc := services.NewTagService(db)
+	commentSvc := services.NewCommentService(db)
+	mediaSvc := services.NewMediaService(db, cfg.Upload)
+	settingsSvc := services.NewSettingsService(db)
+	seoSvc := services.NewSEOService(db, cfg.Server.BaseURL)
+	menuSvc := services.NewMenuService(db)
+	analyticsSvc := services.NewAnalyticsService(db)
+	pluginSvc := services.NewPluginService(db)
+	themeSvc := services.NewThemeService(db)
+	systemSvc := services.NewSystemService(db)
+
 	// Create handlers.
-	authH := NewAuthHandler(db, jwtMgr, blacklist)
-	articleH := NewArticleHandler(db, cfg.Server.BaseURL)
-	categoryH := NewCategoryHandler(db)
-	tagH := NewTagHandler(db)
-	commentH := NewCommentHandler(db)
-	mediaH := NewMediaHandler(db, cfg.Upload)
-	userH := NewUserHandler(db)
-	roleH := NewRoleHandler(db)
-	settingsH := NewSettingsHandler(db)
-	seoH := NewSEOHandler(db)
-	menuH := NewMenuHandler(db)
-	analyticsH := NewAnalyticsHandler(db)
-	pluginH := NewPluginHandler(db)
-	themeH := NewThemeHandler(db)
-	systemH := NewSystemHandler(db)
+	authH := NewAuthHandler(authSvc)
+	articleH := NewArticleHandler(articleSvc)
+	categoryH := NewCategoryHandler(categorySvc)
+	tagH := NewTagHandler(tagSvc)
+	commentH := NewCommentHandler(commentSvc)
+	mediaH := NewMediaHandler(mediaSvc)
+	userH := NewUserHandler(userSvc)
+	roleH := NewRoleHandler(roleSvc)
+	settingsH := NewSettingsHandler(settingsSvc)
+	seoH := NewSEOHandler(seoSvc)
+	menuH := NewMenuHandler(menuSvc)
+	analyticsH := NewAnalyticsHandler(analyticsSvc)
+	pluginH := NewPluginHandler(pluginSvc)
+	themeH := NewThemeHandler(themeSvc)
+	systemH := NewSystemHandler(systemSvc)
 
 	// Rate limiter for specific groups.
 	rl := middleware.NewIPRateLimit()
@@ -233,6 +249,3 @@ func RegisterRoutes(
 	// Static file serving for uploads.
 	r.Static(cfg.Upload.URLPrefix, cfg.Upload.StoragePath)
 }
-
-// Need strconv import.
-var _ = strconv.Itoa
