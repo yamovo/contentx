@@ -61,13 +61,14 @@ func main() {
 	r.Use(middleware.LoggerMiddleware())
 	r.Use(middleware.CORSMiddleware(cfg.CORS))
 	r.Use(middleware.SecurityHeaders())
+	r.Use(middleware.ContentTypeJSON())
 	r.Use(middleware.ActivityLogger(db))
 
 	// Rate limiting (skip for non-API routes in dev).
 	r.Use(middleware.RateLimitMiddleware(cfg.Limits.APIRateLimit))
 
 	// Register all routes.
-	handlers.RegisterRoutes(r, db, cfg, jwtMgr, blacklist)
+	rateLimiter := handlers.RegisterRoutes(r, db, cfg, jwtMgr, blacklist)
 
 	// Serve frontend static files (if built).
 	assets := r.Group("/assets")
@@ -101,7 +102,7 @@ func main() {
 		log.Printf("╔══════════════════════════════════════════╗")
 		log.Printf("║          VortexCMS v1.0.0               ║")
 		log.Printf("║  Server running on http://%s:%d  ║", cfg.Server.Host, cfg.Server.Port)
-		log.Printf("║  Admin: admin / admin123                 ║")
+		log.Printf("║  Admin account ready (see ADMIN_PASSWORD env var) ║")
 		log.Printf("║  Mode:  %s                           ║", cfg.Server.Mode)
 		log.Printf("║  DB:    %s                              ║", cfg.Database.Driver)
 		log.Printf("╚══════════════════════════════════════════╝")
@@ -120,6 +121,7 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
+	rateLimiter.Shutdown()
 	if err := srv.Shutdown(ctx); err != nil {
 		log.Fatalf("Server forced to shutdown: %v", err)
 	}

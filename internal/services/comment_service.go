@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/vortexcms/go-cms/internal/models"
+	"strings"
 	"gorm.io/gorm"
 )
 
@@ -63,7 +64,8 @@ func (s *CommentService) List(params CommentListParams) ([]models.Comment, int64
 		query = query.Where("article_id = ?", params.ArticleID)
 	}
 	if params.Search != "" {
-		query = query.Where("content LIKE ? OR author_name LIKE ?", "%"+params.Search+"%", "%"+params.Search+"%")
+		escaped := strings.NewReplacer("%", "\\%", "_", "\\_").Replace(params.Search)
+		query = query.Where("content LIKE ? OR author_name LIKE ?", "%"+escaped+"%", "%"+escaped+"%")
 	}
 
 	var total int64

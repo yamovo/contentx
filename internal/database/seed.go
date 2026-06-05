@@ -6,8 +6,9 @@ import (
 	"log"
 	"os"
 
-	"github.com/vortexcms/go-cms/internal/models"
+	"github.com/vortexcms/go-cms/internal/auth"
 	"golang.org/x/crypto/bcrypt"
+	"github.com/vortexcms/go-cms/internal/models"
 	"gorm.io/gorm"
 )
 
@@ -202,7 +203,7 @@ func seedAdminUser(db *gorm.DB) error {
 		log.Printf("[Seed] =======================================================")
 	}
 
-	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(adminPassword), bcrypt.DefaultCost)
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(adminPassword), auth.BcryptCost)
 	if err != nil {
 		return err
 	}

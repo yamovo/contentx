@@ -239,7 +239,7 @@ async function handleCommand(cmd: string, article: Article) {
       fetchArticles()
       break
     case 'view':
-      window.open(`/articles/${article.slug}`, '_blank')
+      window.open(`/blog/article/${article.slug}`, '_blank')
       break
     case 'delete':
       await ElMessageBox.confirm('确认删除此文章？', '确认')

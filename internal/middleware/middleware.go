@@ -101,8 +101,12 @@ func SecurityHeaders() gin.HandlerFunc {
 		c.Header("X-Frame-Options", "DENY")
 		c.Header("X-XSS-Protection", "1; mode=block")
 		c.Header("Referrer-Policy", "strict-origin-when-cross-origin")
-		c.Header("Strict-Transport-Security", "max-age=63072000; includeSubDomains; preload")
-		c.Header("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; connect-src 'self' ws: wss:")
+		if gin.Mode() == gin.ReleaseMode {
+			c.Header("Strict-Transport-Security", "max-age=63072000; includeSubDomains; preload")
+		} else {
+			c.Header("Strict-Transport-Security", "max-age=0")
+		}
+		c.Header("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; connect-src 'self' ws: wss:")
 		c.Next()
 	}
 }
@@ -158,7 +162,9 @@ func ActivityLogger(db *gorm.DB) gin.HandlerFunc {
 
 		// Non-blocking write.
 		go func() {
-			db.Create(&log)
+			if err := db.Create(&log).Error; err != nil {
+				println("[ACTIVITY] failed to log:", err)
+			}
 		}()
 	}
 }

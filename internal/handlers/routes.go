@@ -16,7 +16,7 @@ func RegisterRoutes(
 	cfg *config.Config,
 	jwtMgr *auth.JWTManager,
 	blacklist *auth.Blacklist,
-) {
+) *middleware.IPRateLimit {
 	// Create services.
 	articleSvc := services.NewArticleService(db, cfg.Server.BaseURL)
 	authSvc := services.NewAuthService(db, jwtMgr, blacklist)
@@ -248,4 +248,5 @@ func RegisterRoutes(
 
 	// Static file serving for uploads.
 	r.Static(cfg.Upload.URLPrefix, cfg.Upload.StoragePath)
+	return rl
 }

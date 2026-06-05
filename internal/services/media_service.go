@@ -1,7 +1,7 @@
 package services
 
 import (
-	"crypto/md5"
+	"crypto/sha256"
 	"fmt"
 	"io"
 	"mime/multipart"
@@ -154,7 +154,7 @@ func (s *MediaService) Upload(file io.Reader, header *multipart.FileHeader, fold
 
 	// Generate unique filename.
 	ext := filepath.Ext(header.Filename)
-	hash := md5.New()
+	hash := sha256.New()
 	fmt.Fprintf(hash, "%s-%d-%s", header.Filename, time.Now().UnixNano(), header.Filename)
 	filename := fmt.Sprintf("%x%s", hash.Sum(nil), ext)
 	filePath := filepath.Join(uploadDir, filename)
@@ -178,7 +178,7 @@ func (s *MediaService) Upload(file io.Reader, header *multipart.FileHeader, fold
 		os.Remove(filePath)
 		return nil, fmt.Errorf("failed to read saved file for checksum: %w", err)
 	}
-	checksum := md5.New()
+	checksum := sha256.New()
 	io.Copy(checksum, savedFile)
 	savedFile.Close()
 

@@ -10,6 +10,7 @@ import (
 
 // RateLimiter implements a token bucket rate limiter.
 type RateLimiter struct {
+	stopCh   chan struct{}
 	visitors map[string]*visitor
 	mu       sync.RWMutex
 	rate     int           // requests per interval
@@ -27,6 +28,7 @@ type visitor struct {
 func NewRateLimiter(ratePerMinute int) *RateLimiter {
 	rl := &RateLimiter{
 		visitors: make(map[string]*visitor),
+		stopCh:   make(chan struct{}),
 		rate:     ratePerMinute,
 		interval: time.Minute,
 		burst:    ratePerMinute,
@@ -90,15 +92,26 @@ func (rl *RateLimiter) allow(key string) bool {
 
 func (rl *RateLimiter) cleanup() {
 	ticker := time.NewTicker(3 * time.Minute)
-	for range ticker.C {
-		rl.mu.Lock()
-		for key, v := range rl.visitors {
-			if time.Since(v.lastSeen) > 5*time.Minute {
-				delete(rl.visitors, key)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			rl.mu.Lock()
+			for key, v := range rl.visitors {
+				if time.Since(v.lastSeen) > 5*time.Minute {
+					delete(rl.visitors, key)
+				}
 			}
+			rl.mu.Unlock()
+		case <-rl.stopCh:
+			return
 		}
-		rl.mu.Unlock()
 	}
+}
+
+// Shutdown stops the cleanup goroutine.
+func (rl *RateLimiter) Shutdown() {
+	close(rl.stopCh)
 }
 
 // IPRateLimit uses separate limits for different endpoint groups.
@@ -130,6 +143,15 @@ func (r *IPRateLimit) Allow(group, ip string) bool {
 		return true
 	}
 	return limiter.allow(ip)
+}
+
+// Shutdown stops all cleanup goroutines in the IP rate limiter.
+func (r *IPRateLimit) Shutdown() {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	for _, limiter := range r.limiters {
+		limiter.Shutdown()
+	}
 }
 
 // GroupRateLimit creates a middleware for a specific rate-limit group.

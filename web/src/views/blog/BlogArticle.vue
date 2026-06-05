@@ -5,12 +5,12 @@
       <!-- Article Header -->
       <header class="article-header" ref="headerRef">
         <div class="header-meta">
-          <router-link v-if="article.category" :to="'/blog/category/' + article.category.slug" class="meta-cat">{{ article.category.name }}</router-link>
+          <router-link v-if="category" :to="'/blog/category/' + category.slug" class="meta-cat">{{ category.name }}</router-link>
           <span>{{ formatDate(article.created_at) }}</span>
           <span>{{ article.view_count || 0 }} views</span>
         </div>
         <h1>{{ article.title }}</h1>
-        <p class="header-summary" v-if="article.summary">{{ article.summary }}</p>
+        <p class="header-summary" v-if="article.excerpt">{{ article.excerpt }}</p>
         <div class="header-author" v-if="article.author">
           <el-avatar :size="32">{{ (article.author.display_name || 'U')[0] }}</el-avatar>
           <span>{{ article.author.display_name }}</span>
@@ -23,6 +23,9 @@
       <!-- Tags -->
       <div class="article-tags" v-if="article.tags && article.tags.length">
         <router-link v-for="tag in article.tags" :key="tag.id" :to="'/blog/tag/' + tag.slug" class="tag-chip">{{ tag.name }}</router-link>
+      </div>
+      <div class="article-tags" v-else-if="tags.length">
+        <router-link v-for="tag in tags" :key="tag.id" :to="'/blog/tag/' + tag.slug" class="tag-chip">{{ tag.name }}</router-link>
       </div>
 
       <!-- Like -->
@@ -64,6 +67,8 @@ import dayjs from 'dayjs'
 
 const route = useRoute()
 const article = ref<any>(null)
+const category = ref<any>(null)
+const tags = ref<any[]>([])
 const comments = ref<any[]>([])
 const loading = ref(true)
 const liked = ref(false)
@@ -85,8 +90,12 @@ async function fetchArticle() {
     const slug = route.params.slug as string
     const res = await fetch('/api/v1/articles/slug/' + slug)
     if (!res.ok) throw new Error('not found')
-    article.value = await res.json()
-    if (article.value?.id) fetchComments()
+    const json = await res.json()
+    article.value = json.data || json
+    if (article.value?.id) {
+      fetchComments()
+      if (article.value.category_id) fetchCategory(article.value.category_id)
+    }
   } catch { article.value = null }
   finally { loading.value = false }
 }
@@ -96,6 +105,14 @@ async function fetchComments() {
     const res = await fetch('/api/v1/articles/' + article.value.id + '/comments')
     const data = await res.json()
     comments.value = data.items || data.data || []
+  } catch {}
+}
+
+async function fetchCategory(id: number) {
+  try {
+    const res = await fetch('/api/v1/categories/' + id)
+    const data = await res.json()
+    category.value = data.data || data
   } catch {}
 }
 

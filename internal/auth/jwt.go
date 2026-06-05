@@ -132,7 +132,13 @@ func (m *JWTManager) RefreshAccessToken(refreshTokenStr string) (*TokenPair, err
 	return m.GenerateTokenPair(claims.UserID, claims.Username, claims.Email, claims.RoleSlug, claims.DisplayName)
 }
 
-// Blacklist is an in-memory token blacklist (replace with Redis in production).
+// Blacklist is an in-memory token blacklist.
+//
+// WARNING: This implementation is NOT suitable for production use.
+// Tokens are stored in memory only, so:
+//   - Blacklisted tokens are lost on server restart.
+//   - Multiple server instances do not share the blacklist.
+// For production, replace with a Redis-backed implementation.
 type Blacklist struct {
 	tokens map[string]time.Time
 }
