@@ -1,3 +1,4 @@
+basePath: /api/v1
 definitions:
   auth.TokenPair:
     properties:
@@ -1008,8 +1009,12 @@ definitions:
       status:
         type: string
     type: object
+host: localhost:8080
 info:
   contact: {}
+  description: High-performance Headless CMS - API-first content platform
+  title: ContentX API
+  version: "1.0"
 paths:
   /articles:
     get:
@@ -2354,4 +2359,13 @@ paths:
       summary: Webhook logs
       tags:
       - Webhooks
+schemes:
+- http
+- https
+securityDefinitions:
+  BearerAuth:
+    description: 'JWT token. Format: Bearer {token}'
+    in: header
+    name: Authorization
+    type: apiKey
 swagger: "2.0"

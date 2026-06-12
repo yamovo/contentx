@@ -630,9 +630,9 @@ func (s *ArticleService) GenerateFeed() (string, error) {
 	sb.WriteString(`<?xml version="1.0" encoding="UTF-8"?>
 <rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
 <channel>
-<title>VortexCMS Feed</title>
+<title>ContentX Feed</title>
 <link>` + s.baseURL + `</link>
-<description>Latest articles from VortexCMS</description>
+<description>Latest articles from ContentX</description>
 <language>zh-cn</language>
 `)
 	for _, a := range articles {

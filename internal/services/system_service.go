@@ -126,7 +126,7 @@ func (s *SystemService) Info() map[string]interface{} {
 	goVersion := runtime.Version()
 
 	info := map[string]interface{}{
-		"name":       "VortexCMS",
+		"name":       "ContentX",
 		"version":    "1.0.0",
 		"go_version": goVersion,
 		"database":   s.db.Dialector.Name(),

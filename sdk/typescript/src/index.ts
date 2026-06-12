@@ -1,4 +1,4 @@
-export { VortexCMS } from './client'
+export { ContentX } from './client'
 export type {
   VortexConfig,
   Article,

@@ -131,6 +131,16 @@ func CORSMiddleware(cfg config.CORSConfig) gin.HandlerFunc {
 // SecurityHeaders adds security-related HTTP headers.
 func SecurityHeaders() gin.HandlerFunc {
 	return func(c *gin.Context) {
+		path := c.Request.URL.Path
+
+		// Skip CSP for Swagger UI (needs inline scripts).
+		if len(path) >= 9 && path[:9] == "/swagger/" {
+			c.Header("X-Content-Type-Options", "nosniff")
+			c.Header("Referrer-Policy", "strict-origin-when-cross-origin")
+			c.Next()
+			return
+		}
+
 		c.Header("X-Content-Type-Options", "nosniff")
 		c.Header("X-Frame-Options", "DENY")
 		c.Header("Permissions-Policy", "camera=(), microphone=(), geolocation=()")

@@ -83,7 +83,7 @@ func (m *Manager) backupSQLite(destPath string) (string, error) {
 
 // fileCopy copies the database file directly.
 func (m *Manager) fileCopy(destPath string) (string, error) {
-	src, err := os.Open(m.cfg.Dir + "/../vortexcms.db")
+	src, err := os.Open(m.cfg.Dir + "/../contentx.db")
 	if err != nil {
 		return "", fmt.Errorf("failed to open source db: %w", err)
 	}

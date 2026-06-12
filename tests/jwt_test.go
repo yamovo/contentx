@@ -13,7 +13,7 @@ func newTestJWTManager() *auth.JWTManager {
 		Secret:           "test-secret-key-for-unit-tests",
 		AccessTokenTTL:  15 * time.Minute,
 		RefreshTokenTTL:  7 * 24 * time.Hour,
-		Issuer:           "test-vortexcms",
+		Issuer:           "test-contentx",
 	})
 }
 

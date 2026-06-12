@@ -1,4 +1,4 @@
-# 🌪️ VortexCMS
+# 🌪️ ContentX
 
 > **高性能 Go Headless CMS** — API-first 内容平台，单二进制部署，自定义内容类型，自动生成 REST API。
 
@@ -8,9 +8,9 @@
 
 ---
 
-## 为什么选 VortexCMS
+## 为什么选 ContentX
 
-| | VortexCMS | Strapi | Ghost |
+| | ContentX | Strapi | Ghost |
 |---|-----------|--------|-------|
 | 语言 | **Go** | Node.js | Node.js |
 | 内存占用 | **~30MB** | ~200MB | ~150MB |
@@ -98,9 +98,9 @@ npm install @vortexcms/sdk
 ```
 
 ```typescript
-import { VortexCMS } from '@vortexcms/sdk'
+import { ContentX } from '@vortexcms/sdk'
 
-const cms = new VortexCMS({
+const cms = new ContentX({
   baseURL: 'http://localhost:8080/api/v1',
   token: 'vc_live_...',
 })
@@ -213,4 +213,4 @@ go test ./internal/services/ -v     # Service 层（39 用例）
 
 ## License
 
-MIT © 2024 VortexCMS
+MIT © 2024 ContentX

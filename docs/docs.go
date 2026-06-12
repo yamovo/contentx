@@ -1,6 +1,6 @@
-// Package docs VortexCMS API
+// Package docs ContentX API
 //
-//	VortexCMS Headless Content Management System
+//	ContentX Headless Content Management System
 //
 //	Schemes: http, https
 //	BasePath: /api/v1

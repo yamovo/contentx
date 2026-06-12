@@ -57,13 +57,13 @@ jobs:
           go-version-file: go.mod
 
       - name: Build
-        run: go build -o vortexcms ./cmd/server
+        run: go build -o contentx ./cmd/server
 
       - name: Upload binary
         uses: actions/upload-artifact@v4
         with:
-          name: vortexcms-linux-amd64
-          path: vortexcms
+          name: contentx-linux-amd64
+          path: contentx
 
   docker:
     runs-on: ubuntu-latest
@@ -77,4 +77,4 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       - name: Build Docker image
-        run: docker build -t vortexcms:latest .
+        run: docker build -t contentx:latest .

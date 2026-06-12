@@ -1,7 +1,7 @@
 {
-  "name": "@vortexcms/sdk",
+  "name": "@contentx/sdk",
   "version": "1.0.0",
-  "description": "Official TypeScript SDK for VortexCMS Headless CMS",
+  "description": "Official TypeScript SDK for ContentX Headless CMS",
   "main": "dist/index.js",
   "module": "dist/index.mjs",
   "types": "dist/index.d.ts",
@@ -10,7 +10,7 @@
     "build": "tsup src/index.ts --format cjs,esm --dts",
     "test": "vitest run"
   },
-  "keywords": ["cms", "headless", "vortexcms", "api"],
+  "keywords": ["cms", "headless", "contentx", "api"],
   "license": "MIT",
   "devDependencies": {
     "tsup": "^8.0.0",

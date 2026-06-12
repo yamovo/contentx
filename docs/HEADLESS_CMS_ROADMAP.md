@@ -1,4 +1,4 @@
-# VortexCMS → Headless CMS 转型路线图
+# ContentX → Headless CMS 转型路线图
 
 > 目标：从"带前端的博客系统"转型为"API-first 内容平台"，对标 Strapi / Directus，但用 Go 实现，主打**高性能 + 单二进制部署**。
 
@@ -39,7 +39,7 @@
 
 ### 对标差距（vs Strapi v5）
 
-| 能力 | Strapi | VortexCMS | 差距 |
+| 能力 | Strapi | ContentX | 差距 |
 |------|--------|-----------|------|
 | Content Type Builder | ✅ 可视化建模 | ❌ 硬编码 | **核心差距** |
 | REST API | ✅ 自动生成 | ⚠️ 手写 | 中 |
@@ -490,9 +490,9 @@ vortexcms health              # 健康检查
 
 **TypeScript SDK 示例：**
 ```typescript
-import { VortexCMS } from '@vortexcms/sdk'
+import { ContentX } from '@vortexcms/sdk'
 
-const cms = new VortexCMS({
+const cms = new ContentX({
   baseURL: 'https://cms.example.com/api/v1',
   token: 'your-api-token',
 })
@@ -518,7 +518,7 @@ const products = await cms.content('products').list({
 | Next.js | `getServerSideProps` + SDK | 高 |
 | Nuxt.js | `useAsyncData` + SDK | 高 |
 | Astro | Content Collection + SDK | 中 |
-| Vue 3 | `useVortexCMS()` composable | 中 |
+| Vue 3 | `useContentX()` composable | 中 |
 
 #### 4.3 Docker 官方镜像
 

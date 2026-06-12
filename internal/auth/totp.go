@@ -16,7 +16,7 @@ const (
 	totpDigits  = 6
 	totpPeriod  = 30 // seconds
 	totpSkew    = 1  // allow 1 period skew
-	issuerName  = "VortexCMS"
+	issuerName  = "ContentX"
 )
 
 // TOTPConfig holds 2FA configuration for a user.

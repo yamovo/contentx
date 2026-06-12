@@ -24,6 +24,16 @@ import (
 	ginSwagger "github.com/swaggo/gin-swagger"
 )
 
+// @title           ContentX API
+// @version         1.0
+// @description     High-performance Headless CMS - API-first content platform
+// @host            localhost:8080
+// @BasePath        /api/v1
+// @schemes         http https
+// @securityDefinitions.apikey BearerAuth
+// @in header
+// @name Authorization
+// @description JWT token. Format: Bearer {token}
 func main() {
 	// Load .env file (ignore error if not found).
 	godotenv.Load()
@@ -115,7 +125,7 @@ func main() {
 
 	// Start server in goroutine.
 	go func() {
-		slog.Info("VortexCMS starting",
+		slog.Info("ContentX starting",
 			"host", cfg.Server.Host,
 			"port", cfg.Server.Port,
 			"mode", cfg.Server.Mode,

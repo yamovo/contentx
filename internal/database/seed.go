@@ -213,7 +213,7 @@ func seedAdminUser(db *gorm.DB) error {
 
 	admin := models.User{
 		Username:    "admin",
-		Email:       "admin@vortexcms.local",
+		Email:       "admin@contentx.local",
 		Password:    string(hashedPassword),
 		DisplayName: "Administrator",
 		Status:      models.UserStatusActive,
@@ -250,7 +250,7 @@ func seedSettings(db *gorm.DB) error {
 	}
 
 	settings := []models.SiteSetting{
-		{Key: "site_name", Value: "VortexCMS", Type: "string", Group: "general", IsPublic: true, SortOrder: 1},
+		{Key: "site_name", Value: "ContentX", Type: "string", Group: "general", IsPublic: true, SortOrder: 1},
 		{Key: "site_description", Value: "A modern content management system", Type: "string", Group: "general", IsPublic: true, SortOrder: 2},
 		{Key: "site_url", Value: "http://localhost:8080", Type: "string", Group: "general", IsPublic: true, SortOrder: 3},
 		{Key: "site_logo", Value: "", Type: "string", Group: "general", IsPublic: true, SortOrder: 4},

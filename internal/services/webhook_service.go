@@ -139,12 +139,12 @@ func (s *WebhookService) deliver(wh models.Webhook, payload WebhookPayload) {
 	}
 
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-VortexCMS-Event", payload.Event)
+	req.Header.Set("X-ContentX-Event", payload.Event)
 
 	// HMAC signature if secret is set.
 	if wh.Secret != "" {
 		sig := hmacSign([]byte(wh.Secret), body)
-		req.Header.Set("X-VortexCMS-Signature", "sha256="+sig)
+		req.Header.Set("X-ContentX-Signature", "sha256="+sig)
 	}
 
 	start := time.Now()

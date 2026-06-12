@@ -19,7 +19,7 @@ import type {
   ListParams,
 } from './types'
 
-export class VortexCMS {
+export class ContentX {
   private baseURL: string
   private token: string
   private timeout: number
