@@ -57,8 +57,8 @@
         </el-table-column>
         <el-table-column label="操作" width="200">
           <template #default="{ row }">
-            <el-button text size="small" @click="openDialog(row)">编辑</el-button>
-            <el-button text size="small" @click="resetPassword(row)">重置密码</el-button>
+            <el-button text size="small" @click="openDialog(row as User)">编辑</el-button>
+            <el-button text size="small" @click="resetPassword(row as User)">重置密码</el-button>
             <el-popconfirm title="确认删除？" @confirm="deleteUser(row.id)">
               <template #reference>
                 <el-button text size="small" type="danger">删除</el-button>
