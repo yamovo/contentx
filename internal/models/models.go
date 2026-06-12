@@ -427,3 +427,50 @@ type ActivityLog struct {
 	IP        string    `gorm:"size:45" json:"ip"`
 	UserAgent string    `gorm:"size:512" json:"user_agent"`
 }
+
+// StringSlice is a []string that marshals to JSON for database storage.
+type StringSlice []string
+
+// Value implements driver.Valuer.
+func (s StringSlice) Value() (driver.Value, error) {
+	if s == nil {
+		return "[]", nil
+	}
+	b, err := json.Marshal(s)
+	if err != nil {
+		return nil, err
+	}
+	return string(b), nil
+}
+
+// Scan implements sql.Scanner.
+func (s *StringSlice) Scan(value interface{}) error {
+	if value == nil {
+		*s = nil
+		return nil
+	}
+	var bytes []byte
+	switch v := value.(type) {
+	case string:
+		bytes = []byte(v)
+	case []byte:
+		bytes = v
+	default:
+		return fmt.Errorf("failed to scan StringSlice: %v", value)
+	}
+	return json.Unmarshal(bytes, s)
+}
+
+// APIToken represents a long-lived API token for external access.
+type APIToken struct {
+	ID          uint       `gorm:"primarykey" json:"id"`
+	Name        string     `gorm:"size:128;not null" json:"name"`
+	Token       string     `gorm:"size:255;uniqueIndex;not null" json:"-"`
+	Permissions StringSlice `gorm:"type:text" json:"permissions"`
+	IsActive    bool       `gorm:"default:true;index" json:"is_active"`
+	ExpiresAt   *time.Time `json:"expires_at"`
+	LastUsedAt  *time.Time `json:"last_used_at"`
+	UseCount    int64      `gorm:"default:0" json:"use_count"`
+	CreatedByID uint       `gorm:"index" json:"created_by_id"`
+	CreatedAt   time.Time  `json:"created_at"`
+}

@@ -34,6 +34,7 @@ func RegisterRoutes(
 	pluginSvc := services.NewPluginService(db)
 	themeSvc := services.NewThemeService(db)
 	systemSvc := services.NewSystemService(db)
+	tokenSvc := services.NewTokenService(db)
 
 	// Create handlers.
 	authH := NewAuthHandler(authSvc)
@@ -51,6 +52,7 @@ func RegisterRoutes(
 	pluginH := NewPluginHandler(pluginSvc)
 	themeH := NewThemeHandler(themeSvc)
 	systemH := NewSystemHandler(systemSvc)
+	tokenH := NewTokenHandler(tokenSvc)
 
 	// Rate limiter for specific groups.
 	rl := middleware.NewIPRateLimit()
@@ -241,6 +243,11 @@ func RegisterRoutes(
 		{
 			system.GET("/info", systemH.Info)
 			system.GET("/activity", middleware.RequirePermission("system.activity_log"), systemH.ActivityLog)
+
+			// API Tokens (admin only).
+			system.GET("/tokens", middleware.RequireAdmin(), tokenH.List)
+			system.POST("/tokens", middleware.RequireAdmin(), tokenH.Create)
+			system.DELETE("/tokens/:id", middleware.RequireAdmin(), tokenH.Delete)
 		}
 	}
 

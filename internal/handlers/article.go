@@ -22,6 +22,24 @@ func NewArticleHandler(svc *services.ArticleService) *ArticleHandler {
 
 // List returns a paginated list of articles.
 // GET /api/v1/articles?page=1&page_size=20&status=published&category_id=1&tag=go&sort=newest
+//
+//	@Summary      List articles
+//	@Description  Returns a paginated, filtered list of articles
+//	@Tags         Articles
+//	@Produce      json
+//	@Param        page        query  int     false  "Page number"     default(1)
+//	@Param        page_size   query  int     false  "Items per page"  default(20)
+//	@Param        status      query  string  false  "Filter by status"  Enums(draft,published,pending,scheduled,trash,archived)
+//	@Param        post_type   query  string  false  "Post type"  Enums(post,page)
+//	@Param        category_id query  string  false  "Filter by category ID"
+//	@Param        tag         query  string  false  "Filter by tag slug"
+//	@Param        search      query  string  false  "Search keyword"
+//	@Param        sort        query  string  false  "Sort order"  Enums(newest,oldest,most_viewed,most_liked)  default(newest)
+//	@Param        author_id   query  string  false  "Filter by author ID"
+//	@Security     BearerAuth
+//	@Success      200  {object}  APIResponse{data=object}
+//	@Failure      401  {object}  APIResponse
+//	@Router       /articles [get]
 func (h *ArticleHandler) List(c *gin.Context) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
@@ -49,6 +67,17 @@ func (h *ArticleHandler) List(c *gin.Context) {
 
 // Get returns a single article by ID.
 // GET /api/v1/articles/:id
+//
+//	@Summary      Get article by ID
+//	@Description  Returns a single article by its ID
+//	@Tags         Articles
+//	@Produce      json
+//	@Param        id  path      int  true  "Article ID"
+//	@Security     BearerAuth
+//	@Success      200  {object}  APIResponse{data=models.Article}
+//	@Failure      400  {object}  APIResponse
+//	@Failure      404  {object}  APIResponse
+//	@Router       /articles/{id} [get]
 func (h *ArticleHandler) Get(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -71,6 +100,15 @@ func (h *ArticleHandler) Get(c *gin.Context) {
 
 // GetBySlug returns a single article by slug (public endpoint).
 // GET /api/v1/articles/slug/:slug
+//
+//	@Summary      Get article by slug
+//	@Description  Returns a single article by its URL slug (public)
+//	@Tags         Articles
+//	@Produce      json
+//	@Param        slug  path      string  true  "Article slug"
+//	@Success      200  {object}  APIResponse{data=models.Article}
+//	@Failure      404  {object}  APIResponse
+//	@Router       /articles/slug/{slug} [get]
 func (h *ArticleHandler) GetBySlug(c *gin.Context) {
 	article, err := h.svc.GetBySlug(c.Param("slug"))
 	if err != nil {
@@ -87,6 +125,19 @@ func (h *ArticleHandler) GetBySlug(c *gin.Context) {
 
 // Create creates a new article.
 // POST /api/v1/articles
+//
+//	@Summary      Create article
+//	@Description  Create a new article (requires articles.create permission)
+//	@Tags         Articles
+//	@Accept       json
+//	@Produce      json
+//	@Param        body  body      services.CreateArticleRequest  true  "Article data"
+//	@Security     BearerAuth
+//	@Success      201   {object}  APIResponse{data=models.Article}
+//	@Failure      400   {object}  APIResponse
+//	@Failure      401   {object}  APIResponse
+//	@Failure      403   {object}  APIResponse
+//	@Router       /articles [post]
 func (h *ArticleHandler) Create(c *gin.Context) {
 	var req services.CreateArticleRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -110,6 +161,21 @@ func (h *ArticleHandler) Create(c *gin.Context) {
 
 // Update updates an existing article.
 // PUT /api/v1/articles/:id
+//
+//	@Summary      Update article
+//	@Description  Update an existing article (requires articles.edit permission)
+//	@Tags         Articles
+//	@Accept       json
+//	@Produce      json
+//	@Param        id    path      int                        true  "Article ID"
+//	@Param        body  body      services.UpdateArticleRequest  true  "Fields to update"
+//	@Security     BearerAuth
+//	@Success      200   {object}  APIResponse{data=models.Article}
+//	@Failure      400   {object}  APIResponse
+//	@Failure      401   {object}  APIResponse
+//	@Failure      403   {object}  APIResponse
+//	@Failure      404   {object}  APIResponse
+//	@Router       /articles/{id} [put]
 func (h *ArticleHandler) Update(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -139,6 +205,19 @@ func (h *ArticleHandler) Update(c *gin.Context) {
 
 // Delete soft-deletes an article.
 // DELETE /api/v1/articles/:id
+//
+//	@Summary      Delete article
+//	@Description  Soft-delete an article (requires articles.delete permission)
+//	@Tags         Articles
+//	@Produce      json
+//	@Param        id  path      int  true  "Article ID"
+//	@Security     BearerAuth
+//	@Success      200  {object}  APIResponse
+//	@Failure      400  {object}  APIResponse
+//	@Failure      401  {object}  APIResponse
+//	@Failure      403  {object}  APIResponse
+//	@Failure      404  {object}  APIResponse
+//	@Router       /articles/{id} [delete]
 func (h *ArticleHandler) Delete(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {

@@ -20,6 +20,17 @@ func NewAuthHandler(svc *services.AuthService) *AuthHandler {
 
 // Login authenticates a user and returns tokens.
 // POST /api/v1/auth/login
+//
+//	@Summary      User login
+//	@Description  Authenticate with username/email and password, returns JWT token pair
+//	@Tags         Auth
+//	@Accept       json
+//	@Produce      json
+//	@Param        body  body      services.LoginRequest  true  "Login credentials"
+//	@Success      200   {object}  APIResponse{data=object{token=auth.TokenPair,user=services.SafeUser}}
+//	@Failure      400   {object}  APIResponse
+//	@Failure      401   {object}  APIResponse
+//	@Router       /auth/login [post]
 func (h *AuthHandler) Login(c *gin.Context) {
 	var req services.LoginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -41,6 +52,16 @@ func (h *AuthHandler) Login(c *gin.Context) {
 
 // Register creates a new user account.
 // POST /api/v1/auth/register
+//
+//	@Summary      User registration
+//	@Description  Create a new user account and return JWT token pair
+//	@Tags         Auth
+//	@Accept       json
+//	@Produce      json
+//	@Param        body  body      services.RegisterRequest  true  "Registration data"
+//	@Success      201   {object}  APIResponse{data=object{token=auth.TokenPair,user=services.SafeUser}}
+//	@Failure      400   {object}  APIResponse
+//	@Router       /auth/register [post]
 func (h *AuthHandler) Register(c *gin.Context) {
 	var req services.RegisterRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -62,6 +83,17 @@ func (h *AuthHandler) Register(c *gin.Context) {
 
 // RefreshToken refreshes an access token.
 // POST /api/v1/auth/refresh
+//
+//	@Summary      Refresh access token
+//	@Description  Exchange a refresh token for a new token pair
+//	@Tags         Auth
+//	@Accept       json
+//	@Produce      json
+//	@Param        body  body      services.RefreshRequest  true  "Refresh token"
+//	@Success      200   {object}  APIResponse{data=auth.TokenPair}
+//	@Failure      400   {object}  APIResponse
+//	@Failure      401   {object}  APIResponse
+//	@Router       /auth/refresh [post]
 func (h *AuthHandler) RefreshToken(c *gin.Context) {
 	var req services.RefreshRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -80,6 +112,15 @@ func (h *AuthHandler) RefreshToken(c *gin.Context) {
 
 // Logout invalidates the current token.
 // POST /api/v1/auth/logout
+//
+//	@Summary      Logout
+//	@Description  Invalidate the current access token
+//	@Tags         Auth
+//	@Produce      json
+//	@Security     BearerAuth
+//	@Success      200  {object}  APIResponse
+//	@Failure      401  {object}  APIResponse
+//	@Router       /auth/logout [post]
 func (h *AuthHandler) Logout(c *gin.Context) {
 	claims := middleware.GetClaims(c)
 	if claims != nil {
@@ -97,6 +138,15 @@ func (h *AuthHandler) Logout(c *gin.Context) {
 
 // Me returns the current authenticated user.
 // GET /api/v1/auth/me
+//
+//	@Summary      Get current user
+//	@Description  Returns the authenticated user profile and permissions
+//	@Tags         Auth
+//	@Produce      json
+//	@Security     BearerAuth
+//	@Success      200  {object}  APIResponse{data=object{user=services.SafeUser,permissions=[]string}}
+//	@Failure      401  {object}  APIResponse
+//	@Router       /auth/me [get]
 func (h *AuthHandler) Me(c *gin.Context) {
 	user := middleware.GetCurrentUser(c)
 	if user == nil {
@@ -118,6 +168,18 @@ func (h *AuthHandler) Me(c *gin.Context) {
 
 // UpdateProfile updates the current user's profile.
 // PUT /api/v1/auth/profile
+//
+//	@Summary      Update profile
+//	@Description  Update display_name, bio, website, avatar of current user
+//	@Tags         Auth
+//	@Accept       json
+//	@Produce      json
+//	@Param        body  body      object  true  "Fields to update"
+//	@Security     BearerAuth
+//	@Success      200   {object}  APIResponse{data=services.SafeUser}
+//	@Failure      400   {object}  APIResponse
+//	@Failure      401   {object}  APIResponse
+//	@Router       /auth/profile [put]
 func (h *AuthHandler) UpdateProfile(c *gin.Context) {
 	user := middleware.GetCurrentUser(c)
 	if user == nil {
@@ -161,6 +223,18 @@ func (h *AuthHandler) UpdateProfile(c *gin.Context) {
 
 // ChangePassword changes the current user's password.
 // PUT /api/v1/auth/password
+//
+//	@Summary      Change password
+//	@Description  Change the current user's password
+//	@Tags         Auth
+//	@Accept       json
+//	@Produce      json
+//	@Param        body  body      services.ChangePasswordRequest  true  "Old and new password"
+//	@Security     BearerAuth
+//	@Success      200   {object}  APIResponse
+//	@Failure      400   {object}  APIResponse
+//	@Failure      401   {object}  APIResponse
+//	@Router       /auth/password [put]
 func (h *AuthHandler) ChangePassword(c *gin.Context) {
 	user := middleware.GetCurrentUser(c)
 	if user == nil {

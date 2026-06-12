@@ -162,12 +162,29 @@ func NewSystemHandler(svc *services.SystemService) *SystemHandler {
 
 // Info returns system information.
 // GET /api/v1/system/info
+//
+//	@Summary      System info
+//	@Description  Returns system information (version, uptime, Go version, etc.)
+//	@Tags         System
+//	@Produce      json
+//	@Security     BearerAuth
+//	@Success      200  {object}  APIResponse{data=object}
+//	@Failure      401  {object}  APIResponse
+//	@Router       /system/info [get]
 func (h *SystemHandler) Info(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"data": h.svc.Info()})
 }
 
 // Health returns the health status.
 // GET /api/v1/system/health
+//
+//	@Summary      Health check
+//	@Description  Returns service health status (public, no auth required)
+//	@Tags         System
+//	@Produce      json
+//	@Success      200  {object}  object{status=string,database=bool}
+//	@Failure      503  {object}  object{status=string,database=bool}
+//	@Router       /system/health [get]
 func (h *SystemHandler) Health(c *gin.Context) {
 	ok, err := h.svc.Health()
 	status := "healthy"
@@ -182,6 +199,21 @@ func (h *SystemHandler) Health(c *gin.Context) {
 
 // ActivityLog returns the activity log.
 // GET /api/v1/system/activity
+//
+//	@Summary      Activity log
+//	@Description  Returns paginated activity audit trail
+//	@Tags         System
+//	@Produce      json
+//	@Param        page      query  int     false  "Page number"  default(1)
+//	@Param        page_size query  int     false  "Items per page"  default(50)
+//	@Param        entity    query  string  false  "Filter by entity type"
+//	@Param        action    query  string  false  "Filter by action"
+//	@Param        user_id   query  string  false  "Filter by user ID"
+//	@Security     BearerAuth
+//	@Success      200  {object}  APIResponse{data=[]models.ActivityLog}
+//	@Failure      401  {object}  APIResponse
+//	@Failure      403  {object}  APIResponse
+//	@Router       /system/activity [get]
 func (h *SystemHandler) ActivityLog(c *gin.Context) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "50"))

@@ -18,6 +18,10 @@ import (
 	"github.com/vortexcms/go-cms/internal/handlers"
 	"github.com/vortexcms/go-cms/internal/logger"
 	"github.com/vortexcms/go-cms/internal/middleware"
+
+	_ "github.com/vortexcms/go-cms/docs/api" // swagger docs
+	swaggerFiles "github.com/swaggo/files"
+	ginSwagger "github.com/swaggo/gin-swagger"
 )
 
 func main() {
@@ -76,6 +80,11 @@ func main() {
 
 	// Register all routes.
 	rateLimiter := handlers.RegisterRoutes(r, db, cfg, jwtMgr, blacklist, guard)
+
+	// Swagger API docs (only in non-release mode).
+	if cfg.Server.Mode != "release" {
+		r.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
+	}
 
 	// Serve frontend static files (if built).
 	assets := r.Group("/assets")

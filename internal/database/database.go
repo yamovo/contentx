@@ -96,6 +96,9 @@ func AutoMigrate(db *gorm.DB) error {
 		// Analytics
 		&models.PageView{},
 		&models.ActivityLog{},
+
+		// API Tokens
+		&models.APIToken{},
 	)
 	if err != nil {
 		return fmt.Errorf("auto-migration failed: %w", err)

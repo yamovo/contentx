@@ -1,0 +1,1450 @@
+definitions:
+  auth.TokenPair:
+    properties:
+      access_token:
+        type: string
+      expires_at:
+        type: string
+      expires_in:
+        description: seconds
+        type: integer
+      refresh_token:
+        type: string
+      token_type:
+        type: string
+    type: object
+  gorm.DeletedAt:
+    properties:
+      time:
+        type: string
+      valid:
+        description: Valid is true if Time is not NULL
+        type: boolean
+    type: object
+  handlers.APIResponse:
+    properties:
+      code:
+        type: integer
+      data: {}
+      message:
+        type: string
+      meta:
+        $ref: '#/definitions/handlers.Meta'
+    type: object
+  handlers.Meta:
+    properties:
+      has_next:
+        type: boolean
+      has_prev:
+        type: boolean
+      page:
+        type: integer
+      page_size:
+        type: integer
+      total:
+        type: integer
+    type: object
+  models.APIToken:
+    properties:
+      created_at:
+        type: string
+      created_by_id:
+        type: integer
+      expires_at:
+        type: string
+      id:
+        type: integer
+      is_active:
+        type: boolean
+      last_used_at:
+        type: string
+      name:
+        type: string
+      permissions:
+        items:
+          type: string
+        type: array
+      use_count:
+        type: integer
+    type: object
+  models.ActivityLog:
+    properties:
+      action:
+        description: create, update, delete, login, etc.
+        type: string
+      created_at:
+        type: string
+      details:
+        type: string
+      entity:
+        description: article, user, comment, etc.
+        type: string
+      entity_id:
+        type: integer
+      id:
+        type: integer
+      ip:
+        type: string
+      user_agent:
+        type: string
+      user_id:
+        type: integer
+    type: object
+  models.Article:
+    properties:
+      allow_comment:
+        type: boolean
+      author:
+        $ref: '#/definitions/models.User'
+      author_id:
+        type: integer
+      canonical_url:
+        type: string
+      category:
+        $ref: '#/definitions/models.Category'
+      category_id:
+        type: integer
+      comment_count:
+        type: integer
+      comments:
+        items:
+          $ref: '#/definitions/models.Comment'
+        type: array
+      content:
+        type: string
+      created_at:
+        type: string
+      custom_fields:
+        items:
+          $ref: '#/definitions/models.CustomField'
+        type: array
+      deleted_at:
+        $ref: '#/definitions/gorm.DeletedAt'
+      excerpt:
+        type: string
+      featured_image:
+        type: string
+      format:
+        type: string
+      id:
+        type: integer
+      is_featured:
+        type: boolean
+      is_pinned:
+        type: boolean
+      like_count:
+        type: integer
+      meta_desc:
+        type: string
+      meta_keywords:
+        type: string
+      meta_title:
+        type: string
+      og_image:
+        type: string
+      post_type:
+        $ref: '#/definitions/models.PostType'
+      published_at:
+        type: string
+      reading_time:
+        description: minutes
+        type: integer
+      revisions:
+        items:
+          $ref: '#/definitions/models.Revision'
+        type: array
+      robots_follow:
+        type: boolean
+      robots_index:
+        type: boolean
+      scheduled_at:
+        type: string
+      slug:
+        type: string
+      sort_order:
+        type: integer
+      status:
+        $ref: '#/definitions/models.ArticleStatus'
+      tags:
+        items:
+          $ref: '#/definitions/models.Tag'
+        type: array
+      template:
+        type: string
+      title:
+        maxLength: 512
+        type: string
+      updated_at:
+        type: string
+      version:
+        type: integer
+      view_count:
+        type: integer
+      visibility:
+        $ref: '#/definitions/models.Visibility'
+      word_count:
+        type: integer
+    required:
+    - title
+    type: object
+  models.ArticleStatus:
+    enum:
+    - draft
+    - published
+    - pending
+    - scheduled
+    - trash
+    - archived
+    type: string
+    x-enum-varnames:
+    - StatusDraft
+    - StatusPublished
+    - StatusPending
+    - StatusScheduled
+    - StatusTrash
+    - StatusArchived
+  models.Category:
+    properties:
+      articles:
+        items:
+          $ref: '#/definitions/models.Article'
+        type: array
+      children:
+        items:
+          $ref: '#/definitions/models.Category'
+        type: array
+      color:
+        type: string
+      created_at:
+        type: string
+      deleted_at:
+        $ref: '#/definitions/gorm.DeletedAt'
+      description:
+        type: string
+      id:
+        type: integer
+      image:
+        type: string
+      is_active:
+        type: boolean
+      meta_desc:
+        type: string
+      meta_title:
+        type: string
+      name:
+        maxLength: 128
+        type: string
+      parent:
+        $ref: '#/definitions/models.Category'
+      parent_id:
+        type: integer
+      post_count:
+        type: integer
+      slug:
+        type: string
+      sort_order:
+        type: integer
+      updated_at:
+        type: string
+    required:
+    - name
+    type: object
+  models.Comment:
+    properties:
+      agent:
+        type: string
+      article:
+        $ref: '#/definitions/models.Article'
+      article_id:
+        type: integer
+      author_email:
+        type: string
+      author_ip:
+        type: string
+      author_name:
+        type: string
+      author_url:
+        type: string
+      children:
+        items:
+          $ref: '#/definitions/models.Comment'
+        type: array
+      content:
+        type: string
+      created_at:
+        type: string
+      deleted_at:
+        $ref: '#/definitions/gorm.DeletedAt'
+      depth:
+        type: integer
+      id:
+        type: integer
+      is_sticky:
+        type: boolean
+      like_count:
+        type: integer
+      parent:
+        $ref: '#/definitions/models.Comment'
+      parent_id:
+        type: integer
+      status:
+        type: string
+      updated_at:
+        type: string
+      user:
+        $ref: '#/definitions/models.User'
+      user_id:
+        type: integer
+    required:
+    - content
+    type: object
+  models.CustomField:
+    properties:
+      article_id:
+        type: integer
+      created_at:
+        type: string
+      deleted_at:
+        $ref: '#/definitions/gorm.DeletedAt'
+      id:
+        type: integer
+      key:
+        type: string
+      updated_at:
+        type: string
+      value:
+        type: string
+    type: object
+  models.Permission:
+    properties:
+      created_at:
+        type: string
+      deleted_at:
+        $ref: '#/definitions/gorm.DeletedAt'
+      description:
+        type: string
+      id:
+        type: integer
+      module:
+        type: string
+      name:
+        type: string
+      slug:
+        type: string
+      updated_at:
+        type: string
+    type: object
+  models.PostType:
+    enum:
+    - post
+    - page
+    type: string
+    x-enum-varnames:
+    - PostTypePost
+    - PostTypePage
+  models.Revision:
+    properties:
+      article_id:
+        type: integer
+      content:
+        type: string
+      created_at:
+        type: string
+      deleted_at:
+        $ref: '#/definitions/gorm.DeletedAt'
+      editor:
+        $ref: '#/definitions/models.User'
+      editor_id:
+        type: integer
+      excerpt:
+        type: string
+      id:
+        type: integer
+      note:
+        type: string
+      title:
+        type: string
+      updated_at:
+        type: string
+      version:
+        type: integer
+    type: object
+  models.Role:
+    properties:
+      created_at:
+        type: string
+      deleted_at:
+        $ref: '#/definitions/gorm.DeletedAt'
+      description:
+        type: string
+      id:
+        type: integer
+      is_default:
+        type: boolean
+      is_system:
+        type: boolean
+      name:
+        type: string
+      permissions:
+        items:
+          $ref: '#/definitions/models.Permission'
+        type: array
+      slug:
+        type: string
+      updated_at:
+        type: string
+      user_count:
+        type: integer
+    required:
+    - name
+    type: object
+  models.Tag:
+    properties:
+      articles:
+        items:
+          $ref: '#/definitions/models.Article'
+        type: array
+      color:
+        type: string
+      count:
+        type: integer
+      created_at:
+        type: string
+      deleted_at:
+        $ref: '#/definitions/gorm.DeletedAt'
+      id:
+        type: integer
+      name:
+        maxLength: 64
+        type: string
+      slug:
+        type: string
+      updated_at:
+        type: string
+    required:
+    - name
+    type: object
+  models.User:
+    properties:
+      articles:
+        items:
+          $ref: '#/definitions/models.Article'
+        type: array
+      avatar:
+        type: string
+      bio:
+        type: string
+      comments:
+        items:
+          $ref: '#/definitions/models.Comment'
+        type: array
+      created_at:
+        type: string
+      deleted_at:
+        $ref: '#/definitions/gorm.DeletedAt'
+      display_name:
+        type: string
+      email:
+        type: string
+      id:
+        type: integer
+      last_login_at:
+        type: string
+      last_login_ip:
+        type: string
+      login_count:
+        type: integer
+      preferences:
+        $ref: '#/definitions/models.UserPreferences'
+      role:
+        $ref: '#/definitions/models.Role'
+      role_id:
+        type: integer
+      status:
+        $ref: '#/definitions/models.UserStatus'
+      updated_at:
+        type: string
+      username:
+        maxLength: 64
+        minLength: 3
+        type: string
+      website:
+        type: string
+    required:
+    - email
+    - username
+    type: object
+  models.UserPreferences:
+    properties:
+      default_post_status:
+        type: string
+      email_notify:
+        type: boolean
+      items_per_page:
+        type: integer
+      language:
+        type: string
+      markdown_editor:
+        type: boolean
+      theme:
+        type: string
+    type: object
+  models.UserStatus:
+    enum:
+    - active
+    - inactive
+    - banned
+    - pending
+    type: string
+    x-enum-varnames:
+    - UserStatusActive
+    - UserStatusInactive
+    - UserStatusBanned
+    - UserStatusPending
+  models.Visibility:
+    enum:
+    - public
+    - private
+    - password
+    type: string
+    x-enum-varnames:
+    - VisibilityPublic
+    - VisibilityPrivate
+    - VisibilityPassword
+  services.ChangePasswordRequest:
+    properties:
+      new_password:
+        minLength: 8
+        type: string
+      old_password:
+        type: string
+    required:
+    - new_password
+    - old_password
+    type: object
+  services.CreateArticleRequest:
+    properties:
+      allow_comment:
+        type: boolean
+      canonical_url:
+        type: string
+      category_id:
+        type: integer
+      content:
+        type: string
+      excerpt:
+        type: string
+      featured_image:
+        type: string
+      format:
+        type: string
+      is_featured:
+        type: boolean
+      is_pinned:
+        type: boolean
+      meta_desc:
+        type: string
+      meta_keywords:
+        type: string
+      meta_title:
+        type: string
+      og_image:
+        type: string
+      password:
+        type: string
+      post_type:
+        type: string
+      published_at:
+        type: string
+      revision_note:
+        type: string
+      robots_follow:
+        type: boolean
+      robots_index:
+        type: boolean
+      scheduled_at:
+        type: string
+      slug:
+        type: string
+      status:
+        type: string
+      tag_ids:
+        items:
+          type: integer
+        type: array
+      template:
+        type: string
+      title:
+        maxLength: 512
+        type: string
+      visibility:
+        type: string
+    required:
+    - title
+    type: object
+  services.CreateTokenRequest:
+    properties:
+      expires_at:
+        description: RFC3339 or empty for no expiry
+        type: string
+      name:
+        maxLength: 128
+        type: string
+      permissions:
+        items:
+          type: string
+        type: array
+    required:
+    - name
+    type: object
+  services.LoginRequest:
+    properties:
+      password:
+        type: string
+      username:
+        type: string
+    required:
+    - password
+    - username
+    type: object
+  services.RefreshRequest:
+    properties:
+      refresh_token:
+        type: string
+    required:
+    - refresh_token
+    type: object
+  services.RegisterRequest:
+    properties:
+      display_name:
+        type: string
+      email:
+        type: string
+      password:
+        minLength: 8
+        type: string
+      username:
+        maxLength: 64
+        minLength: 3
+        type: string
+    required:
+    - email
+    - password
+    - username
+    type: object
+  services.SafeUser:
+    properties:
+      avatar:
+        type: string
+      bio:
+        type: string
+      created_at:
+        type: string
+      display_name:
+        type: string
+      email:
+        type: string
+      id:
+        type: integer
+      last_login_at:
+        type: string
+      login_count:
+        type: integer
+      preferences:
+        $ref: '#/definitions/models.UserPreferences'
+      role:
+        $ref: '#/definitions/models.Role'
+      status:
+        $ref: '#/definitions/models.UserStatus'
+      username:
+        type: string
+      website:
+        type: string
+    type: object
+  services.TokenCreatedResponse:
+    properties:
+      created_at:
+        type: string
+      expires_at:
+        type: string
+      id:
+        type: integer
+      name:
+        type: string
+      permissions:
+        items:
+          type: string
+        type: array
+      token:
+        description: only shown once
+        type: string
+    type: object
+  services.UpdateArticleRequest:
+    properties:
+      allow_comment:
+        type: boolean
+      canonical_url:
+        type: string
+      category_id:
+        type: integer
+      content:
+        type: string
+      excerpt:
+        type: string
+      featured_image:
+        type: string
+      format:
+        type: string
+      is_featured:
+        type: boolean
+      is_pinned:
+        type: boolean
+      meta_desc:
+        type: string
+      meta_keywords:
+        type: string
+      meta_title:
+        type: string
+      og_image:
+        type: string
+      password:
+        type: string
+      post_type:
+        type: string
+      published_at:
+        type: string
+      revision_note:
+        type: string
+      robots_follow:
+        type: boolean
+      robots_index:
+        type: boolean
+      scheduled_at:
+        type: string
+      slug:
+        type: string
+      status:
+        type: string
+      tag_ids:
+        items:
+          type: integer
+        type: array
+      template:
+        type: string
+      title:
+        type: string
+      visibility:
+        type: string
+    type: object
+info:
+  contact: {}
+paths:
+  /articles:
+    get:
+      description: Returns a paginated, filtered list of articles
+      parameters:
+      - default: 1
+        description: Page number
+        in: query
+        name: page
+        type: integer
+      - default: 20
+        description: Items per page
+        in: query
+        name: page_size
+        type: integer
+      - description: Filter by status
+        enum:
+        - draft
+        - published
+        - pending
+        - scheduled
+        - trash
+        - archived
+        in: query
+        name: status
+        type: string
+      - description: Post type
+        enum:
+        - post
+        - page
+        in: query
+        name: post_type
+        type: string
+      - description: Filter by category ID
+        in: query
+        name: category_id
+        type: string
+      - description: Filter by tag slug
+        in: query
+        name: tag
+        type: string
+      - description: Search keyword
+        in: query
+        name: search
+        type: string
+      - default: newest
+        description: Sort order
+        enum:
+        - newest
+        - oldest
+        - most_viewed
+        - most_liked
+        in: query
+        name: sort
+        type: string
+      - description: Filter by author ID
+        in: query
+        name: author_id
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/handlers.APIResponse'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/handlers.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: List articles
+      tags:
+      - Articles
+    post:
+      consumes:
+      - application/json
+      description: Create a new article (requires articles.create permission)
+      parameters:
+      - description: Article data
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/services.CreateArticleRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            allOf:
+            - $ref: '#/definitions/handlers.APIResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/models.Article'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.APIResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/handlers.APIResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/handlers.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Create article
+      tags:
+      - Articles
+  /articles/{id}:
+    delete:
+      description: Soft-delete an article (requires articles.delete permission)
+      parameters:
+      - description: Article ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlers.APIResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.APIResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/handlers.APIResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/handlers.APIResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handlers.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Delete article
+      tags:
+      - Articles
+    get:
+      description: Returns a single article by its ID
+      parameters:
+      - description: Article ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/handlers.APIResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/models.Article'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.APIResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handlers.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Get article by ID
+      tags:
+      - Articles
+    put:
+      consumes:
+      - application/json
+      description: Update an existing article (requires articles.edit permission)
+      parameters:
+      - description: Article ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Fields to update
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/services.UpdateArticleRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/handlers.APIResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/models.Article'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.APIResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/handlers.APIResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/handlers.APIResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handlers.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Update article
+      tags:
+      - Articles
+  /articles/slug/{slug}:
+    get:
+      description: Returns a single article by its URL slug (public)
+      parameters:
+      - description: Article slug
+        in: path
+        name: slug
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/handlers.APIResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/models.Article'
+              type: object
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handlers.APIResponse'
+      summary: Get article by slug
+      tags:
+      - Articles
+  /auth/login:
+    post:
+      consumes:
+      - application/json
+      description: Authenticate with username/email and password, returns JWT token
+        pair
+      parameters:
+      - description: Login credentials
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/services.LoginRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/handlers.APIResponse'
+            - properties:
+                data:
+                  properties:
+                    token:
+                      $ref: '#/definitions/auth.TokenPair'
+                    user:
+                      $ref: '#/definitions/services.SafeUser'
+                  type: object
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.APIResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/handlers.APIResponse'
+      summary: User login
+      tags:
+      - Auth
+  /auth/logout:
+    post:
+      description: Invalidate the current access token
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlers.APIResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/handlers.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Logout
+      tags:
+      - Auth
+  /auth/me:
+    get:
+      description: Returns the authenticated user profile and permissions
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/handlers.APIResponse'
+            - properties:
+                data:
+                  properties:
+                    permissions:
+                      items:
+                        type: string
+                      type: array
+                    user:
+                      $ref: '#/definitions/services.SafeUser'
+                  type: object
+              type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/handlers.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Get current user
+      tags:
+      - Auth
+  /auth/password:
+    put:
+      consumes:
+      - application/json
+      description: Change the current user's password
+      parameters:
+      - description: Old and new password
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/services.ChangePasswordRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlers.APIResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.APIResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/handlers.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Change password
+      tags:
+      - Auth
+  /auth/profile:
+    put:
+      consumes:
+      - application/json
+      description: Update display_name, bio, website, avatar of current user
+      parameters:
+      - description: Fields to update
+        in: body
+        name: body
+        required: true
+        schema:
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/handlers.APIResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/services.SafeUser'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.APIResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/handlers.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Update profile
+      tags:
+      - Auth
+  /auth/refresh:
+    post:
+      consumes:
+      - application/json
+      description: Exchange a refresh token for a new token pair
+      parameters:
+      - description: Refresh token
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/services.RefreshRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/handlers.APIResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/auth.TokenPair'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.APIResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/handlers.APIResponse'
+      summary: Refresh access token
+      tags:
+      - Auth
+  /auth/register:
+    post:
+      consumes:
+      - application/json
+      description: Create a new user account and return JWT token pair
+      parameters:
+      - description: Registration data
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/services.RegisterRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            allOf:
+            - $ref: '#/definitions/handlers.APIResponse'
+            - properties:
+                data:
+                  properties:
+                    token:
+                      $ref: '#/definitions/auth.TokenPair'
+                    user:
+                      $ref: '#/definitions/services.SafeUser'
+                  type: object
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.APIResponse'
+      summary: User registration
+      tags:
+      - Auth
+  /system/activity:
+    get:
+      description: Returns paginated activity audit trail
+      parameters:
+      - default: 1
+        description: Page number
+        in: query
+        name: page
+        type: integer
+      - default: 50
+        description: Items per page
+        in: query
+        name: page_size
+        type: integer
+      - description: Filter by entity type
+        in: query
+        name: entity
+        type: string
+      - description: Filter by action
+        in: query
+        name: action
+        type: string
+      - description: Filter by user ID
+        in: query
+        name: user_id
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/handlers.APIResponse'
+            - properties:
+                data:
+                  items:
+                    $ref: '#/definitions/models.ActivityLog'
+                  type: array
+              type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/handlers.APIResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/handlers.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Activity log
+      tags:
+      - System
+  /system/health:
+    get:
+      description: Returns service health status (public, no auth required)
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            properties:
+              database:
+                type: boolean
+              status:
+                type: string
+            type: object
+        "503":
+          description: Service Unavailable
+          schema:
+            properties:
+              database:
+                type: boolean
+              status:
+                type: string
+            type: object
+      summary: Health check
+      tags:
+      - System
+  /system/info:
+    get:
+      description: Returns system information (version, uptime, Go version, etc.)
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/handlers.APIResponse'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/handlers.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: System info
+      tags:
+      - System
+  /system/tokens:
+    get:
+      description: Returns all API tokens (admin only)
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/handlers.APIResponse'
+            - properties:
+                data:
+                  items:
+                    $ref: '#/definitions/models.APIToken'
+                  type: array
+              type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/handlers.APIResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/handlers.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: List API tokens
+      tags:
+      - System
+    post:
+      consumes:
+      - application/json
+      description: Creates a new API token with specified permissions
+      parameters:
+      - description: Token config
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/services.CreateTokenRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            allOf:
+            - $ref: '#/definitions/handlers.APIResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/services.TokenCreatedResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.APIResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/handlers.APIResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/handlers.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Create API token
+      tags:
+      - System
+  /system/tokens/{id}:
+    delete:
+      description: Deletes an API token by ID
+      parameters:
+      - description: Token ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlers.APIResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.APIResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/handlers.APIResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/handlers.APIResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handlers.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Delete API token
+      tags:
+      - System
+swagger: "2.0"
