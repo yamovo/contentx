@@ -12,7 +12,7 @@ func TestAuthService_Login_Success(t *testing.T) {
 	db := setupTestDB(t)
 	jwtMgr := auth.NewJWTManager(config.JWTConfig{
 		Secret:          "test-secret-key-for-testing-only!",
-		AccessTokenTTL:  15 * time.Minute,  // 15m
+		AccessTokenTTL:  15 * time.Minute,   // 15m
 		RefreshTokenTTL: 7 * 24 * time.Hour, // 7d
 		Issuer:          "test",
 	})

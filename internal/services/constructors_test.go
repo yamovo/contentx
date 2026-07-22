@@ -345,7 +345,7 @@ func TestThemeService_Activate_NotFound(t *testing.T) {
 
 func TestThemeService_Activate_DeactivateError(t *testing.T) {
 	repo := &MockThemeRepository{
-		Theme:           &models.ThemeConfig{BaseModel: models.BaseModel{ID: 5}},
+		Theme:            &models.ThemeConfig{BaseModel: models.BaseModel{ID: 5}},
 		DeactivateAllErr: gorm.ErrInvalidDB,
 	}
 	s := NewThemeServiceWithRepo(repo)

@@ -10,10 +10,10 @@ import (
 
 func newTestJWTManager() *auth.JWTManager {
 	return auth.NewJWTManager(config.JWTConfig{
-		Secret:           "test-secret-key-for-unit-tests",
+		Secret:          "test-secret-key-for-unit-tests",
 		AccessTokenTTL:  15 * time.Minute,
-		RefreshTokenTTL:  7 * 24 * time.Hour,
-		Issuer:           "test-contentx",
+		RefreshTokenTTL: 7 * 24 * time.Hour,
+		Issuer:          "test-contentx",
 	})
 }
 
@@ -65,14 +65,14 @@ func TestValidateToken_Invalid(t *testing.T) {
 
 func TestValidateToken_WrongSecret(t *testing.T) {
 	mgr1 := auth.NewJWTManager(config.JWTConfig{
-		Secret:          "secret-1",
+		Secret:         "secret-1",
 		AccessTokenTTL: 15 * time.Minute,
-		Issuer:          "test",
+		Issuer:         "test",
 	})
 	mgr2 := auth.NewJWTManager(config.JWTConfig{
-		Secret:          "secret-2",
+		Secret:         "secret-2",
 		AccessTokenTTL: 15 * time.Minute,
-		Issuer:          "test",
+		Issuer:         "test",
 	})
 
 	pair, _ := mgr1.GenerateTokenPair(1, "user", "e@e.com", "admin", "User")

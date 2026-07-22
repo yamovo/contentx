@@ -24,48 +24,48 @@ import (
 // MockArticleRepository 实现 repository.ArticleRepository，用于 ArticleService 单测。
 type MockArticleRepository struct {
 	// 预置数据
-	Articles           map[uint]*models.Article
-	ArticlesList       []models.Article
-	ListTotal          int64
-	Revisions          []models.Revision
-	Revision           *models.Revision
-	PublishedForFeed   []models.Article
-	ScheduledDue       []models.Article // ListScheduledDue 返回值
+	Articles         map[uint]*models.Article
+	ArticlesList     []models.Article
+	ListTotal        int64
+	Revisions        []models.Revision
+	Revision         *models.Revision
+	PublishedForFeed []models.Article
+	ScheduledDue     []models.Article // ListScheduledDue 返回值
 	// i18n
-	Translations       []models.Article            // ListTranslations 返回值
+	Translations        []models.Article           // ListTranslations 返回值
 	TranslationByLocale map[string]*models.Article // FindTranslationInLocale 按 locale 返回
 
 	// 错误控制
-	ListErr            error
-	GetByIDErr         error
-	FindByIDErr        error
-	GetBySlugErr       error
-	CreateErr          error
-	UpdateErr          error
-	DeleteErr          error
-	BulkPublishErr     error
+	ListErr             error
+	GetByIDErr          error
+	FindByIDErr         error
+	GetBySlugErr        error
+	CreateErr           error
+	UpdateErr           error
+	DeleteErr           error
+	BulkPublishErr      error
 	BulkUpdateStatusErr error
-	BulkDeleteErr      error
+	BulkDeleteErr       error
 	BulkMoveCategoryErr error
-	BulkSetPinnedErr   error
-	ListRevisionsErr   error
-	FindRevisionErr    error
-	RestoreRevisionErr error
-	IncrementViewErr   error
-	IncrementLikeErr   error
-	UpdateStatusErr    error
+	BulkSetPinnedErr    error
+	ListRevisionsErr    error
+	FindRevisionErr     error
+	RestoreRevisionErr  error
+	IncrementViewErr    error
+	IncrementLikeErr    error
+	UpdateStatusErr     error
 	ListScheduledDueErr error
 
 	// 调用追踪
-	ViewCountIncs      []uint
-	LikeCountIncs      []uint
-	CreatedArticles    []*models.Article
-	UpdatedArticles    []*models.Article
-	DeletedArticles    []*models.Article
-	EnsureUniqueCalls  []string
-	UniqueSlugSuffix   string // 返回 original + suffix
-	UpdateStatusCalls  []mockUpdateStatusCall
-	BulkPublishCalls   []mockBulkPublishCall
+	ViewCountIncs     []uint
+	LikeCountIncs     []uint
+	CreatedArticles   []*models.Article
+	UpdatedArticles   []*models.Article
+	DeletedArticles   []*models.Article
+	EnsureUniqueCalls []string
+	UniqueSlugSuffix  string // 返回 original + suffix
+	UpdateStatusCalls []mockUpdateStatusCall
+	BulkPublishCalls  []mockBulkPublishCall
 }
 
 type mockUpdateStatusCall struct {
@@ -258,14 +258,14 @@ func (m *MockArticleRepository) FindTranslationInLocale(groupID uint, locale str
 // MockAuthRepository 实现 repository.AuthRepository，用于 AuthService 单测。
 type MockAuthRepository struct {
 	// 预置数据
-	UserByUsernameOrEmail *models.User
-	UserByIDWithRole      *models.User
-	UserByIDWithPerms     *models.User
-	UserByID              *models.User
+	UserByUsernameOrEmail  *models.User
+	UserByIDWithRole       *models.User
+	UserByIDWithPerms      *models.User
+	UserByID               *models.User
 	CountByUsernameOrEmail int64
-	DefaultRole           *models.Role
-	RoleBySlug            *models.Role
-	Setting               *models.SiteSetting
+	DefaultRole            *models.Role
+	RoleBySlug             *models.Role
+	Setting                *models.SiteSetting
 
 	// 错误控制
 	FindUserByUsernameOrEmailErr error
@@ -282,14 +282,14 @@ type MockAuthRepository struct {
 	FindSettingErr               error
 
 	// 调用追踪
-	CreatedUsers        []*models.User
-	UpdatedUserFields   []map[string]interface{}
-	UpdatedPasswords    []struct {
+	CreatedUsers      []*models.User
+	UpdatedUserFields []map[string]interface{}
+	UpdatedPasswords  []struct {
 		ID       uint
 		Password string
 	}
 	CreatedActivityLogs []*models.ActivityLog
-	FindSettingCalls   []string
+	FindSettingCalls    []string
 }
 
 func (m *MockAuthRepository) FindUserByUsernameOrEmail(identifier string) (*models.User, error) {
@@ -419,23 +419,23 @@ type MockCommentRepository struct {
 	BulkDeleteRows    int64
 
 	// 调用追踪
-	CreatedComments             []*models.Comment
-	UpdatedContent              []struct {
+	CreatedComments []*models.Comment
+	UpdatedContent  []struct {
 		ID      uint
 		Content string
 	}
-	UpdatedStatus               []struct {
+	UpdatedStatus []struct {
 		ID     uint
 		Status string
 	}
-	BulkUpdatedStatus           []struct {
+	BulkUpdatedStatus []struct {
 		IDs    []uint
 		Status string
 	}
-	BulkDeletedIDs              []uint
-	ArticleCommentCountIncs     []uint
-	StatsCalls                  int
-	CountTodayCalls             int
+	BulkDeletedIDs          []uint
+	ArticleCommentCountIncs []uint
+	StatsCalls              int
+	CountTodayCalls         int
 }
 
 func (m *MockCommentRepository) List(filter repository.CommentListFilter) ([]models.Comment, int64, error) {
@@ -566,13 +566,13 @@ type MockWebhookRepository struct {
 	Logs           []models.WebhookLog
 
 	// 错误控制
-	CreateErr      error
-	ListErr        error
-	GetByIDErr     error
-	DeleteErr      error
-	ListLogsErr    error
-	CreateLogErr   error
-	ListActiveErr  error
+	CreateErr     error
+	ListErr       error
+	GetByIDErr    error
+	DeleteErr     error
+	ListLogsErr   error
+	CreateLogErr  error
+	ListActiveErr error
 
 	// 行为控制
 	DeleteRows int64
@@ -653,26 +653,26 @@ type MockMediaRepository struct {
 	StatsData    repository.MediaStatsData
 
 	// 错误控制
-	ListErr        error
-	GetByIDErr     error
-	FindByIDErr    error
-	FindByIDsErr   error
-	CreateErr      error
+	ListErr         error
+	GetByIDErr      error
+	FindByIDErr     error
+	FindByIDsErr    error
+	CreateErr       error
 	UpdateFieldsErr error
-	DeleteErr      error
-	DeleteByIDsErr error
-	ListFoldersErr error
-	StatsErr       error
+	DeleteErr       error
+	DeleteByIDsErr  error
+	ListFoldersErr  error
+	StatsErr        error
 
 	// 行为控制
 	DeleteByIDsRows int64 // DeleteByIDs 返回的行数（默认 0 → 返回 len(ids)）
 
 	// 调用跟踪
-	CreatedMedia      []*models.Media
-	UpdatedFields     []updatedFieldsCall
-	DeletedMedia      []*models.Media
-	DeletedByIDs      []uint
-	DeleteByIDsCalls  int
+	CreatedMedia     []*models.Media
+	UpdatedFields    []updatedFieldsCall
+	DeletedMedia     []*models.Media
+	DeletedByIDs     []uint
+	DeleteByIDsCalls int
 }
 
 type updatedFieldsCall struct {
@@ -840,12 +840,12 @@ type MockContentTypeRepository struct {
 	ContentTypes []models.ContentType
 	CountVal     int64
 
-	FindByUIDErr  error
-	FindByIDErr   error
-	CreateErr     error
-	ListErr       error
-	DeleteErr     error
-	CountErr      error
+	FindByUIDErr error
+	FindByIDErr  error
+	CreateErr    error
+	ListErr      error
+	DeleteErr    error
+	CountErr     error
 
 	CreatedCT  *models.ContentType
 	DeletedIDs []uint
@@ -906,23 +906,23 @@ func (m *MockContentTypeRepository) CountEntriesByTypeID(typeID uint) (int64, er
 
 // MockContentEntryRepository 实现 repository.ContentEntryRepository，用于 ContentTypeService 单测。
 type MockContentEntryRepository struct {
-	Entries     []models.ContentEntry
-	Entry       *models.ContentEntry
-	CountVal    int64
-	CreateN     int
+	Entries  []models.ContentEntry
+	Entry    *models.ContentEntry
+	CountVal int64
+	CreateN  int
 	// i18n
-	EntryTranslations       []models.ContentEntry
+	EntryTranslations        []models.ContentEntry
 	EntryTranslationByLocale map[string]*models.ContentEntry
 
-	FindByIDsErr       error
-	FindByDocumentErr  error
-	CreateErr          error
-	SaveErr            error
-	DeleteByDocIDErr   error
-	ListErr            error
-	SearchErr          error
-	ExportErr          error
-	CreateManyErr      error
+	FindByIDsErr      error
+	FindByDocumentErr error
+	CreateErr         error
+	SaveErr           error
+	DeleteByDocIDErr  error
+	ListErr           error
+	SearchErr         error
+	ExportErr         error
+	CreateManyErr     error
 
 	CreatedEntries []*models.ContentEntry
 	SavedEntries   []*models.ContentEntry
@@ -1016,15 +1016,15 @@ type MockThemeRepository struct {
 	Theme  *models.ThemeConfig
 	Themes []models.ThemeConfig
 
-	FindByIDErr        error
-	ListErr            error
-	DeactivateAllErr   error
-	UpdateActiveErr    error
-	SaveErr            error
+	FindByIDErr      error
+	ListErr          error
+	DeactivateAllErr error
+	UpdateActiveErr  error
+	SaveErr          error
 
-	SavedTheme     *models.ThemeConfig
-	DeactivatedID  uint
-	UpdatedActiveID uint
+	SavedTheme       *models.ThemeConfig
+	DeactivatedID    uint
+	UpdatedActiveID  uint
 	UpdatedActiveVal bool
 }
 
@@ -1071,10 +1071,10 @@ func (m *MockThemeRepository) Save(theme *models.ThemeConfig) error {
 
 // MockCacheDriver 实现 cache.Driver，用于 ContentTypeService 缓存测试。
 type MockCacheDriver struct {
-	Data    map[string][]byte
-	GetErr  error
-	SetErr  error
-	DelErr  error
+	Data     map[string][]byte
+	GetErr   error
+	SetErr   error
+	DelErr   error
 	FlushErr error
 
 	SetCalls    []setCall
@@ -1152,23 +1152,23 @@ func (m *MockWebhookDispatcher) Last() (DispatchRecord, bool) {
 // MockAnalyticsRepository 实现 repository.AnalyticsRepository，用于 AnalyticsService 单测。
 type MockAnalyticsRepository struct {
 	// 预置数据
-	DashboardStatsData repository.DashboardStatsData
-	RecentArticlesData []models.Article
-	RecentCommentsData []models.Comment
-	PopularData        []models.Article
-	ViewsOverTimeData  []repository.DayStatsData
+	DashboardStatsData  repository.DashboardStatsData
+	RecentArticlesData  []models.Article
+	RecentCommentsData  []models.Comment
+	PopularData         []models.Article
+	ViewsOverTimeData   []repository.DayStatsData
 	TopReferrersData    []repository.ReferrerData
 	DeviceBreakdownData repository.DeviceBreakdownData
 
 	// 错误控制
-	DashboardStatsErr    error
-	RecentArticlesErr    error
-	RecentCommentsErr    error
-	PopularArticlesErr   error
-	ViewsOverTimeErr     error
-	TopReferrersErr      error
-	DeviceBreakdownErr   error
-	CreatePageViewErr    error
+	DashboardStatsErr  error
+	RecentArticlesErr  error
+	RecentCommentsErr  error
+	PopularArticlesErr error
+	ViewsOverTimeErr   error
+	TopReferrersErr    error
+	DeviceBreakdownErr error
+	CreatePageViewErr  error
 
 	// 调用追踪
 	CreatedPageViews []*models.PageView
@@ -1236,9 +1236,9 @@ func (m *MockAnalyticsRepository) CreatePageView(view *models.PageView) error {
 // MockStorageDriver 实现 storage.Driver，用于 MediaService 存储后端单测。
 type MockStorageDriver struct {
 	// 预置数据
-	BaseURL        string // GetURL/GetSignedURL 返回值的前缀
-	UploadURLFunc  func(key string) string
-	SignedURLFunc  func(key string, ttl time.Duration) string
+	BaseURL       string // GetURL/GetSignedURL 返回值的前缀
+	UploadURLFunc func(key string) string
+	SignedURLFunc func(key string, ttl time.Duration) string
 
 	// 错误控制
 	UploadErr error

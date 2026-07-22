@@ -25,10 +25,10 @@ import (
 // already know. SQLite uses VACUUM INTO for online backups and file copy for
 // restore (the service must be restarted after a SQLite restore).
 type Manager struct {
-	cfg      config.BackupConfig
-	dbCfg    config.DatabaseConfig
+	cfg       config.BackupConfig
+	dbCfg     config.DatabaseConfig
 	uploadDir string
-	db       *gorm.DB
+	db        *gorm.DB
 }
 
 // NewManager creates a backup manager.
@@ -150,7 +150,7 @@ func (m *Manager) Restore(path string) error {
 			return err
 		}
 		defer func() { _ = f.Close() }()
-	cmd := exec.Command("mysql",
+		cmd := exec.Command("mysql",
 			"-h", m.dbCfg.Host,
 			"-P", strconv.Itoa(m.dbCfg.Port),
 			"-u", m.dbCfg.User,

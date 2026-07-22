@@ -56,8 +56,8 @@ func TestContentTypeService_Create_InvalidUID(t *testing.T) {
 	svc := NewContentTypeService(db)
 
 	_, err := svc.CreateContentType(CreateContentTypeRequest{
-		UID: "Invalid UID!",
-		Name: "Bad",
+		UID:    "Invalid UID!",
+		Name:   "Bad",
 		Fields: []CreateFieldRequest{{Name: "title", Label: "Title", FieldType: "text"}},
 	})
 	if err == nil {
@@ -70,8 +70,8 @@ func TestContentTypeService_Create_InvalidFieldType(t *testing.T) {
 	svc := NewContentTypeService(db)
 
 	_, err := svc.CreateContentType(CreateContentTypeRequest{
-		UID: "test_invalid",
-		Name: "Test",
+		UID:    "test_invalid",
+		Name:   "Test",
 		Fields: []CreateFieldRequest{{Name: "f", Label: "F", FieldType: "nonexistent_type"}},
 	})
 	if err == nil {
@@ -84,8 +84,8 @@ func TestContentTypeService_Create_EnumWithoutOptions(t *testing.T) {
 	svc := NewContentTypeService(db)
 
 	_, err := svc.CreateContentType(CreateContentTypeRequest{
-		UID: "test_enum",
-		Name: "Test Enum",
+		UID:    "test_enum",
+		Name:   "Test Enum",
 		Fields: []CreateFieldRequest{{Name: "status", Label: "Status", FieldType: "enum"}},
 	})
 	if err == nil {

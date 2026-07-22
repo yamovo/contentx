@@ -14,10 +14,10 @@ import (
 // newTestJWTManager 构建一个用于测试的 JWTManager。
 func newTestJWTManager() *auth.JWTManager {
 	return auth.NewJWTManager(config.JWTConfig{
-		Secret:           "test-secret-key-for-unit-tests",
-		AccessTokenTTL:   time.Hour,
-		RefreshTokenTTL:  24 * time.Hour,
-		Issuer:           "contentx-test",
+		Secret:          "test-secret-key-for-unit-tests",
+		AccessTokenTTL:  time.Hour,
+		RefreshTokenTTL: 24 * time.Hour,
+		Issuer:          "contentx-test",
 	})
 }
 
@@ -132,7 +132,7 @@ func TestMockAuth_UpdateProfile_UserNotFound(t *testing.T) {
 
 func TestMockAuth_UpdateProfile_ReloadNotFound(t *testing.T) {
 	repo := &MockAuthRepository{
-		UserByID:              &models.User{BaseModel: models.BaseModel{ID: 1}},
+		UserByID:                &models.User{BaseModel: models.BaseModel{ID: 1}},
 		FindUserByIDWithRoleErr: gorm.ErrRecordNotFound,
 	}
 	svc := NewAuthServiceWithRepo(repo, newTestJWTManager(), auth.NewBlacklist(), nil)

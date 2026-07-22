@@ -41,14 +41,14 @@ func setupTestSchema(t *testing.T) (graphql.Schema, *gorm.DB) {
 
 	// 种子数据
 	user := models.User{
-		BaseModel:    models.BaseModel{ID: 1},
-		Username:     "alice",
-		Email:        "alice@example.com",
-		DisplayName:  "Alice",
-		Password:     "$2a$10$redacted", // 不应出现在 GraphQL 响应中
-		Status:       models.UserStatusActive,
-		RoleID:       1,
-		LoginCount:   5,
+		BaseModel:   models.BaseModel{ID: 1},
+		Username:    "alice",
+		Email:       "alice@example.com",
+		DisplayName: "Alice",
+		Password:    "$2a$10$redacted", // 不应出现在 GraphQL 响应中
+		Status:      models.UserStatusActive,
+		RoleID:      1,
+		LoginCount:  5,
 	}
 	db.Create(&user)
 

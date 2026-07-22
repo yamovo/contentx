@@ -362,7 +362,7 @@ func TestHmacSign(t *testing.T) {
 // zeroDeleteWebhookRepo is a minimal WebhookRepository whose Delete returns 0 rows affected.
 type zeroDeleteWebhookRepo struct{}
 
-func (z *zeroDeleteWebhookRepo) Create(_ *models.Webhook) error { return nil }
+func (z *zeroDeleteWebhookRepo) Create(_ *models.Webhook) error  { return nil }
 func (z *zeroDeleteWebhookRepo) List() ([]models.Webhook, error) { return nil, nil }
 func (z *zeroDeleteWebhookRepo) GetByID(_ uint) (*models.Webhook, error) {
 	return nil, gorm.ErrRecordNotFound
@@ -371,5 +371,5 @@ func (z *zeroDeleteWebhookRepo) Delete(_ uint) (int64, error) { return 0, nil }
 func (z *zeroDeleteWebhookRepo) ListLogs(_ uint, _ int) ([]models.WebhookLog, error) {
 	return nil, nil
 }
-func (z *zeroDeleteWebhookRepo) CreateLog(_ *models.WebhookLog) error { return nil }
+func (z *zeroDeleteWebhookRepo) CreateLog(_ *models.WebhookLog) error  { return nil }
 func (z *zeroDeleteWebhookRepo) ListActive() ([]models.Webhook, error) { return nil, nil }

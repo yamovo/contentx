@@ -17,14 +17,14 @@ import (
 type MockSearchIndexer struct {
 	mu sync.Mutex
 
-	IndexedDocs   []SearchDocument
-	DeletedIDs    []uint
-	DeletedTypes  []string
-	SearchCalls   []SearchQuery
-	Reindexed     []models.Article
-	SearchResult  *SearchResult
-	SearchErr     error
-	IndexErr      error
+	IndexedDocs  []SearchDocument
+	DeletedIDs   []uint
+	DeletedTypes []string
+	SearchCalls  []SearchQuery
+	Reindexed    []models.Article
+	SearchResult *SearchResult
+	SearchErr    error
+	IndexErr     error
 }
 
 func (m *MockSearchIndexer) Index(_ context.Context, doc SearchDocument) error {
@@ -448,9 +448,9 @@ func TestArticleToSearchDoc(t *testing.T) {
 		CategoryID:  &catID,
 		PublishedAt: &now,
 		Author: models.User{
-			BaseModel:     models.BaseModel{ID: 7},
-			Username:      "alice",
-			DisplayName:   "Alice",
+			BaseModel:   models.BaseModel{ID: 7},
+			Username:    "alice",
+			DisplayName: "Alice",
 		},
 		Category: &models.Category{BaseModel: models.BaseModel{ID: 5}, Name: "Tech"},
 		Tags: []models.Tag{
@@ -621,13 +621,13 @@ func TestArticleService_Publish_TriggersReindex(t *testing.T) {
 	}
 	// FindByID returns this (no preloads). GetByID returns full article.
 	repo.Articles[1] = &models.Article{
-		BaseModel:    models.BaseModel{ID: 1},
-		Title:        "Test",
-		Slug:         "test",
-		Status:       models.StatusDraft,
-		PostType:     models.PostTypePost,
-		AuthorID:     1,
-		PublishedAt:  nil,
+		BaseModel:   models.BaseModel{ID: 1},
+		Title:       "Test",
+		Slug:        "test",
+		Status:      models.StatusDraft,
+		PostType:    models.PostTypePost,
+		AuthorID:    1,
+		PublishedAt: nil,
 	}
 
 	svc := NewArticleServiceWithRepo(repo, "http://localhost:8080")
