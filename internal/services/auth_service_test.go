@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/vortexcms/go-cms/internal/auth"
-	"github.com/vortexcms/go-cms/internal/config"
+	"github.com/yamovo/contentx/internal/auth"
+	"github.com/yamovo/contentx/internal/config"
 )
 
 func TestAuthService_Login_Success(t *testing.T) {

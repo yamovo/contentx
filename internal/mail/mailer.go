@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/vortexcms/go-cms/internal/config"
+	"github.com/yamovo/contentx/internal/config"
 )
 
 // Mailer handles sending emails via SMTP.

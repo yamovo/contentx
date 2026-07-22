@@ -115,9 +115,107 @@ func (a *Article) Publish() {
 	}
 }
 
+// Unpublish reverts a published/scheduled article back to draft, keeping the
+// historical PublishedAt value intact.
+func (a *Article) Unpublish() {
+	a.Status = StatusDraft
+}
+
+// SubmitForReview moves a draft into the pending (review) queue.
+func (a *Article) SubmitForReview() {
+	a.Status = StatusPending
+}
+
+// Approve marks a pending article as published.
+func (a *Article) Approve() {
+	a.Status = StatusPublished
+	if a.PublishedAt == nil {
+		now := time.Now()
+		a.PublishedAt = &now
+	}
+}
+
+// Schedule marks a draft/pending article for automatic publication at the
+// given time. The article stays non-public until the scheduler flips it.
+func (a *Article) Schedule(at time.Time) {
+	a.Status = StatusScheduled
+	a.ScheduledAt = &at
+}
+
+// Archive moves an article out of the active lifecycle.
+func (a *Article) Archive() {
+	a.Status = StatusArchived
+}
+
 // Trash moves the article to trash.
 func (a *Article) Trash() {
 	a.Status = StatusTrash
+}
+
+// CanTransitionTo reports whether transitioning from the article's current
+// status to target is allowed by the publication state machine.
+//
+// Allowed transitions:
+//   draft      → pending, published, scheduled, archived, trash
+//   pending    → draft, published, archived, trash
+//   published  → draft, archived, trash
+//   scheduled  → draft, published, archived, trash
+//   archived   → draft, trash
+//   trash      → draft, published (restore)
+func (a *Article) CanTransitionTo(target ArticleStatus) bool {
+	return AllowedTransition(a.Status, target)
+}
+
+// AllowedTransition reports whether transitioning from one status to another
+// is permitted by the publication state machine. Extracted as a free function
+// so callers can validate a target before applying it.
+func AllowedTransition(from, to ArticleStatus) bool {
+	if from == to {
+		return true // no-op transitions are always allowed
+	}
+	allowed, ok := transitions[from]
+	if !ok {
+		return false
+	}
+	_, ok = allowed[to]
+	return ok
+}
+
+// transitions defines the legal status transitions for the publication
+// workflow. Keys are source statuses; values are sets of allowed targets.
+var transitions = map[ArticleStatus]map[ArticleStatus]struct{}{
+	StatusDraft: {
+		StatusPending:   {},
+		StatusPublished: {},
+		StatusScheduled: {},
+		StatusArchived:  {},
+		StatusTrash:     {},
+	},
+	StatusPending: {
+		StatusDraft:     {},
+		StatusPublished: {},
+		StatusArchived:  {},
+		StatusTrash:     {},
+	},
+	StatusPublished: {
+		StatusDraft:    {},
+		StatusArchived: {},
+		StatusTrash:    {},
+	},
+	StatusScheduled: {
+		StatusDraft:     {},
+		StatusPublished: {},
+		StatusArchived:  {},
+		StatusTrash:     {},
+	},
+	StatusArchived: {
+		StatusDraft: {},
+		StatusTrash: {},
+	},
+	StatusTrash: {
+		StatusDraft:     {},
+		StatusPublished: {},
+	},
 }
 
 // ---------- Category helpers ----------

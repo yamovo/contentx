@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"crypto/sha256"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -9,8 +10,9 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/vortexcms/go-cms/internal/config"
-	"github.com/vortexcms/go-cms/internal/models"
+	"github.com/google/uuid"
+	"github.com/yamovo/contentx/internal/config"
+	"github.com/yamovo/contentx/internal/models"
 	"gorm.io/gorm"
 )
 
@@ -33,7 +35,7 @@ func RecoverMiddleware() gin.HandlerFunc {
 	}
 }
 
-// RequestID generates a unique request ID for each request.
+// RequestID generates a unique request ID for each request using UUID.
 func RequestID() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		requestID := c.GetHeader("X-Request-ID")
@@ -197,40 +199,58 @@ func ActivityLogger(db *gorm.DB) gin.HandlerFunc {
 	}
 }
 
-// RateLimitMiddleware provides global rate limiting.
+// RateLimitMiddleware provides global rate limiting using sharded locks for better concurrency.
 func RateLimitMiddleware(requestsPerMinute int) gin.HandlerFunc {
-	// Simple token bucket per IP with cleanup.
+	const numShards = 16
+
 	type bucket struct {
 		tokens    int
 		lastReset time.Time
 		lastSeen  time.Time
 	}
-	buckets := make(map[string]*bucket)
-	var mu sync.Mutex
+
+	type shard struct {
+		buckets map[string]*bucket
+		mu      sync.Mutex
+	}
+
+	shards := make([]*shard, numShards)
+	for i := range shards {
+		shards[i] = &shard{buckets: make(map[string]*bucket)}
+	}
+
+	getShard := func(ip string) *shard {
+		h := sha256.Sum256([]byte(ip))
+		return shards[h[0]%numShards]
+	}
 
 	// Cleanup goroutine: remove stale entries every 5 minutes.
 	go func() {
 		ticker := time.NewTicker(5 * time.Minute)
 		defer ticker.Stop()
 		for range ticker.C {
-			mu.Lock()
 			now := time.Now()
-			for ip, b := range buckets {
-				if now.Sub(b.lastSeen) > 10*time.Minute {
-					delete(buckets, ip)
+			for _, s := range shards {
+				s.mu.Lock()
+				for ip, b := range s.buckets {
+					if now.Sub(b.lastSeen) > 10*time.Minute {
+						delete(s.buckets, ip)
+					}
 				}
+				s.mu.Unlock()
 			}
-			mu.Unlock()
 		}
 	}()
 
 	return func(c *gin.Context) {
 		ip := c.ClientIP()
-		mu.Lock()
-		b, exists := buckets[ip]
+		s := getShard(ip)
+
+		s.mu.Lock()
+		b, exists := s.buckets[ip]
 		if !exists {
 			b = &bucket{tokens: requestsPerMinute, lastReset: time.Now(), lastSeen: time.Now()}
-			buckets[ip] = b
+			s.buckets[ip] = b
 		}
 		b.lastSeen = time.Now()
 
@@ -240,7 +260,7 @@ func RateLimitMiddleware(requestsPerMinute int) gin.HandlerFunc {
 		}
 
 		if b.tokens <= 0 {
-			mu.Unlock()
+			s.mu.Unlock()
 			c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{
 				"error": "Rate limit exceeded",
 			})
@@ -248,12 +268,12 @@ func RateLimitMiddleware(requestsPerMinute int) gin.HandlerFunc {
 		}
 
 		b.tokens--
-		mu.Unlock()
+		s.mu.Unlock()
 		c.Next()
 	}
 }
 
-// IPRateLimit tracks per-group rate limits.
+// IPRateLimit tracks per-group rate limits using sharded locks for better concurrency.
 type IPRateLimit struct {
 	groups map[string]*rateGroup
 	mu     sync.RWMutex
@@ -261,13 +281,23 @@ type IPRateLimit struct {
 
 type rateGroup struct {
 	requests int
-	buckets  map[string]*bucketRL
+	shards   [16]*rateShard
+}
+
+type rateShard struct {
+	buckets map[string]*bucketRL
+	mu      sync.Mutex
 }
 
 type bucketRL struct {
 	count     int
 	resetTime time.Time
 	lastSeen  time.Time
+}
+
+func getRateShard(rg *rateGroup, ip string) *rateShard {
+	h := sha256.Sum256([]byte(ip))
+	return rg.shards[h[0]%16]
 }
 
 // NewIPRateLimit creates a new IP-based rate limiter with background cleanup.
@@ -279,16 +309,20 @@ func NewIPRateLimit() *IPRateLimit {
 		ticker := time.NewTicker(5 * time.Minute)
 		defer ticker.Stop()
 		for range ticker.C {
-			rl.mu.Lock()
+			rl.mu.RLock()
+			now := time.Now()
 			for _, g := range rl.groups {
-				now := time.Now()
-				for ip, b := range g.buckets {
-					if now.Sub(b.lastSeen) > 10*time.Minute {
-						delete(g.buckets, ip)
+				for _, s := range g.shards {
+					s.mu.Lock()
+					for ip, b := range s.buckets {
+						if now.Sub(b.lastSeen) > 10*time.Minute {
+							delete(s.buckets, ip)
+						}
 					}
+					s.mu.Unlock()
 				}
 			}
-			rl.mu.Unlock()
+			rl.mu.RUnlock()
 		}
 	}()
 
@@ -297,10 +331,11 @@ func NewIPRateLimit() *IPRateLimit {
 
 // Add registers a new rate limit group.
 func (rl *IPRateLimit) Add(group string, requestsPerMinute int) {
-	rl.groups[group] = &rateGroup{
-		requests: requestsPerMinute,
-		buckets:  make(map[string]*bucketRL),
+	rg := &rateGroup{requests: requestsPerMinute}
+	for i := range rg.shards {
+		rg.shards[i] = &rateShard{buckets: make(map[string]*bucketRL)}
 	}
+	rl.groups[group] = rg
 }
 
 // Shutdown cleans up resources.
@@ -320,11 +355,13 @@ func GroupRateLimit(rl *IPRateLimit, group string) gin.HandlerFunc {
 		}
 
 		ip := c.ClientIP()
-		rl.mu.Lock()
-		b, exists := g.buckets[ip]
+		s := getRateShard(g, ip)
+
+		s.mu.Lock()
+		b, exists := s.buckets[ip]
 		if !exists {
 			b = &bucketRL{count: g.requests, resetTime: time.Now(), lastSeen: time.Now()}
-			g.buckets[ip] = b
+			s.buckets[ip] = b
 		}
 		b.lastSeen = time.Now()
 
@@ -334,7 +371,7 @@ func GroupRateLimit(rl *IPRateLimit, group string) gin.HandlerFunc {
 		}
 
 		if b.count <= 0 {
-			rl.mu.Unlock()
+			s.mu.Unlock()
 			c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{
 				"error": "Rate limit exceeded",
 			})
@@ -342,7 +379,7 @@ func GroupRateLimit(rl *IPRateLimit, group string) gin.HandlerFunc {
 		}
 
 		b.count--
-		rl.mu.Unlock()
+		s.mu.Unlock()
 		c.Next()
 	}
 }
@@ -350,7 +387,7 @@ func GroupRateLimit(rl *IPRateLimit, group string) gin.HandlerFunc {
 // Helper functions.
 
 func generateRequestID() string {
-	return fmt.Sprintf("%d", time.Now().UnixNano())
+	return uuid.New().String()
 }
 
 func joinStrings(strs []string) string {

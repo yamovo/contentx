@@ -7,9 +7,9 @@ import (
 	"log/slog"
 	"os"
 
-	"github.com/vortexcms/go-cms/internal/auth"
+	"github.com/yamovo/contentx/internal/auth"
 	"golang.org/x/crypto/bcrypt"
-	"github.com/vortexcms/go-cms/internal/models"
+	"github.com/yamovo/contentx/internal/models"
 	"gorm.io/gorm"
 )
 
@@ -197,13 +197,15 @@ func seedAdminUser(db *gorm.DB) error {
 	// Get admin password from environment or generate random one.
 	adminPassword := os.Getenv("ADMIN_PASSWORD")
 	if adminPassword == "" {
+		if os.Getenv("SERVER_MODE") == "release" {
+			return fmt.Errorf("ADMIN_PASSWORD must be set in production mode")
+		}
 		pw, pwErr := generateRandomPasswordSeed(16)
 		if pwErr != nil {
 			return pwErr
 		}
 		adminPassword = pw
-		slog.Info("admin password", "password", adminPassword)
-		slog.Warn("set ADMIN_PASSWORD env var for custom password")
+		slog.Warn("no ADMIN_PASSWORD set — auto-generated one-time password", "password", adminPassword)
 	}
 
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(adminPassword), auth.BcryptCost)

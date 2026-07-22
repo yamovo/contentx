@@ -1,6 +1,6 @@
 export { ContentX } from './client'
 export type {
-  VortexConfig,
+  ContentXConfig,
   Article,
   Category,
   Tag,

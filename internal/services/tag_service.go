@@ -4,7 +4,8 @@ import (
 	"errors"
 
 	"github.com/gosimple/slug"
-	"github.com/vortexcms/go-cms/internal/models"
+	"github.com/yamovo/contentx/internal/models"
+	"github.com/yamovo/contentx/internal/repository"
 	"gorm.io/gorm"
 )
 
@@ -31,53 +32,33 @@ type UpdateTagRequest struct {
 
 // TagService handles tag business logic.
 type TagService struct {
-	db *gorm.DB
+	repo repository.TagRepository
 }
 
-// NewTagService creates a new TagService.
+// NewTagService creates a new TagService backed by a GORM repository.
+// Kept for backward compatibility with existing callers and tests.
 func NewTagService(db *gorm.DB) *TagService {
-	return &TagService{db: db}
+	return &TagService{repo: repository.NewTagRepository(db)}
+}
+
+// NewTagServiceWithRepo builds a TagService with an explicit repository,
+// enabling unit tests to inject mocks.
+func NewTagServiceWithRepo(repo repository.TagRepository) *TagService {
+	return &TagService{repo: repo}
 }
 
 // List returns tags with optional sorting, limit, and search.
 func (s *TagService) List(params TagListParams) ([]models.Tag, int64, error) {
-	query := s.db.Model(&models.Tag{})
-	if params.Search != "" {
-		query = query.Where("name LIKE ?", "%"+params.Search+"%")
-	}
-
-	switch params.Sort {
-	case "count":
-		query = query.Order("count DESC")
-	case "newest":
-		query = query.Order("created_at DESC")
-	default:
-		query = query.Order("name ASC")
-	}
-	if params.Limit > 0 {
-		query = query.Limit(params.Limit)
-	}
-
-	var total int64
-	if err := query.Count(&total).Error; err != nil {
-		return nil, 0, err
-	}
-
-	var tags []models.Tag
-	if err := query.Find(&tags).Error; err != nil {
-		return nil, 0, err
-	}
-
-	return tags, total, nil
+	return s.repo.List(repository.TagListFilter{
+		Sort:   params.Sort,
+		Limit:  params.Limit,
+		Search: params.Search,
+	})
 }
 
 // Get returns a single tag by ID.
 func (s *TagService) Get(id uint) (*models.Tag, error) {
-	var tag models.Tag
-	if err := s.db.First(&tag, id).Error; err != nil {
-		return nil, err
-	}
-	return &tag, nil
+	return s.repo.GetByID(id)
 }
 
 // Create creates a new tag.
@@ -92,7 +73,7 @@ func (s *TagService) Create(req CreateTagRequest) (*models.Tag, error) {
 		}
 	}
 
-	if err := s.db.Create(&tag).Error; err != nil {
+	if err := s.repo.Create(&tag); err != nil {
 		return nil, err
 	}
 
@@ -101,8 +82,7 @@ func (s *TagService) Create(req CreateTagRequest) (*models.Tag, error) {
 
 // Update updates a tag's fields.
 func (s *TagService) Update(id uint, req UpdateTagRequest) error {
-	var tag models.Tag
-	if err := s.db.First(&tag, id).Error; err != nil {
+	if _, err := s.repo.FindByID(id); err != nil {
 		return errors.New("tag not found")
 	}
 
@@ -117,45 +97,44 @@ func (s *TagService) Update(id uint, req UpdateTagRequest) error {
 		updates["color"] = req.Color
 	}
 
-	return s.db.Model(&tag).Updates(updates).Error
+	return s.repo.UpdateFields(id, updates)
 }
 
 // Delete removes a tag and clears its article associations.
 func (s *TagService) Delete(id uint) error {
-	var tag models.Tag
-	if err := s.db.First(&tag, id).Error; err != nil {
+	tag, err := s.repo.FindByID(id)
+	if err != nil {
 		return errors.New("tag not found")
 	}
 
-	// Remove associations.
-	s.db.Model(&tag).Association("Articles").Clear()
-	return s.db.Delete(&tag).Error
+	// Remove associations (best-effort, mirrors prior behaviour).
+	_ = s.repo.ClearArticleAssociations(tag.ID)
+	return s.repo.Delete(tag)
 }
 
 // Merge merges source tags into a target tag, optionally deleting the source tags.
 func (s *TagService) Merge(sourceIDs []uint, targetID uint, deleteOld bool) error {
-	var target models.Tag
-	if err := s.db.First(&target, targetID).Error; err != nil {
+	if _, err := s.repo.FindByID(targetID); err != nil {
 		return errors.New("target tag not found")
 	}
 
-	// Re-point article_tags from sources to target.
+	// Re-point article_tags from sources to target (best-effort, mirrors prior behaviour).
 	for _, srcID := range sourceIDs {
 		if srcID == targetID {
 			continue
 		}
-		s.db.Exec("UPDATE OR IGNORE article_tags SET tag_id = ? WHERE tag_id = ?",
-			targetID, srcID)
-		s.db.Exec("DELETE FROM article_tags WHERE tag_id = ?", srcID)
+		_ = s.repo.MergeTags(srcID, targetID)
 	}
 
 	// Recalculate count using subquery.
-	var count int64
-	s.db.Table("article_tags").Where("tag_id = ?", target.ID).Count(&count)
-	s.db.Model(&target).Update("count", count)
+	count, err := s.repo.CountArticleAssociations(targetID)
+	if err != nil {
+		return err
+	}
+	_ = s.repo.UpdateCount(targetID, count)
 
 	if deleteOld {
-		s.db.Where("id IN ?", sourceIDs).Delete(&models.Tag{})
+		_, _ = s.repo.DeleteByIDs(sourceIDs)
 	}
 
 	return nil

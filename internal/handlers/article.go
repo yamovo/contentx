@@ -1,13 +1,14 @@
 package handlers
 
 import (
+	"fmt"
 	"strconv"
+	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/vortexcms/go-cms/internal/middleware"
-	"github.com/vortexcms/go-cms/internal/models"
-	"github.com/vortexcms/go-cms/internal/services"
-	"gorm.io/gorm"
+	"github.com/yamovo/contentx/internal/middleware"
+	"github.com/yamovo/contentx/internal/models"
+	"github.com/yamovo/contentx/internal/services"
 )
 
 // ArticleHandler handles article-related HTTP requests.
@@ -54,11 +55,12 @@ func (h *ArticleHandler) List(c *gin.Context) {
 		Search:     c.Query("search"),
 		Sort:       c.DefaultQuery("sort", "newest"),
 		AuthorID:   c.Query("author_id"),
+		Locale:     c.Query("locale"),
 	}
 
 	result, err := h.svc.List(filter)
 	if err != nil {
-		InternalError(c)
+		handleServiceError(c, err)
 		return
 	}
 
@@ -87,11 +89,7 @@ func (h *ArticleHandler) Get(c *gin.Context) {
 
 	article, err := h.svc.Get(uint(id))
 	if err != nil {
-		if err == gorm.ErrRecordNotFound {
-			NotFound(c, "Article not found")
-			return
-		}
-		InternalError(c)
+		handleServiceError(c, err)
 		return
 	}
 
@@ -112,11 +110,7 @@ func (h *ArticleHandler) Get(c *gin.Context) {
 func (h *ArticleHandler) GetBySlug(c *gin.Context) {
 	article, err := h.svc.GetBySlug(c.Param("slug"))
 	if err != nil {
-		if err == gorm.ErrRecordNotFound {
-			NotFound(c, "Article not found")
-			return
-		}
-		InternalError(c)
+		handleServiceError(c, err)
 		return
 	}
 
@@ -141,7 +135,7 @@ func (h *ArticleHandler) GetBySlug(c *gin.Context) {
 func (h *ArticleHandler) Create(c *gin.Context) {
 	var req services.CreateArticleRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		BadRequest(c, err.Error())
+		BadRequest(c, sanitizeBindErr(err))
 		return
 	}
 
@@ -185,7 +179,7 @@ func (h *ArticleHandler) Update(c *gin.Context) {
 
 	var req services.UpdateArticleRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		BadRequest(c, err.Error())
+		BadRequest(c, sanitizeBindErr(err))
 		return
 	}
 
@@ -243,7 +237,7 @@ func (h *ArticleHandler) Delete(c *gin.Context) {
 func (h *ArticleHandler) BulkAction(c *gin.Context) {
 	var req services.BulkActionRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		BadRequest(c, err.Error())
+		BadRequest(c, sanitizeBindErr(err))
 		return
 	}
 
@@ -258,7 +252,7 @@ func (h *ArticleHandler) BulkAction(c *gin.Context) {
 
 	affected, err := h.svc.BulkAction(req)
 	if err != nil {
-		BadRequest(c, err.Error())
+		BadRequest(c, sanitizeBindErr(err))
 		return
 	}
 
@@ -280,7 +274,7 @@ func (h *ArticleHandler) Revisions(c *gin.Context) {
 
 	revisions, err := h.svc.Revisions(uint(id))
 	if err != nil {
-		InternalError(c)
+		handleServiceError(c, err)
 		return
 	}
 
@@ -324,11 +318,141 @@ func (h *ArticleHandler) LikeArticle(c *gin.Context) {
 	}
 
 	if err := h.svc.LikeArticle(uint(id)); err != nil {
-		InternalError(c)
+		handleServiceError(c, err)
 		return
 	}
 
 	Success(c, gin.H{"message": "Article liked"})
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Publication workflow handlers (P2-3)
+// ──────────────────────────────────────────────────────────────────────────────
+
+// ScheduleRequest is the JSON body for the /schedule endpoint.
+type ScheduleRequest struct {
+	ScheduledAt string `json:"scheduled_at" binding:"required"` // RFC3339
+}
+
+// Publish flips an article to published status.
+// POST /api/v1/articles/:id/publish
+func (h *ArticleHandler) Publish(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		BadRequest(c, "Invalid article ID")
+		return
+	}
+	article, err := h.svc.Publish(uint(id))
+	if err != nil {
+		handleServiceError(c, err)
+		return
+	}
+	Success(c, article)
+}
+
+// Unpublish reverts a published/scheduled article back to draft.
+// POST /api/v1/articles/:id/unpublish
+func (h *ArticleHandler) Unpublish(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		BadRequest(c, "Invalid article ID")
+		return
+	}
+	article, err := h.svc.Unpublish(uint(id))
+	if err != nil {
+		handleServiceError(c, err)
+		return
+	}
+	Success(c, article)
+}
+
+// SubmitForReview moves a draft into the pending (review) queue.
+// POST /api/v1/articles/:id/submit-review
+func (h *ArticleHandler) SubmitForReview(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		BadRequest(c, "Invalid article ID")
+		return
+	}
+	article, err := h.svc.SubmitForReview(uint(id))
+	if err != nil {
+		handleServiceError(c, err)
+		return
+	}
+	Success(c, article)
+}
+
+// Approve marks a pending article as published.
+// POST /api/v1/articles/:id/approve
+func (h *ArticleHandler) Approve(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		BadRequest(c, "Invalid article ID")
+		return
+	}
+	article, err := h.svc.Approve(uint(id))
+	if err != nil {
+		handleServiceError(c, err)
+		return
+	}
+	Success(c, article)
+}
+
+// Schedule marks an article for automatic publication at the given time.
+// POST /api/v1/articles/:id/schedule
+func (h *ArticleHandler) Schedule(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		BadRequest(c, "Invalid article ID")
+		return
+	}
+	var req ScheduleRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		BadRequest(c, sanitizeBindErr(err))
+		return
+	}
+	at, err := parseScheduleTime(req.ScheduledAt)
+	if err != nil {
+		BadRequest(c, "Invalid scheduled_at: "+err.Error())
+		return
+	}
+	article, err := h.svc.Schedule(uint(id), at)
+	if err != nil {
+		handleServiceError(c, err)
+		return
+	}
+	Success(c, article)
+}
+
+// Archive moves an article out of the active lifecycle.
+// POST /api/v1/articles/:id/archive
+func (h *ArticleHandler) Archive(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		BadRequest(c, "Invalid article ID")
+		return
+	}
+	article, err := h.svc.Archive(uint(id))
+	if err != nil {
+		handleServiceError(c, err)
+		return
+	}
+	Success(c, article)
+}
+
+// parseScheduleTime parses a schedule timestamp, accepting RFC3339 or the
+// looser layout "2006-01-02 15:04:05" for convenience.
+func parseScheduleTime(s string) (time.Time, error) {
+	if t, err := time.Parse(time.RFC3339, s); err == nil {
+		return t, nil
+	}
+	if t, err := time.Parse("2006-01-02 15:04:05", s); err == nil {
+		return t, nil
+	}
+	if t, err := time.Parse("2006-01-02 15:04", s); err == nil {
+		return t, nil
+	}
+	return time.Time{}, fmt.Errorf("expected RFC3339 or YYYY-MM-DD HH:MM[:SS]")
 }
 
 // Feed returns articles as RSS/XML.
@@ -336,13 +460,60 @@ func (h *ArticleHandler) LikeArticle(c *gin.Context) {
 func (h *ArticleHandler) Feed(c *gin.Context) {
 	xml, err := h.svc.GenerateFeed()
 	if err != nil {
-		InternalError(c)
+		handleServiceError(c, err)
 		return
 	}
 
 	c.Data(200, "application/rss+xml; charset=utf-8", []byte(xml))
 }
 
+// ─── i18n: translation endpoints ────────────────────────────────────────────
+
+// ListTranslations returns all sibling translations of an article.
+// GET /api/v1/articles/:id/translations
+func (h *ArticleHandler) ListTranslations(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		BadRequest(c, "Invalid article ID")
+		return
+	}
+	translations, err := h.svc.ListTranslations(uint(id))
+	if err != nil {
+		handleServiceError(c, err)
+		return
+	}
+	Success(c, translations)
+}
+
+// CreateTranslation creates a new article as a translation of an existing one.
+// POST /api/v1/articles/:id/translations?locale=zh
+func (h *ArticleHandler) CreateTranslation(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		BadRequest(c, "Invalid article ID")
+		return
+	}
+	locale := c.Query("locale")
+	if locale == "" {
+		BadRequest(c, "locale query parameter is required")
+		return
+	}
+	var req services.CreateArticleRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		BadRequest(c, sanitizeBindErr(err))
+		return
+	}
+	user := getCurrentUser(c)
+	if user == nil {
+		return
+	}
+	article, err := h.svc.CreateTranslation(uint(id), locale, req, user.ID)
+	if err != nil {
+		handleServiceError(c, err)
+		return
+	}
+	Created(c, article)
+}
 
 // getCurrentUser returns the authenticated user or sends a 401 response.
 func getCurrentUser(c *gin.Context) *models.User {

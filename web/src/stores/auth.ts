@@ -20,8 +20,8 @@ export const useAuthStore = defineStore('auth', () => {
     loading.value = true
     try {
       const res = await authApi.login({ username, password })
-      setTokens(res.data)
-      user.value = res.user
+      setTokens(res.data.token)
+      user.value = res.data.user
       await fetchPermissions()
       return res
     } finally {
@@ -33,8 +33,8 @@ export const useAuthStore = defineStore('auth', () => {
     loading.value = true
     try {
       const res = await authApi.register(data)
-      setTokens(res.data)
-      user.value = res.user
+      setTokens(res.data.token)
+      user.value = res.data.user
       await fetchPermissions()
       return res
     } finally {
@@ -46,8 +46,8 @@ export const useAuthStore = defineStore('auth', () => {
     if (!token.value) return
     try {
       const res = await authApi.me()
-      user.value = res.data
-      permissions.value = res.permissions
+      user.value = res.data.user
+      permissions.value = res.data.permissions
     } catch {
       logout()
     }
@@ -56,8 +56,8 @@ export const useAuthStore = defineStore('auth', () => {
   async function fetchPermissions() {
     try {
       const res = await authApi.me()
-      user.value = res.data
-      permissions.value = res.permissions
+      user.value = res.data.user
+      permissions.value = res.data.permissions
     } catch {
       // Ignore.
     }

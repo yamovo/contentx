@@ -3,7 +3,7 @@
     <div class="login-container">
       <div class="login-card">
         <div class="login-header">
-          <h1 class="logo-text">VortexCMS</h1>
+          <h1 class="logo-text">ContentX</h1>
           <p class="subtitle">创建新账号</p>
         </div>
 

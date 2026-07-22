@@ -5,8 +5,8 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
-	"github.com/vortexcms/go-cms/internal/auth"
-	"github.com/vortexcms/go-cms/internal/models"
+	"github.com/yamovo/contentx/internal/auth"
+	"github.com/yamovo/contentx/internal/models"
 	"gorm.io/gorm"
 )
 

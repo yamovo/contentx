@@ -1,4 +1,4 @@
-export interface VortexConfig {
+export interface ContentXConfig {
   baseURL: string
   token?: string
   timeout?: number

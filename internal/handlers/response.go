@@ -7,8 +7,13 @@ import (
 )
 
 // APIResponse is the unified API response structure.
+//
+// 成功响应：code=0，err_code 省略。
+// 错误响应：code=-1，err_code 携带稳定的字符串错误码（如 NOT_FOUND、FORBIDDEN），
+// 前端可据此做 switch(err_code) 精细化处理，而非解析 message 文本。
 type APIResponse struct {
 	Code    int         `json:"code"`
+	ErrCode string      `json:"err_code,omitempty"`
 	Message string      `json:"message"`
 	Data    interface{} `json:"data,omitempty"`
 	Meta    *Meta       `json:"meta,omitempty"`
@@ -52,9 +57,12 @@ func Created(c *gin.Context, data interface{}) {
 }
 
 // Error sends an error response with the given status code.
+// code 是稳定的字符串错误码（如 NOT_FOUND、FORBIDDEN），会通过 err_code 字段
+// 返回给前端，前端可据此做精细化错误处理。
 func Error(c *gin.Context, status int, code string, message string) {
 	c.JSON(status, APIResponse{
 		Code:    -1,
+		ErrCode: code,
 		Message: message,
 	})
 }

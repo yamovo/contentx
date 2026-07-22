@@ -1,11 +1,17 @@
 package handlers
 
 import (
+	"log/slog"
+
 	"github.com/gin-gonic/gin"
-	"github.com/vortexcms/go-cms/internal/auth"
-	"github.com/vortexcms/go-cms/internal/config"
-	"github.com/vortexcms/go-cms/internal/middleware"
-	"github.com/vortexcms/go-cms/internal/services"
+	"github.com/yamovo/contentx/internal/auth"
+	"github.com/yamovo/contentx/internal/cache"
+	"github.com/yamovo/contentx/internal/config"
+	"github.com/yamovo/contentx/internal/graphql"
+	"github.com/yamovo/contentx/internal/middleware"
+	"github.com/yamovo/contentx/internal/plugin"
+	"github.com/yamovo/contentx/internal/services"
+	"github.com/yamovo/contentx/internal/storage"
 	"gorm.io/gorm"
 )
 
@@ -15,8 +21,9 @@ func RegisterRoutes(
 	db *gorm.DB,
 	cfg *config.Config,
 	jwtMgr *auth.JWTManager,
-	blacklist *auth.Blacklist,
+	blacklist auth.TokenStore,
 	guard *auth.LoginGuard,
+	cacheDriver cache.Driver,
 ) *middleware.IPRateLimit {
 	// Create services.
 	articleSvc := services.NewArticleService(db, cfg.Server.BaseURL)
@@ -35,8 +42,29 @@ func RegisterRoutes(
 	themeSvc := services.NewThemeService(db)
 	systemSvc := services.NewSystemService(db)
 	tokenSvc := services.NewTokenService(db)
-	contentTypeSvc := services.NewContentTypeService(db)
+	contentTypeSvc := services.NewContentTypeService(db).WithCache(cacheDriver, cfg.Cache.DefaultTTL)
 	webhookSvc := services.NewWebhookService(db)
+
+	// Inject webhook dispatcher into services that trigger events.
+	articleSvc.SetWebhookDispatcher(webhookSvc)
+	commentSvc.SetWebhookDispatcher(webhookSvc)
+	mediaSvc.SetWebhookDispatcher(webhookSvc)
+	userSvc.SetWebhookDispatcher(webhookSvc)
+
+	// ─── Plugin Manager: register built-in plugins and inject into services.
+	pluginMgr := plugin.NewManager(db)
+	_ = pluginMgr.Register(plugin.NewWordCountPlugin())
+	_ = pluginMgr.InitDB()
+	articleSvc.SetPluginManager(pluginMgr)
+	pluginSvc.SetPluginManager(pluginMgr)
+
+	// Build and inject the storage driver based on configuration. When the
+	// driver is "local" (or unset) we keep the legacy inline disk logic in
+	// MediaService (store == nil). When it is "s3" we construct an S3Driver
+	// from the S3 sub-config and inject it.
+	if d := buildStorageDriver(cfg); d != nil {
+		mediaSvc.SetStorageDriver(d)
+	}
 
 	// Create handlers.
 	authH := NewAuthHandler(authSvc)
@@ -84,6 +112,24 @@ func RegisterRoutes(
 		api.GET("/seo/robots.txt", seoH.RobotsTxt)
 		api.GET("/settings/public", settingsH.PublicSettings)
 		api.POST("/analytics/record", analyticsH.RecordView)
+
+		// GraphQL (read-only public endpoint). Reuses the same service
+		// instances as the REST handlers; the schema exposes published
+		// articles, taxonomy, approved comments, public user profiles, and
+		// the RSS feed. Writes continue to go through the REST API.
+		gqlSchema, gqlErr := graphql.NewSchema(graphql.Services{
+			Article:  articleSvc,
+			Category: categorySvc,
+			Tag:      tagSvc,
+			Comment:  commentSvc,
+			User:     userSvc,
+		})
+		if gqlErr != nil {
+			slog.Error("failed to build graphql schema", "error", gqlErr)
+		} else {
+			api.GET("/graphql", graphql.Handler(gqlSchema))
+			api.POST("/graphql", graphql.Handler(gqlSchema))
+		}
 	}
 
 	// ─── Protected API ─────────────────────────────────
@@ -111,6 +157,20 @@ func RegisterRoutes(
 			articles.GET("/:id/revisions", articleH.Revisions)
 			articles.POST("/:id/revisions/:revision_id/restore", articleH.RestoreRevision)
 			articles.POST("/:id/like", articleH.LikeArticle)
+
+			// Publication workflow (P2-3): single-article status transitions.
+			// Reuse articles.edit for publish/unpublish/schedule/archive and
+			// RequireEditor for the review-approval step.
+			articles.POST("/:id/publish", middleware.RequirePermission("articles.edit"), articleH.Publish)
+			articles.POST("/:id/unpublish", middleware.RequirePermission("articles.edit"), articleH.Unpublish)
+			articles.POST("/:id/submit-review", middleware.RequirePermission("articles.edit"), articleH.SubmitForReview)
+			articles.POST("/:id/approve", middleware.RequireEditor(), articleH.Approve)
+			articles.POST("/:id/schedule", middleware.RequirePermission("articles.edit"), articleH.Schedule)
+			articles.POST("/:id/archive", middleware.RequirePermission("articles.edit"), articleH.Archive)
+
+			// i18n: article translations.
+			articles.GET("/:id/translations", articleH.ListTranslations)
+			articles.POST("/:id/translations", middleware.RequirePermission("articles.create"), articleH.CreateTranslation)
 		}
 
 		// Categories.
@@ -275,6 +335,10 @@ func RegisterRoutes(
 			content.DELETE("/:uid/:documentId", middleware.RequirePermission("content.delete"), contentTypeH.DeleteEntry)
 			content.POST("/:uid/:documentId/publish", middleware.RequirePermission("content.publish"), contentTypeH.PublishEntry)
 			content.POST("/:uid/:documentId/unpublish", middleware.RequirePermission("content.publish"), contentTypeH.UnpublishEntry)
+
+			// i18n: content entry translations.
+			content.GET("/:uid/:documentId/translations", contentTypeH.ListEntryTranslations)
+			content.POST("/:uid/:documentId/translations", middleware.RequirePermission("content.create"), contentTypeH.CreateEntryTranslation)
 		}
 
 		// Webhooks (admin only).
@@ -290,7 +354,40 @@ func RegisterRoutes(
 	// System health (unauthenticated).
 	r.GET("/api/v1/system/health", systemH.Health)
 
-	// Static file serving for uploads.
+	// Static file serving for uploads. Only relevant for the local driver
+	// path; when an S3 driver is in use, files are served from object storage
+	// and this route simply 404s (harmless).
 	r.Static(cfg.Upload.URLPrefix, cfg.Upload.StoragePath)
 	return rl
+}
+
+// buildStorageDriver constructs a storage.Driver from the application config.
+// It returns nil for the "local" driver (or any unrecognized value), which
+// signals MediaService to use its legacy inline local-disk logic. Only "s3"
+// (and recognized aliases) produces a non-nil driver.
+func buildStorageDriver(cfg *config.Config) storage.Driver {
+	switch cfg.Upload.Driver {
+	case "", "local":
+		return nil
+	case "s3", "minio", "oss":
+		s3 := cfg.Upload.S3
+		if s3.Endpoint == "" || s3.AccessKey == "" || s3.SecretKey == "" {
+			slog.Warn("storage driver set to s3 but endpoint/access_key/secret_key missing; falling back to local disk",
+				"driver", cfg.Upload.Driver, "endpoint", s3.Endpoint)
+			return nil
+		}
+		return storage.NewS3Driver(storage.S3Config{
+			Endpoint:  s3.Endpoint,
+			Bucket:    s3.Bucket,
+			Region:    s3.Region,
+			AccessKey: s3.AccessKey,
+			SecretKey: s3.SecretKey,
+			PublicURL: s3.PublicURL,
+			UseSSL:    s3.UseSSL,
+			PathStyle: s3.PathStyle,
+		})
+	default:
+		slog.Warn("unknown storage driver; falling back to local disk", "driver", cfg.Upload.Driver)
+		return nil
+	}
 }

@@ -5,8 +5,8 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/vortexcms/go-cms/internal/config"
-	"github.com/vortexcms/go-cms/internal/models"
+	"github.com/yamovo/contentx/internal/config"
+	"github.com/yamovo/contentx/internal/models"
 	"gorm.io/driver/mysql"
 	"gorm.io/driver/postgres"
 	"gorm.io/driver/sqlite"
@@ -39,7 +39,7 @@ func Connect(cfg config.DatabaseConfig) (*gorm.DB, error) {
 
 	db, err := gorm.Open(dialector, &gorm.Config{
 		DisableForeignKeyConstraintWhenMigrating: true,
-		Logger: logger.Default.LogMode(logger.Silent),
+		Logger:                                   logger.Default.LogMode(logger.Silent),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to %s: %w", cfg.Driver, err)
@@ -59,12 +59,12 @@ func Connect(cfg config.DatabaseConfig) (*gorm.DB, error) {
 	return db, nil
 }
 
-// AutoMigrate runs GORM auto-migration for all models.
-// This is the legacy migration path. For production, use Migrate().
-func AutoMigrate(db *gorm.DB) error {
-	slog.Info("running auto-migration...")
-
-	err := db.AutoMigrate(
+// AllModels returns the canonical list of all GORM-registered models in the
+// order they should be created. This is shared between AutoMigrate (legacy
+// path) and the versioned Migrator (001_initial_schema) so the two paths
+// always produce identical schema.
+func AllModels() []interface{} {
+	return []interface{}{
 		// Auth & Users
 		&models.Permission{},
 		&models.Role{},
@@ -92,6 +92,7 @@ func AutoMigrate(db *gorm.DB) error {
 
 		// Extensions
 		&models.Plugin{},
+		&models.ThemeConfig{},
 
 		// Analytics
 		&models.PageView{},
@@ -108,11 +109,17 @@ func AutoMigrate(db *gorm.DB) error {
 		// Webhooks
 		&models.Webhook{},
 		&models.WebhookLog{},
-	)
-	if err != nil {
+	}
+}
+
+// AutoMigrate runs GORM auto-migration for all models.
+// This is the legacy migration path used by tests. For production, use
+// RunMigrations() which goes through the versioned Migrator instead.
+func AutoMigrate(db *gorm.DB) error {
+	slog.Info("running auto-migration...")
+	if err := db.AutoMigrate(AllModels()...); err != nil {
 		return fmt.Errorf("auto-migration failed: %w", err)
 	}
-
 	slog.Info("auto-migration completed")
 	return nil
 }
@@ -124,6 +131,30 @@ func Seed(db *gorm.DB) error {
 		return fmt.Errorf("seeding failed: %w", err)
 	}
 	return nil
+}
+
+// RunMigrations creates a Migrator, registers the given migrations, and runs
+// Up. This is the production migration path — replaces the legacy AutoMigrate
+// call in main.go. The caller is responsible for importing the migrations
+// package (which registers migrations via init()) and passing migrations.All().
+func RunMigrations(db *gorm.DB, migs []Migration) error {
+	m := NewMigrator(db)
+	m.Register(migs...)
+	return m.Up()
+}
+
+// RollbackMigration rolls back the last N applied migrations.
+func RollbackMigration(db *gorm.DB, migs []Migration, steps int) error {
+	m := NewMigrator(db)
+	m.Register(migs...)
+	return m.Down(steps)
+}
+
+// MigrationStatuses returns the status of all registered migrations.
+func MigrationStatuses(db *gorm.DB, migs []Migration) ([]MigrationStatus, error) {
+	m := NewMigrator(db)
+	m.Register(migs...)
+	return m.Status()
 }
 
 // Cleanup removes old data (e.g., page views older than retention period).

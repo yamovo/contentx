@@ -1,5 +1,5 @@
 import type {
-  VortexConfig,
+  ContentXConfig,
   APIResponse,
   PaginatedResponse,
   TokenPair,
@@ -24,7 +24,7 @@ export class ContentX {
   private token: string
   private timeout: number
 
-  constructor(config: VortexConfig) {
+  constructor(config: ContentXConfig) {
     this.baseURL = config.baseURL.replace(/\/$/, '')
     this.token = config.token || ''
     this.timeout = config.timeout || 30000
@@ -274,14 +274,14 @@ export class ContentX {
 
       if (!resp.ok) {
         const err = await resp.json().catch(() => ({ error: resp.statusText }))
-        throw new VortexError(err.error || resp.statusText, resp.status, err.code)
+        throw new ContentXError(err.error || resp.statusText, resp.status, err.code)
       }
 
       return resp.json()
     } catch (e: any) {
       clearTimeout(timeoutId)
       if (e.name === 'AbortError') {
-        throw new VortexError('Request timeout', 408)
+        throw new ContentXError('Request timeout', 408)
       }
       throw e
     }
@@ -296,7 +296,7 @@ export class ContentX {
     const resp = await fetch(url, { ...opts, headers: { ...headers, ...opts.headers } })
     if (!resp.ok) {
       const err = await resp.json().catch(() => ({ error: resp.statusText }))
-      throw new VortexError(err.error || resp.statusText, resp.status)
+      throw new ContentXError(err.error || resp.statusText, resp.status)
     }
     return resp.json()
   }
@@ -318,13 +318,13 @@ export class ContentX {
   }
 }
 
-export class VortexError extends Error {
+export class ContentXError extends Error {
   status: number
   code?: string
 
   constructor(message: string, status: number, code?: string) {
     super(message)
-    this.name = 'VortexError'
+    this.name = 'ContentXError'
     this.status = status
     this.code = code
   }

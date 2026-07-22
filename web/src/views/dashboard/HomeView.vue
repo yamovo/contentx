@@ -33,7 +33,7 @@
     </section>
 
     <footer class="footer">
-      <p>© 2024 VortexCMS. Powered by Go + Vue 3</p>
+      <p>© 2026 ContentX. Powered by Go + Vue 3</p>
     </footer>
   </div>
 </template>

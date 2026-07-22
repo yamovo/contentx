@@ -6,7 +6,8 @@
 *.dylib
 *.test
 *.out
-go-cms
+/contentx
+/vortexcms
 
 # Node
 web/node_modules/
@@ -30,6 +31,8 @@ logs/
 *.db
 *.db-journal
 *.db-wal
+*-shm
+*-wal
 .env
 *.log
 
@@ -39,3 +42,10 @@ logs/
 # Coverage
 coverage.html
 coverage.txt
+coverage.out
+coverage*
+cover_*.txt
+cover_func.txt
+
+# Codegraph cache
+.codegraph/

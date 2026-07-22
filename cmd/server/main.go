@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -12,16 +13,19 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
-	"github.com/vortexcms/go-cms/internal/auth"
-	"github.com/vortexcms/go-cms/internal/config"
-	"github.com/vortexcms/go-cms/internal/database"
-	"github.com/vortexcms/go-cms/internal/handlers"
-	"github.com/vortexcms/go-cms/internal/logger"
-	"github.com/vortexcms/go-cms/internal/middleware"
+	"github.com/yamovo/contentx/internal/auth"
+	"github.com/yamovo/contentx/internal/cache"
+	"github.com/yamovo/contentx/internal/config"
+	"github.com/yamovo/contentx/internal/database"
+	"github.com/yamovo/contentx/internal/database/migrations"
+	"github.com/yamovo/contentx/internal/handlers"
+	"github.com/yamovo/contentx/internal/logger"
+	"github.com/yamovo/contentx/internal/middleware"
+	"github.com/yamovo/contentx/internal/services"
 
-	_ "github.com/vortexcms/go-cms/docs/api" // swagger docs
 	swaggerFiles "github.com/swaggo/files"
 	ginSwagger "github.com/swaggo/gin-swagger"
+	_ "github.com/yamovo/contentx/docs/api" // swagger docs
 )
 
 // @title           ContentX API
@@ -34,12 +38,30 @@ import (
 // @in header
 // @name Authorization
 // @description JWT token. Format: Bearer {token}
+
+// version 在构建时通过 -ldflags="-X main.version=..." 注入。
+// 默认值 "dev" 用于本地开发；CI release job 会注入 git tag 版本号。
+var version = "dev"
+
 func main() {
+	// CLI flags for database operations.
+	migrateFlag := flag.Bool("migrate", false, "run pending database migrations and exit")
+	migrateDownFlag := flag.Int("migrate-down", 0, "roll back the last N database migrations and exit")
+	migrateStatusFlag := flag.Bool("migrate-status", false, "show database migration status and exit")
+	seedFlag := flag.Bool("seed", false, "seed the database and exit")
+	flag.Parse()
+
 	// Load .env file (ignore error if not found).
 	godotenv.Load()
 
 	// Load configuration.
 	cfg := config.Load()
+
+	// Startup security audit.
+	if !cfg.Validate() {
+		slog.Error("security audit failed — fix issues above before running in production")
+		os.Exit(1)
+	}
 
 	// Initialize structured logger.
 	logger.Setup(cfg.Log)
@@ -54,8 +76,49 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Run migrations.
-	if err := database.AutoMigrate(db); err != nil {
+	// Handle migration-only modes.
+	switch {
+	case *migrateStatusFlag:
+		statuses, err := database.MigrationStatuses(db, migrations.All())
+		if err != nil {
+			slog.Error("failed to get migration status", "error", err)
+			os.Exit(1)
+		}
+		fmt.Println("Migration status:")
+		for _, s := range statuses {
+			mark := "  "
+			if s.Applied {
+				mark = "✓ "
+			}
+			fmt.Printf("  %sv%d  %s\n", mark, s.Version, s.Description)
+		}
+		return
+
+	case *migrateDownFlag > 0:
+		if err := database.RollbackMigration(db, migrations.All(), *migrateDownFlag); err != nil {
+			slog.Error("migration rollback failed", "error", err)
+			os.Exit(1)
+		}
+		return
+
+	case *migrateFlag:
+		if err := database.RunMigrations(db, migrations.All()); err != nil {
+			slog.Error("migration failed", "error", err)
+			os.Exit(1)
+		}
+		return
+
+	case *seedFlag:
+		if err := database.Seed(db); err != nil {
+			slog.Error("seeding failed", "error", err)
+			os.Exit(1)
+		}
+		slog.Info("seeding completed")
+		return
+	}
+
+	// Normal startup: run migrations (idempotent) then seed.
+	if err := database.RunMigrations(db, migrations.All()); err != nil {
 		slog.Error("failed to run migrations", "error", err)
 		os.Exit(1)
 	}
@@ -68,13 +131,40 @@ func main() {
 	// Create upload directory.
 	os.MkdirAll(cfg.Upload.StoragePath, 0755)
 
-	// Initialize JWT manager.
+	// Initialize cache (memory or redis based on config). Fall back to the
+	// in-memory cache if the configured backend cannot be reached at startup.
+	cacheDriver, err := cache.New(cache.Config{
+		Driver: cfg.Cache.Driver,
+		Redis: cache.RedisConfig{
+			Addr:     cfg.Redis.Addr(),
+			Password: cfg.Redis.Password,
+			DB:       cfg.Redis.DB,
+			Prefix:   cfg.Redis.Prefix,
+		},
+		Memory: cache.MemoryConfig{
+			MaxEntries: cfg.Cache.MaxEntries,
+			DefaultTTL: cfg.Cache.DefaultTTL,
+		},
+	})
+	if err != nil {
+		slog.Warn("cache backend unavailable, falling back to memory", "driver", cfg.Cache.Driver, "error", err)
+		cacheDriver = cache.NewMemoryDriver(cfg.Cache.MaxEntries)
+	}
+	slog.Info("cache initialized", "driver", cfg.Cache.Driver)
+
+	// Initialize JWT manager and token store.
+	// 优先使用 Redis-backed 黑名单（多实例共享、重启不丢失）；
+	// 若 Redis 不可用或配置为内存缓存，回退到内存版 Blacklist。
 	jwtMgr := auth.NewJWTManager(cfg.JWT)
-	blacklist := auth.NewBlacklist()
+	tokenStore := initTokenStore(cfg, cacheDriver)
 	guard := auth.NewLoginGuard()
 
 	// Setup gin.
 	r := gin.New()
+
+	// 配置 validator：让 ValidationErrors 中的字段名返回 JSON tag 名
+	// （而非默认的结构体字段 PascalCase），便于脱敏后的错误消息直接对前端友好。
+	handlers.RegisterJSONTagNameFunc()
 
 	// Global middleware.
 	r.Use(middleware.RecoverMiddleware())
@@ -89,7 +179,17 @@ func main() {
 	r.Use(middleware.RateLimitMiddleware(cfg.Limits.APIRateLimit))
 
 	// Register all routes.
-	rateLimiter := handlers.RegisterRoutes(r, db, cfg, jwtMgr, blacklist, guard)
+	rateLimiter := handlers.RegisterRoutes(r, db, cfg, jwtMgr, tokenStore, guard, cacheDriver)
+
+	// Start the scheduled-publish worker. It periodically scans for articles
+	// whose ScheduledAt has passed and flips them to published. The scheduler
+	// uses its own ArticleService instance (sharing the same db + webhook
+	// wiring) so it is decoupled from the HTTP request path.
+	schedulerArticleSvc := services.NewArticleService(db, cfg.Server.BaseURL)
+	schedulerArticleSvc.SetWebhookDispatcher(services.NewWebhookService(db))
+	publishScheduler := services.NewPublishScheduler(schedulerArticleSvc, time.Minute, slog.Default())
+	publishScheduler.Start()
+	defer publishScheduler.Stop()
 
 	// Swagger API docs (only in non-release mode).
 	if cfg.Server.Mode != "release" {
@@ -126,6 +226,7 @@ func main() {
 	// Start server in goroutine.
 	go func() {
 		slog.Info("ContentX starting",
+			"version", version,
 			"host", cfg.Server.Host,
 			"port", cfg.Server.Port,
 			"mode", cfg.Server.Mode,
@@ -148,10 +249,36 @@ func main() {
 	defer cancel()
 
 	rateLimiter.Shutdown()
+	if closer, ok := cacheDriver.(interface{ Close() error }); ok {
+		_ = closer.Close()
+	}
 	if err := srv.Shutdown(ctx); err != nil {
 		slog.Error("server forced to shutdown", "error", err)
 		os.Exit(1)
 	}
 
 	slog.Info("server exited gracefully")
+}
+
+// initTokenStore 根据配置创建 JWT token 黑名单存储：
+//   - cache driver 为 Redis 时，返回 *auth.RedisTokenStore（多实例共享、重启不丢失）
+//   - 否则回退到内存版 *auth.Blacklist
+//
+// Redis 连接复用 cache.RedisDriver 的 client，避免重复建连。
+func initTokenStore(cfg *config.Config, cacheDriver cache.Driver) auth.TokenStore {
+	redisDrv, ok := cacheDriver.(*cache.RedisDriver)
+	if !ok {
+		slog.Info("token store: using in-memory blacklist (cache driver is not redis)")
+		return auth.NewBlacklist()
+	}
+
+	store := auth.NewRedisTokenStore(redisDrv.Client(), cfg.Redis.Prefix+":jwt:blacklist:")
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	if err := store.Ping(ctx); err != nil {
+		slog.Warn("token store: redis unreachable, falling back to in-memory blacklist", "error", err)
+		return auth.NewBlacklist()
+	}
+	slog.Info("token store: using redis-backed blacklist")
+	return store
 }

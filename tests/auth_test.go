@@ -3,7 +3,7 @@ package auth_test
 import (
 	"testing"
 
-	"github.com/vortexcms/go-cms/internal/auth"
+	"github.com/yamovo/contentx/internal/auth"
 )
 
 func TestHashPassword(t *testing.T) {

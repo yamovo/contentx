@@ -1,0 +1,65 @@
+name: Bug 报告
+description: 提交一个 Bug 报告
+labels: ["bug"]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: Bug 描述
+      description: 清晰描述遇到了什么问题
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: 复现步骤
+      description: 如何重现这个问题
+      placeholder: |
+        1. 进入 '...'
+        2. 点击 '...'
+        3. 看到 '...'
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: 预期行为
+      description: 你期望发生什么
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: 实际行为
+      description: 实际发生了什么
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: ContentX 版本
+      placeholder: v1.0.0 或 commit hash
+    validations:
+      required: true
+
+  - type: dropdown
+    id: db
+    attributes:
+      label: 数据库
+      options:
+        - SQLite
+        - PostgreSQL
+        - MySQL
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: 相关日志
+      description: 粘贴相关错误日志（脱敏后）
+      render: shell

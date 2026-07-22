@@ -1,6 +1,8 @@
 package services
 
 import (
+	"bytes"
+	"context"
 	"crypto/sha256"
 	"fmt"
 	"io"
@@ -11,8 +13,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/vortexcms/go-cms/internal/config"
-	"github.com/vortexcms/go-cms/internal/models"
+	"github.com/yamovo/contentx/internal/config"
+	"github.com/yamovo/contentx/internal/models"
+	"github.com/yamovo/contentx/internal/repository"
+	"github.com/yamovo/contentx/internal/storage"
 	"gorm.io/gorm"
 )
 
@@ -46,71 +50,50 @@ type MediaStats struct {
 
 // MediaService handles media business logic.
 type MediaService struct {
-	db  *gorm.DB
-	cfg config.UploadConfig
+	repo    repository.MediaRepository
+	cfg     config.UploadConfig
+	store   storage.Driver // nil → fallback to legacy local-disk logic
+	webhook WebhookDispatcher
 }
 
-// NewMediaService creates a new MediaService.
+// NewMediaService creates a new MediaService backed by a GORM repository.
+// Kept for backward compatibility with existing callers and tests.
 func NewMediaService(db *gorm.DB, cfg config.UploadConfig) *MediaService {
-	return &MediaService{db: db, cfg: cfg}
+	return &MediaService{repo: repository.NewMediaRepository(db), cfg: cfg}
 }
+
+// NewMediaServiceWithRepo builds a MediaService with an explicit repository,
+// enabling unit tests to inject mocks.
+func NewMediaServiceWithRepo(repo repository.MediaRepository, cfg config.UploadConfig) *MediaService {
+	return &MediaService{repo: repo, cfg: cfg}
+}
+
+// SetWebhookDispatcher attaches a webhook dispatcher for event triggering.
+func (s *MediaService) SetWebhookDispatcher(d WebhookDispatcher) { s.webhook = d }
+
+// SetStorageDriver attaches a storage driver. When set, Upload/Delete/BulkDelete
+// delegate file I/O to this driver; when nil, the legacy local-disk path is used.
+func (s *MediaService) SetStorageDriver(d storage.Driver) { s.store = d }
 
 // List returns media files with pagination and filters.
 func (s *MediaService) List(params MediaListParams) ([]models.Media, int64, error) {
-	if params.Page < 1 {
-		params.Page = 1
-	}
-	if params.PageSize < 1 || params.PageSize > 100 {
-		params.PageSize = 20
-	}
-
-	query := s.db.Model(&models.Media{}).Preload("Uploader")
-
-	if params.MimeType != "" {
-		query = query.Where("mime_type LIKE ?", params.MimeType+"%")
-	}
-	if params.Folder != "" {
-		query = query.Where("folder = ?", params.Folder)
-	}
-	if params.Search != "" {
-		query = query.Where("filename LIKE ? OR original_name LIKE ? OR alt LIKE ?",
-			"%"+params.Search+"%", "%"+params.Search+"%", "%"+params.Search+"%")
-	}
-
-	switch params.Sort {
-	case "oldest":
-		query = query.Order("created_at ASC")
-	case "name":
-		query = query.Order("filename ASC")
-	case "size":
-		query = query.Order("file_size DESC")
-	default:
-		query = query.Order("created_at DESC")
-	}
-
-	var total int64
-	if err := query.Count(&total).Error; err != nil {
-		return nil, 0, err
-	}
-
-	var media []models.Media
-	if err := query.Offset((params.Page - 1) * params.PageSize).Limit(params.PageSize).Find(&media).Error; err != nil {
-		return nil, 0, err
-	}
-
-	return media, total, nil
+	return s.repo.List(repository.MediaListFilter{
+		Page:     params.Page,
+		PageSize: params.PageSize,
+		MimeType: params.MimeType,
+		Folder:   params.Folder,
+		Search:   params.Search,
+		Sort:     params.Sort,
+	})
 }
 
 // Get returns a single media item by ID.
 func (s *MediaService) Get(id uint) (*models.Media, error) {
-	var media models.Media
-	if err := s.db.Preload("Uploader").First(&media, id).Error; err != nil {
-		return nil, err
-	}
-	return &media, nil
+	return s.repo.GetByID(id)
 }
 
-// Upload handles file upload: validates, saves to disk, and creates the DB record.
+// Upload handles file upload: validates, saves via storage driver (or local disk),
+// and creates the DB record.
 func (s *MediaService) Upload(file io.Reader, header *multipart.FileHeader, folder, alt, title, caption, description string, uploaderID uint) (*models.Media, error) {
 	// Validate file size.
 	if header.Size > s.cfg.MaxSize {
@@ -125,6 +108,11 @@ func (s *MediaService) Upload(file io.Reader, header *multipart.FileHeader, fold
 	}
 	mimeType := http.DetectContentType(buf[:n])
 
+	// http.DetectContentType 无法可靠识别 SVG，按扩展名修正。
+	if strings.EqualFold(filepath.Ext(header.Filename), ".svg") {
+		mimeType = "image/svg+xml"
+	}
+
 	// Validate file type.
 	allowed := false
 	for _, t := range s.cfg.AllowedTypes {
@@ -137,6 +125,22 @@ func (s *MediaService) Upload(file io.Reader, header *multipart.FileHeader, fold
 		return nil, fmt.Errorf("file type not allowed: %s", mimeType)
 	}
 
+	// SVG 上传：读取完整内容并净化，剥离脚本、事件处理器与外部引用。
+	var sanitizedSVG []byte
+	if mimeType == "image/svg+xml" {
+		rest, err := io.ReadAll(file)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read SVG content: %w", err)
+		}
+		full := make([]byte, 0, n+len(rest))
+		full = append(full, buf[:n]...)
+		full = append(full, rest...)
+		sanitizedSVG, err = SanitizeSVG(full)
+		if err != nil {
+			return nil, fmt.Errorf("SVG rejected: %w", err)
+		}
+	}
+
 	// Determine and sanitize folder path.
 	if folder == "" {
 		folder = "/" + time.Now().Format("2006/01")
@@ -146,43 +150,70 @@ func (s *MediaService) Upload(file io.Reader, header *multipart.FileHeader, fold
 		return nil, fmt.Errorf("invalid folder path")
 	}
 
-	// Create directory.
-	uploadDir := filepath.Join(s.cfg.StoragePath, folder)
-	if err := os.MkdirAll(uploadDir, 0755); err != nil {
-		return nil, fmt.Errorf("failed to create upload directory: %w", err)
-	}
-
 	// Generate unique filename.
 	ext := filepath.Ext(header.Filename)
 	hash := sha256.New()
 	fmt.Fprintf(hash, "%s-%d-%s", header.Filename, time.Now().UnixNano(), header.Filename)
 	filename := fmt.Sprintf("%x%s", hash.Sum(nil), ext)
-	filePath := filepath.Join(uploadDir, filename)
 
-	// Save file to disk.
-	dst, err := os.Create(filePath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create file: %w", err)
+	// Prepare the file content as a single reader. We've already consumed `buf[:n]`
+	// from `file`; we need to prepend it for non-SVG uploads.
+	var fileContent io.Reader
+	var size int64
+	var checksumHex string
+
+	if sanitizedSVG != nil {
+		fileContent = bytes.NewReader(sanitizedSVG)
+		size = int64(len(sanitizedSVG))
+		sum := sha256.Sum256(sanitizedSVG)
+		checksumHex = fmt.Sprintf("%x", sum)
+	} else {
+		// Reconstruct full content: buf[:n] + rest of file.
+		rest, err := io.ReadAll(file)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read file content: %w", err)
+		}
+		full := make([]byte, 0, n+len(rest))
+		full = append(full, buf[:n]...)
+		full = append(full, rest...)
+		fileContent = bytes.NewReader(full)
+		size = int64(len(full))
+		sum := sha256.Sum256(full)
+		checksumHex = fmt.Sprintf("%x", sum)
 	}
-	defer dst.Close()
 
-	size, err := io.Copy(dst, file)
-	if err != nil {
-		os.Remove(filePath)
-		return nil, fmt.Errorf("failed to write file: %w", err)
+	// Build the storage key (folder/filename) and save via the appropriate backend.
+	// Normalize the folder to forward slashes so S3 object keys are well-formed
+	// on every platform (filepath.Clean uses backslashes on Windows).
+	key := strings.TrimPrefix(filepath.ToSlash(folder), "/") + "/" + filename
+
+	var filePath, url string
+	if s.store != nil {
+		// Storage driver path (S3 / MinIO / etc.)
+		url, err = s.store.Upload(context.Background(), key, fileContent, mimeType)
+		if err != nil {
+			return nil, fmt.Errorf("failed to upload to storage: %w", err)
+		}
+		filePath = key // for S3, FilePath stores the object key
+	} else {
+		// Legacy local-disk path.
+		uploadDir := filepath.Join(s.cfg.StoragePath, folder)
+		if err := os.MkdirAll(uploadDir, 0755); err != nil {
+			return nil, fmt.Errorf("failed to create upload directory: %w", err)
+		}
+		filePath = filepath.Join(uploadDir, filename)
+		dst, err := os.Create(filePath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create file: %w", err)
+		}
+		if _, err := io.Copy(dst, fileContent); err != nil {
+			dst.Close()
+			os.Remove(filePath)
+			return nil, fmt.Errorf("failed to write file: %w", err)
+		}
+		dst.Close()
+		url = s.cfg.URLPrefix + "/" + folder + "/" + filename
 	}
-
-	// Calculate checksum by re-reading the saved file.
-	savedFile, err := os.Open(filePath)
-	if err != nil {
-		os.Remove(filePath)
-		return nil, fmt.Errorf("failed to read saved file for checksum: %w", err)
-	}
-	checksum := sha256.New()
-	io.Copy(checksum, savedFile)
-	savedFile.Close()
-
-	url := s.cfg.URLPrefix + "/" + folder + "/" + filename
 
 	media := models.Media{
 		Filename:     filename,
@@ -193,16 +224,25 @@ func (s *MediaService) Upload(file io.Reader, header *multipart.FileHeader, fold
 		FileSize:     size,
 		Folder:       folder,
 		UploaderID:   uploaderID,
-		Checksum:     fmt.Sprintf("%x", checksum.Sum(nil)),
+		Checksum:     checksumHex,
 		Alt:          alt,
 		Title:        title,
 		Caption:      caption,
 		Description:  description,
 	}
 
-	if err := s.db.Create(&media).Error; err != nil {
-		os.Remove(filePath)
+	if err := s.repo.Create(&media); err != nil {
+		// Best-effort cleanup of the stored file.
+		if s.store != nil {
+			s.store.Delete(context.Background(), key)
+		} else {
+			os.Remove(filePath)
+		}
 		return nil, fmt.Errorf("failed to save media record: %w", err)
+	}
+
+	if s.webhook != nil {
+		s.webhook.Dispatch(models.WebhookEventMediaCreate, &media)
 	}
 
 	return &media, nil
@@ -210,8 +250,7 @@ func (s *MediaService) Upload(file io.Reader, header *multipart.FileHeader, fold
 
 // Update updates media metadata.
 func (s *MediaService) Update(id uint, req UpdateMediaRequest) error {
-	var media models.Media
-	if err := s.db.First(&media, id).Error; err != nil {
+	if _, err := s.repo.FindByID(id); err != nil {
 		return err
 	}
 
@@ -225,74 +264,80 @@ func (s *MediaService) Update(id uint, req UpdateMediaRequest) error {
 		updates["folder"] = req.Folder
 	}
 
-	return s.db.Model(&media).Updates(updates).Error
+	return s.repo.UpdateFields(id, updates)
 }
 
-// Delete removes a media file from disk and the database.
+// Delete removes a media file from storage (or local disk) and the database.
 func (s *MediaService) Delete(id uint) error {
-	var media models.Media
-	if err := s.db.First(&media, id).Error; err != nil {
+	media, err := s.repo.FindByID(id)
+	if err != nil {
 		return err
 	}
 
-	// Remove file from disk.
-	os.Remove(media.FilePath)
-	if media.ThumbnailURL != "" {
-		thumbPath := strings.Replace(media.ThumbnailURL, s.cfg.URLPrefix, s.cfg.StoragePath, 1)
-		os.Remove(thumbPath)
+	// Remove the primary file via the configured backend.
+	s.removeStoredFile(media.FilePath, media.ThumbnailURL)
+
+	if err := s.repo.Delete(media); err != nil {
+		return err
 	}
 
-	return s.db.Delete(&media).Error
+	if s.webhook != nil {
+		s.webhook.Dispatch(models.WebhookEventMediaDelete, media)
+	}
+	return nil
 }
 
 // BulkDelete removes multiple media files by ID. Returns the number of rows affected.
 func (s *MediaService) BulkDelete(ids []uint) (int64, error) {
-	var media []models.Media
-	if err := s.db.Where("id IN ?", ids).Find(&media).Error; err != nil {
+	media, err := s.repo.FindByIDs(ids)
+	if err != nil {
 		return 0, err
 	}
 
-	// Remove files from disk.
+	// Remove files via the configured backend.
 	for _, m := range media {
-		os.Remove(m.FilePath)
-		if m.ThumbnailURL != "" {
-			thumbPath := strings.Replace(m.ThumbnailURL, s.cfg.URLPrefix, s.cfg.StoragePath, 1)
-			os.Remove(thumbPath)
-		}
+		s.removeStoredFile(m.FilePath, m.ThumbnailURL)
 	}
 
-	result := s.db.Where("id IN ?", ids).Delete(&models.Media{})
-	return result.RowsAffected, result.Error
+	return s.repo.DeleteByIDs(ids)
+}
+
+// removeStoredFile deletes the primary file (and thumbnail, if any) using the
+// storage driver when configured, otherwise falls back to local-disk removal.
+// For the storage-driver path, FilePath holds the object key. For the legacy
+// local path, FilePath holds the absolute filesystem path and ThumbnailURL is
+// resolved by replacing the URL prefix with the storage path.
+func (s *MediaService) removeStoredFile(filePath, thumbnailURL string) {
+	if s.store != nil {
+		// Storage driver path: filePath is the object key. Ignore ThumbnailURL
+		// because the driver does not manage local thumbnails.
+		_ = s.store.Delete(context.Background(), filePath)
+		return
+	}
+	// Legacy local-disk path.
+	os.Remove(filePath)
+	if thumbnailURL != "" {
+		thumbPath := strings.Replace(thumbnailURL, s.cfg.URLPrefix, s.cfg.StoragePath, 1)
+		os.Remove(thumbPath)
+	}
 }
 
 // Folders returns all unique media folders.
 func (s *MediaService) Folders() ([]string, error) {
-	var folders []string
-	if err := s.db.Model(&models.Media{}).Distinct().Pluck("folder", &folders).Error; err != nil {
-		return nil, err
-	}
-	return folders, nil
+	return s.repo.ListFolders()
 }
 
 // Stats returns media library statistics.
 func (s *MediaService) Stats() (MediaStats, error) {
-	var stats MediaStats
-
-	if err := s.db.Model(&models.Media{}).Count(&stats.TotalFiles).Error; err != nil {
-		return stats, err
+	data, err := s.repo.Stats()
+	if err != nil {
+		return MediaStats{}, err
 	}
-	if err := s.db.Model(&models.Media{}).Select("COALESCE(SUM(file_size), 0)").Scan(&stats.TotalSize).Error; err != nil {
-		return stats, err
-	}
-	if err := s.db.Model(&models.Media{}).Where("mime_type LIKE ?", "image%").Count(&stats.Images).Error; err != nil {
-		return stats, err
-	}
-	if err := s.db.Model(&models.Media{}).Where("mime_type LIKE ?", "video%").Count(&stats.Videos).Error; err != nil {
-		return stats, err
-	}
-	if err := s.db.Model(&models.Media{}).Where("mime_type LIKE ?", "application%").Count(&stats.Documents).Error; err != nil {
-		return stats, err
-	}
-
-	return stats, nil
+	return MediaStats{
+		TotalFiles: data.TotalFiles,
+		TotalSize:  data.TotalSize,
+		Images:     data.Images,
+		Videos:     data.Videos,
+		Documents:  data.Documents,
+	}, nil
 }

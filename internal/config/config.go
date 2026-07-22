@@ -29,6 +29,13 @@ type Config struct {
 	Limits   LimitsConfig
 	CORS     CORSConfig
 	Log      LogConfig
+	I18n     I18nConfig
+}
+
+// I18nConfig holds internationalization settings.
+type I18nConfig struct {
+	DefaultLocale string   // e.g. "en"
+	Locales       []string // supported locales, e.g. ["en", "zh", "ja"]
 }
 
 // ServerConfig holds HTTP server settings.
@@ -77,12 +84,26 @@ type JWTConfig struct {
 
 // UploadConfig holds file upload settings.
 type UploadConfig struct {
+	Driver       string // "local" (default) or "s3"
 	MaxSize      int64
 	AllowedTypes []string
-	StoragePath  string
-	URLPrefix    string
+	StoragePath  string // local driver base directory
+	URLPrefix    string // local driver URL prefix
 	ThumbnailMax int
 	ImageQuality int
+	S3           S3UploadConfig
+}
+
+// S3UploadConfig holds S3-compatible storage settings (AWS S3 / MinIO / Alibaba OSS).
+type S3UploadConfig struct {
+	Endpoint  string // e.g. "s3.amazonaws.com" or "minio.local:9000"
+	Bucket    string
+	Region    string
+	AccessKey string
+	SecretKey string
+	PublicURL string // CDN URL override; if empty, derived from endpoint+bucket
+	UseSSL    bool
+	PathStyle bool // true for MinIO
 }
 
 // MailConfig holds SMTP mail settings.
@@ -208,7 +229,7 @@ func Load() *Config {
 			Port:     envInt("REDIS_PORT", 6379),
 			Password: envStr("REDIS_PASSWORD", ""),
 			DB:       envInt("REDIS_DB", 0),
-			Prefix:   envStr("REDIS_PREFIX", "vortex:"),
+			Prefix:   envStr("REDIS_PREFIX", "contentx:"),
 		},
 		JWT: JWTConfig{
 			Secret:           loadJWTSecret(),
@@ -217,12 +238,23 @@ func Load() *Config {
 			Issuer:           envStr("JWT_ISSUER", "contentx"),
 		},
 		Upload: UploadConfig{
+			Driver:       envStr("STORAGE_DRIVER", "local"), // local | s3
 			MaxSize:      int64(envInt("UPLOAD_MAX_SIZE", 20<<20)), // 20MB
 			AllowedTypes: envSlice("UPLOAD_ALLOWED_TYPES", []string{"image/jpeg", "image/png", "image/gif", "image/webp", "application/pdf", "video/mp4"}),
 			StoragePath:  envStr("UPLOAD_STORAGE_PATH", "./uploads"),
 			URLPrefix:    envStr("UPLOAD_URL_PREFIX", "/uploads"),
 			ThumbnailMax: envInt("UPLOAD_THUMBNAIL_MAX", 400),
 			ImageQuality: envInt("UPLOAD_IMAGE_QUALITY", 85),
+			S3: S3UploadConfig{
+				Endpoint:  envStr("S3_ENDPOINT", ""),
+				Bucket:    envStr("S3_BUCKET", "contentx"),
+				Region:    envStr("S3_REGION", "us-east-1"),
+				AccessKey: envStr("S3_ACCESS_KEY", ""),
+				SecretKey: envStr("S3_SECRET_KEY", ""),
+				PublicURL: envStr("S3_PUBLIC_URL", ""),
+				UseSSL:    envBool("S3_USE_SSL", true),
+				PathStyle: envBool("S3_PATH_STYLE", false),
+			},
 		},
 		Mail: MailConfig{
 			Host:     envStr("SMTP_HOST", "localhost"),
@@ -293,6 +325,10 @@ func Load() *Config {
 			MaxSize:    envInt("LOG_MAX_SIZE", 100),
 			MaxBackups: envInt("LOG_MAX_BACKUPS", 3),
 			MaxAge:     envInt("LOG_MAX_AGE", 28),
+		},
+		I18n: I18nConfig{
+			DefaultLocale: envStr("I18N_DEFAULT_LOCALE", "en"),
+			Locales:       envSlice("I18N_LOCALES", []string{"en"}),
 		},
 	}
 }
@@ -391,4 +427,63 @@ func loadJWTSecret() string {
 	secret = base64.StdEncoding.EncodeToString(b)
 	slog.Warn("using auto-generated JWT secret", "hint", "set JWT_SECRET env var for persistence")
 	return secret
+}
+
+// knownWeakSecrets lists obviously weak JWT secrets that should be rejected.
+var knownWeakSecrets = []string{
+	"secret", "changeme", "your-secret-key", "jwt-secret",
+	"my-secret-key", "super-secret", "123456", "password",
+}
+
+// Validate runs startup security checks and logs warnings.
+// Returns false if any check fails fatally.
+func (c *Config) Validate() bool {
+	ok := true
+
+	// 1. JWT Secret strength check.
+	if c.JWT.Secret != "" {
+		if len(c.JWT.Secret) < 16 {
+			slog.Error("JWT_SECRET is too short", "length", len(c.JWT.Secret), "required", 16)
+			ok = false
+		}
+		for _, weak := range knownWeakSecrets {
+			if strings.EqualFold(c.JWT.Secret, weak) {
+				slog.Error("JWT_SECRET is a known weak value", "value", c.JWT.Secret)
+				ok = false
+				break
+			}
+		}
+	}
+
+	// 2. Production mode checks.
+	if c.Server.Mode == "release" {
+		// Admin password must be set in production.
+		if os.Getenv("ADMIN_PASSWORD") == "" {
+			slog.Error("ADMIN_PASSWORD must be set in production mode")
+			ok = false
+		}
+		if os.Getenv("ADMIN_PASSWORD") != "" && len(os.Getenv("ADMIN_PASSWORD")) < 8 {
+			slog.Error("ADMIN_PASSWORD is too short", "required", 8)
+			ok = false
+		}
+		if c.Database.Password == "" && c.Database.Driver != "sqlite" {
+			slog.Error("DB_PASSWORD must be set in production mode")
+			ok = false
+		}
+		if c.Server.BaseURL == "" {
+			slog.Warn("SERVER_BASE_URL is not set")
+		}
+	}
+
+	// 3. Debug mode warnings.
+	if c.Server.Mode != "release" {
+		if c.Server.Host == "0.0.0.0" {
+			slog.Warn("server is listening on all interfaces (0.0.0.0) in non-release mode")
+		}
+		if os.Getenv("ADMIN_PASSWORD") != "" && len(os.Getenv("ADMIN_PASSWORD")) < 8 {
+			slog.Warn("ADMIN_PASSWORD is weak", "length", len(os.Getenv("ADMIN_PASSWORD")))
+		}
+	}
+
+	return ok
 }

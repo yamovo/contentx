@@ -4,7 +4,7 @@ import (
 	"strconv"
 
 	"github.com/gin-gonic/gin"
-	"github.com/vortexcms/go-cms/internal/services"
+	"github.com/yamovo/contentx/internal/services"
 )
 
 // WebhookHandler manages webhooks.
@@ -32,7 +32,7 @@ func NewWebhookHandler(svc *services.WebhookService) *WebhookHandler {
 func (h *WebhookHandler) List(c *gin.Context) {
 	webhooks, err := h.svc.List()
 	if err != nil {
-		InternalError(c)
+		handleServiceError(c, err)
 		return
 	}
 	Success(c, webhooks)
@@ -56,13 +56,13 @@ func (h *WebhookHandler) List(c *gin.Context) {
 func (h *WebhookHandler) Create(c *gin.Context) {
 	var req services.CreateWebhookRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		BadRequest(c, err.Error())
+		BadRequest(c, sanitizeBindErr(err))
 		return
 	}
 
 	wh, err := h.svc.Create(req)
 	if err != nil {
-		BadRequest(c, err.Error())
+		handleServiceError(c, err)
 		return
 	}
 
@@ -91,7 +91,7 @@ func (h *WebhookHandler) Delete(c *gin.Context) {
 	}
 
 	if err := h.svc.Delete(uint(id)); err != nil {
-		NotFound(c, "Webhook not found")
+		handleServiceError(c, err)
 		return
 	}
 
@@ -122,7 +122,7 @@ func (h *WebhookHandler) Logs(c *gin.Context) {
 	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "50"))
 	logs, err := h.svc.GetLogs(uint(id), limit)
 	if err != nil {
-		InternalError(c)
+		handleServiceError(c, err)
 		return
 	}
 

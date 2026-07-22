@@ -2,10 +2,10 @@ package services
 
 import (
 	"errors"
-	"strconv"
 
 	"github.com/gosimple/slug"
-	"github.com/vortexcms/go-cms/internal/models"
+	"github.com/yamovo/contentx/internal/models"
+	"github.com/yamovo/contentx/internal/repository"
 	"gorm.io/gorm"
 )
 
@@ -38,40 +38,29 @@ type CategoryTree struct {
 
 // CategoryService handles category business logic.
 type CategoryService struct {
-	db *gorm.DB
+	repo repository.CategoryRepository
 }
 
-// NewCategoryService creates a new CategoryService.
+// NewCategoryService creates a new CategoryService backed by a GORM repository.
+// Kept for backward compatibility with existing callers and tests.
 func NewCategoryService(db *gorm.DB) *CategoryService {
-	return &CategoryService{db: db}
+	return &CategoryService{repo: repository.NewCategoryRepository(db)}
+}
+
+// NewCategoryServiceWithRepo builds a CategoryService with an explicit repository,
+// enabling unit tests to inject mocks.
+func NewCategoryServiceWithRepo(repo repository.CategoryRepository) *CategoryService {
+	return &CategoryService{repo: repo}
 }
 
 // List returns all categories in a tree structure.
 func (s *CategoryService) List(showAll bool) ([]models.Category, error) {
-	query := s.db.Model(&models.Category{})
-	if !showAll {
-		query = query.Where("is_active = ?", true)
-	}
-
-	var categories []models.Category
-	if err := query.Order("sort_order ASC, name ASC").Find(&categories).Error; err != nil {
-		return nil, err
-	}
-	return categories, nil
+	return s.repo.List(showAll)
 }
 
 // Get returns a single category by ID with parent and children loaded.
 func (s *CategoryService) Get(id uint) (*models.Category, error) {
-	var category models.Category
-	if err := s.db.First(&category, id).Error; err != nil {
-		return nil, err
-	}
-
-	// Load parent and children.
-	s.db.Model(&category).Association("Parent")
-	s.db.Where("parent_id = ?", category.ID).Order("sort_order ASC").Find(&category.Children)
-
-	return &category, nil
+	return s.repo.GetByID(id)
 }
 
 // Create creates a new category.
@@ -100,9 +89,9 @@ func (s *CategoryService) Create(req CreateCategoryRequest) (*models.Category, e
 		}
 	}
 
-	category.Slug = s.ensureUniqueSlug(category.Slug, 0)
+	category.Slug = s.repo.EnsureUniqueSlug(category.Slug, 0)
 
-	if err := s.db.Create(&category).Error; err != nil {
+	if err := s.repo.Create(&category); err != nil {
 		return nil, err
 	}
 
@@ -111,8 +100,8 @@ func (s *CategoryService) Create(req CreateCategoryRequest) (*models.Category, e
 
 // Update updates an existing category.
 func (s *CategoryService) Update(id uint, req CreateCategoryRequest) error {
-	var category models.Category
-	if err := s.db.First(&category, id).Error; err != nil {
+	category, err := s.repo.FindByID(id)
+	if err != nil {
 		return errors.New("category not found")
 	}
 
@@ -128,45 +117,31 @@ func (s *CategoryService) Update(id uint, req CreateCategoryRequest) error {
 	}
 
 	if req.Slug != "" {
-		updates["slug"] = s.ensureUniqueSlug(req.Slug, category.ID)
+		updates["slug"] = s.repo.EnsureUniqueSlug(req.Slug, category.ID)
 	} else if req.Name != category.Name {
 		newSlug := slug.MakeLang(req.Name, "zh")
 		if newSlug == "" {
 			newSlug = slug.Make(req.Name)
 		}
-		updates["slug"] = s.ensureUniqueSlug(newSlug, category.ID)
+		updates["slug"] = s.repo.EnsureUniqueSlug(newSlug, category.ID)
 	}
 
 	if req.IsActive != nil {
 		updates["is_active"] = *req.IsActive
 	}
 
-	return s.db.Model(&category).Updates(updates).Error
+	return s.repo.UpdateFields(id, updates)
 }
 
 // Delete removes a category, moving its articles and children.
 func (s *CategoryService) Delete(id uint) error {
-	var category models.Category
-	if err := s.db.First(&category, id).Error; err != nil {
-		return errors.New("category not found")
-	}
-
-	// Move articles to uncategorized (null).
-	s.db.Model(&models.Article{}).Where("category_id = ?", category.ID).Update("category_id", nil)
-	// Move children to root.
-	s.db.Model(&models.Category{}).Where("parent_id = ?", category.ID).Update("parent_id", nil)
-
-	return s.db.Delete(&category).Error
+	return s.repo.Delete(id)
 }
 
 // Reorder updates sort order (and optionally parent) for multiple categories.
 func (s *CategoryService) Reorder(items []ReorderItem) error {
 	for _, item := range items {
-		updates := map[string]interface{}{"sort_order": item.SortOrder}
-		if item.ParentID != nil {
-			updates["parent_id"] = item.ParentID
-		}
-		if err := s.db.Model(&models.Category{}).Where("id = ?", item.ID).Updates(updates).Error; err != nil {
+		if err := s.repo.UpdateSortOrder(item.ID, item.SortOrder, item.ParentID); err != nil {
 			return err
 		}
 	}
@@ -185,21 +160,4 @@ func BuildCategoryTree(categories []models.Category, parentID *uint) []CategoryT
 		}
 	}
 	return tree
-}
-
-// ensureUniqueSlug generates a unique slug by appending a counter if needed.
-func (s *CategoryService) ensureUniqueSlug(original string, excludeID uint) string {
-	candidate := original
-	for i := 1; ; i++ {
-		var count int64
-		query := s.db.Model(&models.Category{}).Where("slug = ?", candidate)
-		if excludeID > 0 {
-			query = query.Where("id != ?", excludeID)
-		}
-		query.Count(&count)
-		if count == 0 {
-			return candidate
-		}
-		candidate = original + "-" + strconv.Itoa(i)
-	}
 }

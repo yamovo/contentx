@@ -6,7 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/vortexcms/go-cms/internal/models"
+	"github.com/yamovo/contentx/internal/models"
+	"github.com/yamovo/contentx/internal/repository"
 	"gorm.io/gorm"
 )
 
@@ -86,24 +87,24 @@ type RecordViewRequest struct {
 
 // DashboardData is the response for AnalyticsService.Dashboard.
 type DashboardData struct {
-	Stats           DashboardStats     `json:"stats"`
-	RecentArticles  []models.Article   `json:"recent_articles"`
-	RecentComments  []models.Comment   `json:"recent_comments"`
-	PopularArticles []models.Article   `json:"popular_articles"`
+	Stats           DashboardStats   `json:"stats"`
+	RecentArticles  []models.Article `json:"recent_articles"`
+	RecentComments  []models.Comment `json:"recent_comments"`
+	PopularArticles []models.Article `json:"popular_articles"`
 }
 
 // DashboardStats holds aggregate counts for the dashboard.
 type DashboardStats struct {
-	Articles       int64 `json:"total_articles"`
-	Published      int64 `json:"published_articles"`
-	Comments       int64 `json:"total_comments"`
+	Articles        int64 `json:"total_articles"`
+	Published       int64 `json:"published_articles"`
+	Comments        int64 `json:"total_comments"`
 	PendingComments int64 `json:"pending_comments"`
-	Users          int64 `json:"total_users"`
-	Media          int64 `json:"total_media"`
-	ViewsToday     int64 `json:"views_today"`
-	ViewsThisWeek  int64 `json:"views_this_week"`
-	ViewsThisMonth int64 `json:"views_this_month"`
-	TotalViews     int64 `json:"total_views"`
+	Users           int64 `json:"total_users"`
+	Media           int64 `json:"total_media"`
+	ViewsToday      int64 `json:"views_today"`
+	ViewsThisWeek   int64 `json:"views_this_week"`
+	ViewsThisMonth  int64 `json:"views_this_month"`
+	TotalViews      int64 `json:"total_views"`
 }
 
 // Referrer holds a referrer URL and its hit count.
@@ -131,24 +132,25 @@ type DeviceBreakdownData struct {
 
 // SettingsService provides site settings operations.
 type SettingsService struct {
-	db *gorm.DB
+	repo repository.SettingsRepository
 }
 
-// NewSettingsService creates a new SettingsService.
+// NewSettingsService creates a new SettingsService backed by a GORM repository.
+// Kept for backward compatibility with existing callers and tests.
 func NewSettingsService(db *gorm.DB) *SettingsService {
-	return &SettingsService{db: db}
+	return &SettingsService{repo: repository.NewSettingsRepository(db)}
+}
+
+// NewSettingsServiceWithRepo builds a SettingsService with an explicit repository,
+// enabling unit tests to inject mocks.
+func NewSettingsServiceWithRepo(repo repository.SettingsRepository) *SettingsService {
+	return &SettingsService{repo: repo}
 }
 
 // List returns all settings, optionally filtered by group, plus a grouped map.
 func (s *SettingsService) List(group string) ([]models.SiteSetting, map[string][]models.SiteSetting, error) {
-	query := s.db.Model(&models.SiteSetting{})
-	if group != "" {
-		query = query.Where("group = ?", group)
-	}
-	query.Order("sort_order ASC")
-
-	var settings []models.SiteSetting
-	if err := query.Find(&settings).Error; err != nil {
+	settings, err := s.repo.List(group)
+	if err != nil {
 		return nil, nil, err
 	}
 
@@ -162,27 +164,26 @@ func (s *SettingsService) List(group string) ([]models.SiteSetting, map[string][
 
 // Get returns a single setting by key.
 func (s *SettingsService) Get(key string) (*models.SiteSetting, error) {
-	var setting models.SiteSetting
-	if err := s.db.Where("key = ?", key).First(&setting).Error; err != nil {
-		return nil, err
-	}
-	return &setting, nil
+	return s.repo.Get(key)
 }
 
 // Update upserts multiple settings at once.
 func (s *SettingsService) Update(settings map[string]interface{}) error {
 	for key, value := range settings {
 		strValue := stringifyValue(value)
-		result := s.db.Model(&models.SiteSetting{}).
-			Where("key = ?", key).
-			Update("value", strValue)
-		if result.RowsAffected == 0 {
-			s.db.Create(&models.SiteSetting{
+		rowsAffected, err := s.repo.UpdateValue(key, strValue)
+		if err != nil {
+			return err
+		}
+		if rowsAffected == 0 {
+			if err := s.repo.Create(&models.SiteSetting{
 				Key:   key,
 				Value: strValue,
 				Type:  detectType(value),
 				Group: "custom",
-			})
+			}); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
@@ -190,8 +191,8 @@ func (s *SettingsService) Update(settings map[string]interface{}) error {
 
 // PublicSettings returns public settings as a flat key-value map.
 func (s *SettingsService) PublicSettings() (map[string]string, error) {
-	var settings []models.SiteSetting
-	if err := s.db.Where("is_public = ?", true).Order("sort_order ASC").Find(&settings).Error; err != nil {
+	settings, err := s.repo.ListPublic()
+	if err != nil {
 		return nil, err
 	}
 	result := make(map[string]string)
@@ -207,66 +208,64 @@ func (s *SettingsService) PublicSettings() (map[string]string, error) {
 
 // SEOService provides SEO settings and tools.
 type SEOService struct {
-	db      *gorm.DB
+	repo    repository.SEORepository
 	baseURL string
 }
 
-// NewSEOService creates a new SEOService.
+// NewSEOService creates a new SEOService backed by a GORM repository.
+// Kept for backward compatibility with existing callers and tests.
 func NewSEOService(db *gorm.DB, baseURL string) *SEOService {
-	return &SEOService{db: db, baseURL: baseURL}
+	return &SEOService{repo: repository.NewSEORepository(db), baseURL: baseURL}
+}
+
+// NewSEOServiceWithRepo builds an SEOService with an explicit repository,
+// enabling unit tests to inject mocks.
+func NewSEOServiceWithRepo(repo repository.SEORepository, baseURL string) *SEOService {
+	return &SEOService{repo: repo, baseURL: baseURL}
 }
 
 // GetSetting returns the SEO setting for a specific entity.
 func (s *SEOService) GetSetting(entityType string, entityID uint) (*models.SEOSetting, error) {
-	var setting models.SEOSetting
-	if err := s.db.Where("entity_type = ? AND entity_id = ?", entityType, entityID).
-		First(&setting).Error; err != nil {
-		return nil, err
-	}
-	return &setting, nil
+	return s.repo.GetSetting(entityType, entityID)
 }
 
 // UpdateSetting upserts SEO settings for a specific entity.
 func (s *SEOService) UpdateSetting(entityType string, entityID uint, req SEOSettingRequest) error {
-	var setting models.SEOSetting
-	err := s.db.Where("entity_type = ? AND entity_id = ?", entityType, entityID).First(&setting).Error
-
-	if err == gorm.ErrRecordNotFound {
-		setting = models.SEOSetting{
-			EntityType: entityType,
-			EntityID:   entityID,
-			Title:      req.Title,
-			Desc:       req.Desc,
-			Keywords:   req.Keywords,
-			Canonical:  req.Canonical,
-			OGImage:    req.OGImage,
-			OGType:     req.OGType,
-			Robots:     req.Robots,
-			Extra:      req.Extra,
-		}
-		return s.db.Create(&setting).Error
-	}
+	setting, err := s.repo.GetSetting(entityType, entityID)
 	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			setting = &models.SEOSetting{
+				EntityType: entityType,
+				EntityID:   entityID,
+				Title:      req.Title,
+				Desc:       req.Desc,
+				Keywords:   req.Keywords,
+				Canonical:  req.Canonical,
+				OGImage:    req.OGImage,
+				OGType:     req.OGType,
+				Robots:     req.Robots,
+				Extra:      req.Extra,
+			}
+			return s.repo.CreateSetting(setting)
+		}
 		return err
 	}
 
-	return s.db.Model(&setting).Updates(map[string]interface{}{
-		"title":     req.Title,
-		"desc":      req.Desc,
-		"keywords":  req.Keywords,
-		"canonical": req.Canonical,
-		"og_image":  req.OGImage,
-		"og_type":   req.OGType,
-		"robots":    req.Robots,
-		"extra":     req.Extra,
-	}).Error
+	setting.Title = req.Title
+	setting.Desc = req.Desc
+	setting.Keywords = req.Keywords
+	setting.Canonical = req.Canonical
+	setting.OGImage = req.OGImage
+	setting.OGType = req.OGType
+	setting.Robots = req.Robots
+	setting.Extra = req.Extra
+	return s.repo.SaveSetting(setting)
 }
 
 // Sitemap generates a sitemap XML string using the configured base URL.
 func (s *SEOService) Sitemap() (string, error) {
-	var articles []models.Article
-	if err := s.db.Where("status = ? AND post_type = ?", models.StatusPublished, models.PostTypePost).
-		Order("updated_at DESC").Find(&articles).Error; err != nil {
+	articles, err := s.repo.ListPublishedArticlesForSitemap()
+	if err != nil {
 		return "", err
 	}
 
@@ -300,11 +299,7 @@ Sitemap: ` + s.baseURL + `/sitemap.xml
 
 // ListRedirects returns all redirect rules ordered by from_path.
 func (s *SEOService) ListRedirects() ([]models.RedirectRule, error) {
-	var rules []models.RedirectRule
-	if err := s.db.Order("from_path ASC").Find(&rules).Error; err != nil {
-		return nil, err
-	}
-	return rules, nil
+	return s.repo.ListRedirects()
 }
 
 // CreateRedirect creates a new redirect rule.
@@ -319,7 +314,7 @@ func (s *SEOService) CreateRedirect(req CreateRedirectRequest) (*models.Redirect
 		Note:       req.Note,
 		IsActive:   true,
 	}
-	if err := s.db.Create(&rule).Error; err != nil {
+	if err := s.repo.CreateRedirect(&rule); err != nil {
 		return nil, err
 	}
 	return &rule, nil
@@ -327,7 +322,7 @@ func (s *SEOService) CreateRedirect(req CreateRedirectRequest) (*models.Redirect
 
 // DeleteRedirect deletes a redirect rule by ID.
 func (s *SEOService) DeleteRedirect(id uint) error {
-	return s.db.Delete(&models.RedirectRule{}, id).Error
+	return s.repo.DeleteRedirect(id)
 }
 
 // ============================================================
@@ -336,34 +331,29 @@ func (s *SEOService) DeleteRedirect(id uint) error {
 
 // MenuService provides navigation menu operations.
 type MenuService struct {
-	db *gorm.DB
+	repo repository.MenuRepository
 }
 
-// NewMenuService creates a new MenuService.
+// NewMenuService creates a new MenuService backed by a GORM repository.
+// Kept for backward compatibility with existing callers and tests.
 func NewMenuService(db *gorm.DB) *MenuService {
-	return &MenuService{db: db}
+	return &MenuService{repo: repository.NewMenuRepository(db)}
+}
+
+// NewMenuServiceWithRepo builds a MenuService with an explicit repository,
+// enabling unit tests to inject mocks.
+func NewMenuServiceWithRepo(repo repository.MenuRepository) *MenuService {
+	return &MenuService{repo: repo}
 }
 
 // List returns all menus with their items sorted by sort_order.
 func (s *MenuService) List() ([]models.Menu, error) {
-	var menus []models.Menu
-	if err := s.db.Preload("Items", func(db *gorm.DB) *gorm.DB {
-		return db.Order("sort_order ASC")
-	}).Find(&menus).Error; err != nil {
-		return nil, err
-	}
-	return menus, nil
+	return s.repo.ListMenus()
 }
 
 // Get returns a single menu by ID with its items sorted by sort_order.
 func (s *MenuService) Get(id uint) (*models.Menu, error) {
-	var menu models.Menu
-	if err := s.db.Preload("Items", func(db *gorm.DB) *gorm.DB {
-		return db.Order("sort_order ASC")
-	}).First(&menu, id).Error; err != nil {
-		return nil, err
-	}
-	return &menu, nil
+	return s.repo.GetMenuByID(id)
 }
 
 // Create creates a new menu.
@@ -373,7 +363,7 @@ func (s *MenuService) Create(req CreateMenuRequest) (*models.Menu, error) {
 		Slug:      req.Slug,
 		Locations: req.Locations,
 	}
-	if err := s.db.Create(&menu).Error; err != nil {
+	if err := s.repo.CreateMenu(&menu); err != nil {
 		return nil, err
 	}
 	return &menu, nil
@@ -381,26 +371,21 @@ func (s *MenuService) Create(req CreateMenuRequest) (*models.Menu, error) {
 
 // Update updates a menu's name and locations.
 func (s *MenuService) Update(id uint, req UpdateMenuRequest) error {
-	var menu models.Menu
-	if err := s.db.First(&menu, id).Error; err != nil {
+	if _, err := s.repo.FindMenu(id); err != nil {
 		return err
 	}
-	return s.db.Model(&menu).Updates(map[string]interface{}{
+	return s.repo.UpdateMenuFields(id, map[string]interface{}{
 		"name":      req.Name,
 		"locations": req.Locations,
-	}).Error
+	})
 }
 
 // Delete deletes a menu and its associated items.
 func (s *MenuService) Delete(id uint) error {
-	var menu models.Menu
-	if err := s.db.First(&menu, id).Error; err != nil {
+	if _, err := s.repo.FindMenu(id); err != nil {
 		return err
 	}
-	if err := s.db.Where("menu_id = ?", menu.ID).Delete(&models.MenuItem{}).Error; err != nil {
-		return err
-	}
-	return s.db.Delete(&menu).Error
+	return s.repo.DeleteMenu(id)
 }
 
 // AddItem adds a new item to a menu, auto-setting sort_order and default target.
@@ -420,12 +405,13 @@ func (s *MenuService) AddItem(menuID uint, req AddMenuItemRequest) (*models.Menu
 		item.Target = "_self"
 	}
 
-	var maxSort int
-	s.db.Model(&models.MenuItem{}).Where("menu_id = ?", menuID).
-		Select("COALESCE(MAX(sort_order), 0)").Scan(&maxSort)
+	maxSort, err := s.repo.MaxItemSortOrder(menuID)
+	if err != nil {
+		return nil, err
+	}
 	item.SortOrder = maxSort + 1
 
-	if err := s.db.Create(&item).Error; err != nil {
+	if err := s.repo.CreateItem(&item); err != nil {
 		return nil, err
 	}
 	return &item, nil
@@ -433,8 +419,7 @@ func (s *MenuService) AddItem(menuID uint, req AddMenuItemRequest) (*models.Menu
 
 // UpdateItem updates a menu item, only modifying fields that are non-nil.
 func (s *MenuService) UpdateItem(itemID uint, req UpdateMenuItemRequest) error {
-	var item models.MenuItem
-	if err := s.db.First(&item, itemID).Error; err != nil {
+	if _, err := s.repo.FindItem(itemID); err != nil {
 		return err
 	}
 
@@ -464,12 +449,12 @@ func (s *MenuService) UpdateItem(itemID uint, req UpdateMenuItemRequest) error {
 		updates["parent_id"] = *req.ParentID
 	}
 
-	return s.db.Model(&item).Updates(updates).Error
+	return s.repo.UpdateItemFields(itemID, updates)
 }
 
 // DeleteItem removes a menu item by ID.
 func (s *MenuService) DeleteItem(itemID uint) error {
-	return s.db.Delete(&models.MenuItem{}, itemID).Error
+	return s.repo.DeleteItem(itemID)
 }
 
 // ReorderItems updates sort_order (and optionally parent_id) for a batch of items.
@@ -479,7 +464,7 @@ func (s *MenuService) ReorderItems(items []ReorderItem) error {
 		if item.ParentID != nil {
 			updates["parent_id"] = item.ParentID
 		}
-		if err := s.db.Model(&models.MenuItem{}).Where("id = ?", item.ID).Updates(updates).Error; err != nil {
+		if err := s.repo.UpdateItemFields(item.ID, updates); err != nil {
 			return err
 		}
 	}
@@ -492,33 +477,45 @@ func (s *MenuService) ReorderItems(items []ReorderItem) error {
 
 // AnalyticsService provides analytics and page-view operations.
 type AnalyticsService struct {
-	db *gorm.DB
+	repo repository.AnalyticsRepository
 }
 
-// NewAnalyticsService creates a new AnalyticsService.
+// NewAnalyticsService creates a new AnalyticsService backed by a GORM repository.
+// Kept for backward compatibility with existing callers and tests.
 func NewAnalyticsService(db *gorm.DB) *AnalyticsService {
-	return &AnalyticsService{db: db}
+	return &AnalyticsService{repo: repository.NewAnalyticsRepository(db)}
+}
+
+// NewAnalyticsServiceWithRepo builds an AnalyticsService with an explicit repository,
+// enabling unit tests to inject mocks.
+func NewAnalyticsServiceWithRepo(repo repository.AnalyticsRepository) *AnalyticsService {
+	return &AnalyticsService{repo: repo}
 }
 
 // Dashboard returns aggregate stats, recent articles/comments, and popular articles.
 func (s *AnalyticsService) Dashboard() (DashboardData, error) {
 	var data DashboardData
 
-	s.db.Model(&models.Article{}).Count(&data.Stats.Articles)
-	s.db.Model(&models.Article{}).Where("status = ?", models.StatusPublished).Count(&data.Stats.Published)
-	s.db.Model(&models.Comment{}).Count(&data.Stats.Comments)
-	s.db.Model(&models.Comment{}).Where("status = ?", "pending").Count(&data.Stats.PendingComments)
-	s.db.Model(&models.User{}).Count(&data.Stats.Users)
-	s.db.Model(&models.Media{}).Count(&data.Stats.Media)
-	s.db.Model(&models.PageView{}).Where("DATE(created_at) = DATE(?)", time.Now()).Count(&data.Stats.ViewsToday)
-	s.db.Model(&models.PageView{}).Where("created_at >= ?", time.Now().AddDate(0, 0, -7)).Count(&data.Stats.ViewsThisWeek)
-	s.db.Model(&models.PageView{}).Where("created_at >= ?", time.Now().AddDate(0, -1, 0)).Count(&data.Stats.ViewsThisMonth)
-	s.db.Model(&models.PageView{}).Count(&data.Stats.TotalViews)
+	stats, _ := s.repo.DashboardStats()
+	data.Stats = DashboardStats{
+		Articles:        stats.Articles,
+		Published:       stats.Published,
+		Comments:        stats.Comments,
+		PendingComments: stats.PendingComments,
+		Users:           stats.Users,
+		Media:           stats.Media,
+		ViewsToday:      stats.ViewsToday,
+		ViewsThisWeek:   stats.ViewsThisWeek,
+		ViewsThisMonth:  stats.ViewsThisMonth,
+		TotalViews:      stats.TotalViews,
+	}
 
-	s.db.Preload("Author").Order("created_at DESC").Limit(5).Find(&data.RecentArticles)
-	s.db.Preload("User").Preload("Article").Order("created_at DESC").Limit(5).Find(&data.RecentComments)
-	s.db.Where("status = ?", models.StatusPublished).
-		Order("view_count DESC").Limit(5).Find(&data.PopularArticles)
+	recentArticles, _ := s.repo.RecentArticles(5)
+	data.RecentArticles = recentArticles
+	recentComments, _ := s.repo.RecentComments(5)
+	data.RecentComments = recentComments
+	popularArticles, _ := s.repo.PopularArticles(5)
+	data.PopularArticles = popularArticles
 
 	return data, nil
 }
@@ -529,46 +526,52 @@ func (s *AnalyticsService) ViewsOverTime(days int) ([]DayStats, error) {
 		days = 30
 	}
 
-	var results []DayStats
-	if err := s.db.Model(&models.PageView{}).
-		Select("DATE(created_at) as date, COUNT(*) as views").
-		Where("created_at >= ?", time.Now().AddDate(0, 0, -days)).
-		Group("DATE(created_at)").
-		Order("date ASC").
-		Scan(&results).Error; err != nil {
+	results, err := s.repo.ViewsOverTime(days)
+	if err != nil {
 		return nil, err
 	}
 
-	return fillDateGaps(results, days), nil
+	dayStats := make([]DayStats, len(results))
+	for i, r := range results {
+		dayStats[i] = DayStats{Date: r.Date, Views: r.Views}
+	}
+
+	return fillDateGaps(dayStats, days), nil
 }
 
 // TopReferrers returns the top 10 referrers by hit count.
 func (s *AnalyticsService) TopReferrers() ([]Referrer, error) {
-	var results []Referrer
-	if err := s.db.Model(&models.PageView{}).
-		Select("referrer, COUNT(*) as count").
-		Where("referrer != ''").
-		Group("referrer").
-		Order("count DESC").
-		Limit(10).
-		Scan(&results).Error; err != nil {
+	results, err := s.repo.TopReferrers(10)
+	if err != nil {
 		return nil, err
 	}
-	return results, nil
+	referrers := make([]Referrer, len(results))
+	for i, r := range results {
+		referrers[i] = Referrer{Referrer: r.Referrer, Count: r.Count}
+	}
+	return referrers, nil
 }
 
 // DeviceBreakdown returns device, browser, and OS breakdowns.
 func (s *AnalyticsService) DeviceBreakdown() (DeviceBreakdownData, error) {
-	var data DeviceBreakdownData
+	data, err := s.repo.DeviceBreakdown()
+	if err != nil {
+		return DeviceBreakdownData{}, err
+	}
 
-	s.db.Model(&models.PageView{}).Select("device as name, COUNT(*) as count").
-		Group("device").Order("count DESC").Scan(&data.Devices)
-	s.db.Model(&models.PageView{}).Select("browser as name, COUNT(*) as count").
-		Group("browser").Order("count DESC").Limit(10).Scan(&data.Browsers)
-	s.db.Model(&models.PageView{}).Select("os as name, COUNT(*) as count").
-		Group("os").Order("count DESC").Limit(10).Scan(&data.OS)
+	mapBreakdown := func(items []repository.BreakdownData) []Breakdown {
+		out := make([]Breakdown, len(items))
+		for i, b := range items {
+			out[i] = Breakdown{Name: b.Name, Count: b.Count}
+		}
+		return out
+	}
 
-	return data, nil
+	return DeviceBreakdownData{
+		Devices:  mapBreakdown(data.Devices),
+		Browsers: mapBreakdown(data.Browsers),
+		OS:       mapBreakdown(data.OS),
+	}, nil
 }
 
 // RecordView inserts a new page view record.
@@ -585,7 +588,7 @@ func (s *AnalyticsService) RecordView(req RecordViewRequest, clientIP, userAgent
 		Browser:   detectBrowser(userAgent),
 		OS:        detectOS(userAgent),
 	}
-	return s.db.Create(&view).Error
+	return s.repo.CreatePageView(&view)
 }
 
 // ============================================================
@@ -673,14 +676,14 @@ func detectOS(ua string) string {
 	switch {
 	case strings.Contains(ua, "windows"):
 		return "Windows"
+	case strings.Contains(ua, "iphone") || strings.Contains(ua, "ipad"):
+		return "iOS"
+	case strings.Contains(ua, "android"):
+		return "Android"
 	case strings.Contains(ua, "mac os"):
 		return "macOS"
 	case strings.Contains(ua, "linux"):
 		return "Linux"
-	case strings.Contains(ua, "android"):
-		return "Android"
-	case strings.Contains(ua, "iphone") || strings.Contains(ua, "ipad"):
-		return "iOS"
 	default:
 		return "Other"
 	}

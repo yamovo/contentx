@@ -4,20 +4,21 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/vortexcms/go-cms/internal/auth"
-	"github.com/vortexcms/go-cms/internal/models"
+	"github.com/yamovo/contentx/internal/auth"
+	"github.com/yamovo/contentx/internal/models"
+	"github.com/yamovo/contentx/internal/repository"
 	"gorm.io/gorm"
 )
 
 // Sentinel errors returned by the service layer.
 var (
-	ErrUserNotFound    = errors.New("user not found")
-	ErrUsernameExists  = errors.New("username or email already exists")
+	ErrUserNotFound      = errors.New("user not found")
+	ErrUsernameExists    = errors.New("username or email already exists")
 	ErrCannotDeleteAdmin = errors.New("cannot delete admin user")
-	ErrRoleNotFound    = errors.New("role not found")
-	ErrRoleExists      = errors.New("role already exists")
-	ErrSystemRole      = errors.New("cannot modify or delete system roles")
-	ErrRoleInUse       = errors.New("role is still assigned to users")
+	ErrRoleNotFound      = errors.New("role not found")
+	ErrRoleExists        = errors.New("role already exists")
+	ErrSystemRole        = errors.New("cannot modify or delete system roles")
+	ErrRoleInUse         = errors.New("role is still assigned to users")
 )
 
 // ---------- Request / param structs ----------
@@ -71,13 +72,24 @@ type UpdateRoleRequest struct {
 
 // UserService provides user-related business logic.
 type UserService struct {
-	db *gorm.DB
+	repo    repository.UserRepository
+	webhook WebhookDispatcher
 }
 
-// NewUserService creates a new UserService.
+// NewUserService creates a new UserService backed by a GORM repository.
+// Kept for backward compatibility with existing callers and tests.
 func NewUserService(db *gorm.DB) *UserService {
-	return &UserService{db: db}
+	return &UserService{repo: repository.NewUserRepository(db)}
 }
+
+// NewUserServiceWithRepo builds a UserService with an explicit repository,
+// enabling unit tests to inject mocks.
+func NewUserServiceWithRepo(repo repository.UserRepository) *UserService {
+	return &UserService{repo: repo}
+}
+
+// SetWebhookDispatcher attaches a webhook dispatcher for event triggering.
+func (s *UserService) SetWebhookDispatcher(d WebhookDispatcher) { s.webhook = d }
 
 // List returns a paginated, filtered list of users and the total count.
 func (s *UserService) List(params UserListParams) ([]models.User, int64, error) {
@@ -88,45 +100,29 @@ func (s *UserService) List(params UserListParams) ([]models.User, int64, error) 
 		params.PageSize = 20
 	}
 
-	query := s.db.Model(&models.User{}).Preload("Role")
-
-	if params.Role != "" {
-		query = query.Joins("JOIN roles ON roles.id = users.role_id").Where("roles.slug = ?", params.Role)
-	}
-	if params.Status != "" {
-		query = query.Where("status = ?", params.Status)
-	}
-	if params.Search != "" {
-		like := "%" + params.Search + "%"
-		query = query.Where("username LIKE ? OR email LIKE ? OR display_name LIKE ?", like, like, like)
-	}
-
-	var total int64
-	if err := query.Count(&total).Error; err != nil {
-		return nil, 0, fmt.Errorf("count users: %w", err)
-	}
-
-	var users []models.User
-	if err := query.Order("created_at DESC").
-		Offset((params.Page - 1) * params.PageSize).
-		Limit(params.PageSize).
-		Find(&users).Error; err != nil {
+	users, total, err := s.repo.List(repository.UserListFilter{
+		Page:     params.Page,
+		PageSize: params.PageSize,
+		Role:     params.Role,
+		Status:   params.Status,
+		Search:   params.Search,
+	})
+	if err != nil {
 		return nil, 0, fmt.Errorf("list users: %w", err)
 	}
-
 	return users, total, nil
 }
 
 // Get returns a single user by ID, preloading the Role.
 func (s *UserService) Get(id uint) (*models.User, error) {
-	var user models.User
-	if err := s.db.Preload("Role").First(&user, id).Error; err != nil {
+	user, err := s.repo.GetByID(id)
+	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrUserNotFound
 		}
 		return nil, fmt.Errorf("get user: %w", err)
 	}
-	return &user, nil
+	return user, nil
 }
 
 // Create inserts a new user after hashing the password and applying defaults.
@@ -148,19 +144,27 @@ func (s *UserService) Create(req CreateUserRequest) (*models.User, error) {
 		user.Status = models.UserStatusActive
 	}
 
-	if err := s.db.Create(&user).Error; err != nil {
+	if err := s.repo.Create(&user); err != nil {
 		return nil, ErrUsernameExists
 	}
 
-	// Reload with associations.
-	s.db.Preload("Role").First(&user, user.ID)
-	return &user, nil
+	// Reload with associations (best-effort; preserve prior behaviour of ignoring reload error).
+	var result *models.User
+	if reloaded, err := s.repo.GetByID(user.ID); err == nil && reloaded != nil {
+		result = reloaded
+	} else {
+		result = &user
+	}
+
+	if s.webhook != nil {
+		s.webhook.Dispatch(models.WebhookEventUserCreate, result)
+	}
+	return result, nil
 }
 
 // Update applies partial updates to a user and returns the refreshed record.
 func (s *UserService) Update(id uint, req UpdateUserRequest) (*models.User, error) {
-	var user models.User
-	if err := s.db.First(&user, id).Error; err != nil {
+	if _, err := s.repo.FindByID(id); err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrUserNotFound
 		}
@@ -191,19 +195,27 @@ func (s *UserService) Update(id uint, req UpdateUserRequest) (*models.User, erro
 	}
 
 	if len(updates) > 0 {
-		if err := s.db.Model(&user).Updates(updates).Error; err != nil {
+		if err := s.repo.UpdateFields(id, updates); err != nil {
 			return nil, fmt.Errorf("update user: %w", err)
 		}
 	}
 
-	s.db.Preload("Role").First(&user, user.ID)
-	return &user, nil
+	// Reload with Role preloaded (best-effort).
+	user, err := s.repo.GetByID(id)
+	if err != nil {
+		// Fall back to a bare record if preload fails for any reason.
+		if bare, ferr := s.repo.FindByID(id); ferr == nil {
+			return bare, nil
+		}
+		return nil, fmt.Errorf("reload user: %w", err)
+	}
+	return user, nil
 }
 
 // Delete soft-deletes a user. Returns an error if the user is an admin.
 func (s *UserService) Delete(id uint) error {
-	var user models.User
-	if err := s.db.Preload("Role").First(&user, id).Error; err != nil {
+	user, err := s.repo.GetByID(id)
+	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return ErrUserNotFound
 		}
@@ -214,7 +226,7 @@ func (s *UserService) Delete(id uint) error {
 		return ErrCannotDeleteAdmin
 	}
 
-	if err := s.db.Delete(&user).Error; err != nil {
+	if err := s.repo.SoftDelete(user); err != nil {
 		return fmt.Errorf("delete user: %w", err)
 	}
 	return nil
@@ -222,8 +234,7 @@ func (s *UserService) Delete(id uint) error {
 
 // ResetPassword hashes the new password and updates the user record.
 func (s *UserService) ResetPassword(id uint, newPassword string) error {
-	var user models.User
-	if err := s.db.First(&user, id).Error; err != nil {
+	if _, err := s.repo.FindByID(id); err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return ErrUserNotFound
 		}
@@ -235,7 +246,7 @@ func (s *UserService) ResetPassword(id uint, newPassword string) error {
 		return fmt.Errorf("hash password: %w", err)
 	}
 
-	if err := s.db.Model(&user).Update("password", hashedPw).Error; err != nil {
+	if err := s.repo.UpdatePassword(id, hashedPw); err != nil {
 		return fmt.Errorf("reset password: %w", err)
 	}
 	return nil
@@ -245,24 +256,31 @@ func (s *UserService) ResetPassword(id uint, newPassword string) error {
 
 // RoleService provides role-related business logic.
 type RoleService struct {
-	db *gorm.DB
+	repo repository.RoleRepository
 }
 
-// NewRoleService creates a new RoleService.
+// NewRoleService creates a new RoleService backed by a GORM repository.
+// Kept for backward compatibility with existing callers and tests.
 func NewRoleService(db *gorm.DB) *RoleService {
-	return &RoleService{db: db}
+	return &RoleService{repo: repository.NewRoleRepository(db)}
+}
+
+// NewRoleServiceWithRepo builds a RoleService with an explicit repository,
+// enabling unit tests to inject mocks.
+func NewRoleServiceWithRepo(repo repository.RoleRepository) *RoleService {
+	return &RoleService{repo: repo}
 }
 
 // List returns all roles with permissions preloaded and user counts populated.
 func (s *RoleService) List() ([]models.Role, error) {
-	var roles []models.Role
-	if err := s.db.Preload("Permissions").Order("id ASC").Find(&roles).Error; err != nil {
+	roles, err := s.repo.List()
+	if err != nil {
 		return nil, fmt.Errorf("list roles: %w", err)
 	}
 
 	for i := range roles {
-		var count int64
-		s.db.Model(&models.User{}).Where("role_id = ?", roles[i].ID).Count(&count)
+		// Best-effort user-count enrichment (mirrors prior behaviour: errors ignored).
+		count, _ := s.repo.CountUsersByRoleID(roles[i].ID)
 		roles[i].UserCount = int(count)
 	}
 
@@ -277,24 +295,27 @@ func (s *RoleService) Create(req CreateRoleRequest) (*models.Role, error) {
 		Description: req.Description,
 	}
 
-	if err := s.db.Create(&role).Error; err != nil {
+	if err := s.repo.Create(&role); err != nil {
 		return nil, ErrRoleExists
 	}
 
 	if len(req.PermissionIDs) > 0 {
-		var perms []models.Permission
-		s.db.Where("id IN ?", req.PermissionIDs).Find(&perms)
-		s.db.Model(&role).Association("Permissions").Replace(perms)
+		perms, _ := s.repo.ListPermissionsByIDs(req.PermissionIDs)
+		_ = s.repo.ReplacePermissions(role.ID, perms)
 	}
 
-	s.db.Preload("Permissions").First(&role, role.ID)
-	return &role, nil
+	// Reload with permissions preloaded (best-effort).
+	reloaded, err := s.repo.GetByID(role.ID)
+	if err != nil {
+		return &role, nil
+	}
+	return reloaded, nil
 }
 
 // Update modifies a role. System roles cannot be updated.
 func (s *RoleService) Update(id uint, req UpdateRoleRequest) (*models.Role, error) {
-	var role models.Role
-	if err := s.db.First(&role, id).Error; err != nil {
+	role, err := s.repo.FindByID(id)
+	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrRoleNotFound
 		}
@@ -305,26 +326,30 @@ func (s *RoleService) Update(id uint, req UpdateRoleRequest) (*models.Role, erro
 		return nil, ErrSystemRole
 	}
 
+	// Preserve prior behaviour: errors from individual field updates are ignored.
 	if req.Name != nil {
-		s.db.Model(&role).Update("name", *req.Name)
+		_ = s.repo.UpdateField(id, "name", *req.Name)
 	}
 	if req.Description != nil {
-		s.db.Model(&role).Update("description", *req.Description)
+		_ = s.repo.UpdateField(id, "description", *req.Description)
 	}
 	if req.PermissionIDs != nil {
-		var perms []models.Permission
-		s.db.Where("id IN ?", req.PermissionIDs).Find(&perms)
-		s.db.Model(&role).Association("Permissions").Replace(perms)
+		perms, _ := s.repo.ListPermissionsByIDs(req.PermissionIDs)
+		_ = s.repo.ReplacePermissions(role.ID, perms)
 	}
 
-	s.db.Preload("Permissions").First(&role, role.ID)
-	return &role, nil
+	// Reload with permissions preloaded (best-effort).
+	reloaded, err := s.repo.GetByID(id)
+	if err != nil {
+		return role, nil
+	}
+	return reloaded, nil
 }
 
 // Delete removes a role after checking it is not a system role and not in use.
 func (s *RoleService) Delete(id uint) error {
-	var role models.Role
-	if err := s.db.First(&role, id).Error; err != nil {
+	role, err := s.repo.FindByID(id)
+	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return ErrRoleNotFound
 		}
@@ -335,14 +360,16 @@ func (s *RoleService) Delete(id uint) error {
 		return ErrSystemRole
 	}
 
-	var count int64
-	s.db.Model(&models.User{}).Where("role_id = ?", role.ID).Count(&count)
+	count, err := s.repo.CountUsersByRoleID(role.ID)
+	if err != nil {
+		return fmt.Errorf("count role users: %w", err)
+	}
 	if count > 0 {
 		return ErrRoleInUse
 	}
 
-	s.db.Model(&role).Association("Permissions").Clear()
-	if err := s.db.Delete(&role).Error; err != nil {
+	_ = s.repo.ClearPermissions(role.ID)
+	if err := s.repo.Delete(role); err != nil {
 		return fmt.Errorf("delete role: %w", err)
 	}
 	return nil
@@ -350,8 +377,8 @@ func (s *RoleService) Delete(id uint) error {
 
 // Permissions returns all permissions as a flat list and grouped by module.
 func (s *RoleService) Permissions() ([]models.Permission, map[string][]models.Permission, error) {
-	var perms []models.Permission
-	if err := s.db.Order("module ASC, name ASC").Find(&perms).Error; err != nil {
+	perms, err := s.repo.ListAllPermissions()
+	if err != nil {
 		return nil, nil, fmt.Errorf("list permissions: %w", err)
 	}
 

@@ -4,7 +4,7 @@ import (
 	"strconv"
 
 	"github.com/gin-gonic/gin"
-	"github.com/vortexcms/go-cms/internal/services"
+	"github.com/yamovo/contentx/internal/services"
 )
 
 // TokenHandler manages API tokens.
@@ -32,7 +32,7 @@ func NewTokenHandler(svc *services.TokenService) *TokenHandler {
 func (h *TokenHandler) List(c *gin.Context) {
 	tokens, err := h.svc.List()
 	if err != nil {
-		InternalError(c)
+		handleServiceError(c, err)
 		return
 	}
 	Success(c, tokens)
@@ -56,7 +56,7 @@ func (h *TokenHandler) List(c *gin.Context) {
 func (h *TokenHandler) Create(c *gin.Context) {
 	var req services.CreateTokenRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		BadRequest(c, err.Error())
+		BadRequest(c, sanitizeBindErr(err))
 		return
 	}
 
@@ -97,7 +97,7 @@ func (h *TokenHandler) Delete(c *gin.Context) {
 	}
 
 	if err := h.svc.Delete(uint(id)); err != nil {
-		NotFound(c, "Token not found")
+		handleServiceError(c, err)
 		return
 	}
 

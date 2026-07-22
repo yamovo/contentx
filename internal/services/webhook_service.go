@@ -11,20 +11,37 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/vortexcms/go-cms/internal/models"
+	"github.com/yamovo/contentx/internal/models"
+	"github.com/yamovo/contentx/internal/repository"
 	"gorm.io/gorm"
 )
 
+// WebhookDispatcher is the contract other services use to trigger webhooks.
+// WebhookService implements it; a nil dispatcher means webhooks are disabled.
+type WebhookDispatcher interface {
+	Dispatch(event string, data interface{})
+}
+
 // WebhookService manages webhooks and dispatches events.
 type WebhookService struct {
-	db     *gorm.DB
+	repo   repository.WebhookRepository
 	client *http.Client
 }
 
-// NewWebhookService creates a new WebhookService.
+// NewWebhookService creates a new WebhookService backed by a GORM repository.
+// Kept for backward compatibility with existing callers and tests.
 func NewWebhookService(db *gorm.DB) *WebhookService {
 	return &WebhookService{
-		db:     db,
+		repo:   repository.NewWebhookRepository(db),
+		client: &http.Client{Timeout: 10 * time.Second},
+	}
+}
+
+// NewWebhookServiceWithRepo builds a WebhookService with an explicit repository,
+// enabling unit tests to inject mocks.
+func NewWebhookServiceWithRepo(repo repository.WebhookRepository) *WebhookService {
+	return &WebhookService{
+		repo:   repo,
 		client: &http.Client{Timeout: 10 * time.Second},
 	}
 }
@@ -50,7 +67,7 @@ func (s *WebhookService) Create(req CreateWebhookRequest) (*models.Webhook, erro
 		Secret:   req.Secret,
 		IsActive: true,
 	}
-	if err := s.db.Create(&wh).Error; err != nil {
+	if err := s.repo.Create(&wh); err != nil {
 		return nil, errors.New("failed to create webhook")
 	}
 	return &wh, nil
@@ -58,43 +75,33 @@ func (s *WebhookService) Create(req CreateWebhookRequest) (*models.Webhook, erro
 
 // List returns all webhooks.
 func (s *WebhookService) List() ([]models.Webhook, error) {
-	var webhooks []models.Webhook
-	if err := s.db.Order("created_at DESC").Find(&webhooks).Error; err != nil {
-		return nil, err
-	}
-	return webhooks, nil
+	return s.repo.List()
 }
 
 // Get returns a webhook by ID.
 func (s *WebhookService) Get(id uint) (*models.Webhook, error) {
-	var wh models.Webhook
-	if err := s.db.First(&wh, id).Error; err != nil {
+	wh, err := s.repo.GetByID(id)
+	if err != nil {
 		return nil, errors.New("webhook not found")
 	}
-	return &wh, nil
+	return wh, nil
 }
 
 // Delete deletes a webhook.
 func (s *WebhookService) Delete(id uint) error {
-	result := s.db.Delete(&models.Webhook{}, id)
-	if result.RowsAffected == 0 {
+	rowsAffected, err := s.repo.Delete(id)
+	if err != nil {
+		return err
+	}
+	if rowsAffected == 0 {
 		return errors.New("webhook not found")
 	}
-	s.db.Where("webhook_id = ?", id).Delete(&models.WebhookLog{})
-	return result.Error
+	return nil
 }
 
 // GetLogs returns delivery logs for a webhook.
 func (s *WebhookService) GetLogs(webhookID uint, limit int) ([]models.WebhookLog, error) {
-	if limit <= 0 {
-		limit = 50
-	}
-	var logs []models.WebhookLog
-	s.db.Where("webhook_id = ?", webhookID).
-		Order("created_at DESC").
-		Limit(limit).
-		Find(&logs)
-	return logs, nil
+	return s.repo.ListLogs(webhookID, limit)
 }
 
 // ─── Dispatch ───────────────────────────────────────────────────────────────
@@ -108,8 +115,11 @@ type WebhookPayload struct {
 
 // Dispatch sends an event to all matching webhooks (async).
 func (s *WebhookService) Dispatch(event string, data interface{}) {
-	var webhooks []models.Webhook
-	s.db.Where("is_active = ?", true).Find(&webhooks)
+	webhooks, err := s.repo.ListActive()
+	if err != nil {
+		slog.Error("webhook list active failed", "event", event, "error", err)
+		return
+	}
 
 	payload := WebhookPayload{
 		Event:     event,
@@ -171,7 +181,7 @@ func (s *WebhookService) deliver(wh models.Webhook, payload WebhookPayload) {
 		}
 	}
 
-	s.db.Create(&log)
+	_ = s.repo.CreateLog(&log)
 }
 
 func hmacSign(secret, data []byte) string {

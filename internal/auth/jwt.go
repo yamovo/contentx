@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
-	"github.com/vortexcms/go-cms/internal/config"
+	"github.com/yamovo/contentx/internal/config"
 )
 
 var (

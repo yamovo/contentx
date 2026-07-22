@@ -36,6 +36,7 @@ const (
 	WebhookEventEntryDelete    = "entry.delete"
 	WebhookEventEntryPublish   = "entry.publish"
 	WebhookEventEntryUnpublish = "entry.unpublish"
+	WebhookEventEntrySchedule  = "entry.schedule"
 	WebhookEventMediaCreate    = "media.create"
 	WebhookEventMediaDelete    = "media.delete"
 	WebhookEventCommentCreate  = "comment.create"
@@ -49,6 +50,7 @@ var AllWebhookEvents = []string{
 	WebhookEventEntryDelete,
 	WebhookEventEntryPublish,
 	WebhookEventEntryUnpublish,
+	WebhookEventEntrySchedule,
 	WebhookEventMediaCreate,
 	WebhookEventMediaDelete,
 	WebhookEventCommentCreate,

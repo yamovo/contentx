@@ -3,7 +3,7 @@
     <div class="login-container">
       <div class="login-card" ref="cardRef">
         <div class="login-header">
-          <h1 class="logo-text" ref="logoRef">VortexCMS</h1>
+          <h1 class="logo-text" ref="logoRef">ContentX</h1>
           <p class="subtitle">内容管理系统</p>
         </div>
 

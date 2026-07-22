@@ -2,10 +2,9 @@ package handlers
 
 import (
 	"strconv"
-	"strings"
 
 	"github.com/gin-gonic/gin"
-	"github.com/vortexcms/go-cms/internal/services"
+	"github.com/yamovo/contentx/internal/services"
 )
 
 // ContentTypeHandler manages content types and entries.
@@ -34,7 +33,7 @@ func NewContentTypeHandler(svc *services.ContentTypeService) *ContentTypeHandler
 func (h *ContentTypeHandler) ListTypes(c *gin.Context) {
 	types, err := h.svc.ListContentTypes()
 	if err != nil {
-		InternalError(c)
+		handleServiceError(c, err)
 		return
 	}
 	Success(c, types)
@@ -55,7 +54,7 @@ func (h *ContentTypeHandler) ListTypes(c *gin.Context) {
 func (h *ContentTypeHandler) GetType(c *gin.Context) {
 	ct, err := h.svc.GetContentType(c.Param("uid"))
 	if err != nil {
-		NotFound(c, "Content type not found")
+		handleServiceError(c, err)
 		return
 	}
 	Success(c, ct)
@@ -79,13 +78,13 @@ func (h *ContentTypeHandler) GetType(c *gin.Context) {
 func (h *ContentTypeHandler) CreateType(c *gin.Context) {
 	var req services.CreateContentTypeRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		BadRequest(c, err.Error())
+		BadRequest(c, sanitizeBindErr(err))
 		return
 	}
 
 	ct, err := h.svc.CreateContentType(req)
 	if err != nil {
-		BadRequest(c, err.Error())
+		handleServiceError(c, err)
 		return
 	}
 
@@ -108,7 +107,7 @@ func (h *ContentTypeHandler) CreateType(c *gin.Context) {
 //	@Router       /content-types/{uid} [delete]
 func (h *ContentTypeHandler) DeleteType(c *gin.Context) {
 	if err := h.svc.DeleteContentType(c.Param("uid")); err != nil {
-		NotFound(c, "Content type not found")
+		handleServiceError(c, err)
 		return
 	}
 	Success(c, gin.H{"message": "Content type deleted"})
@@ -145,6 +144,7 @@ func (h *ContentTypeHandler) ListEntries(c *gin.Context) {
 		Status:   c.Query("status"),
 		Search:   c.Query("search"),
 		Sort:     c.Query("sort"),
+		Locale:   c.Query("locale"),
 		Filters:  make(map[string]string),
 	}
 
@@ -157,11 +157,7 @@ func (h *ContentTypeHandler) ListEntries(c *gin.Context) {
 
 	result, err := h.svc.ListEntries(uid, params)
 	if err != nil {
-		if strings.Contains(err.Error(), "not found") {
-			NotFound(c, "Content type not found")
-			return
-		}
-		InternalError(c)
+		handleServiceError(c, err)
 		return
 	}
 
@@ -184,7 +180,7 @@ func (h *ContentTypeHandler) ListEntries(c *gin.Context) {
 func (h *ContentTypeHandler) GetEntry(c *gin.Context) {
 	entry, err := h.svc.GetEntry(c.Param("uid"), c.Param("documentId"))
 	if err != nil {
-		NotFound(c, "Entry not found")
+		handleServiceError(c, err)
 		return
 	}
 	Success(c, entry)
@@ -209,7 +205,7 @@ func (h *ContentTypeHandler) GetEntry(c *gin.Context) {
 func (h *ContentTypeHandler) CreateEntry(c *gin.Context) {
 	var req services.CreateEntryRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		BadRequest(c, err.Error())
+		BadRequest(c, sanitizeBindErr(err))
 		return
 	}
 
@@ -220,11 +216,7 @@ func (h *ContentTypeHandler) CreateEntry(c *gin.Context) {
 
 	entry, err := h.svc.CreateEntry(c.Param("uid"), req, user.ID)
 	if err != nil {
-		if strings.Contains(err.Error(), "not found") {
-			NotFound(c, err.Error())
-			return
-		}
-		BadRequest(c, err.Error())
+		handleServiceError(c, err)
 		return
 	}
 
@@ -250,7 +242,7 @@ func (h *ContentTypeHandler) CreateEntry(c *gin.Context) {
 func (h *ContentTypeHandler) UpdateEntry(c *gin.Context) {
 	var req services.UpdateEntryRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		BadRequest(c, err.Error())
+		BadRequest(c, sanitizeBindErr(err))
 		return
 	}
 
@@ -261,11 +253,7 @@ func (h *ContentTypeHandler) UpdateEntry(c *gin.Context) {
 
 	entry, err := h.svc.UpdateEntry(c.Param("uid"), c.Param("documentId"), req, user.ID)
 	if err != nil {
-		if strings.Contains(err.Error(), "not found") {
-			NotFound(c, err.Error())
-			return
-		}
-		BadRequest(c, err.Error())
+		handleServiceError(c, err)
 		return
 	}
 
@@ -287,7 +275,7 @@ func (h *ContentTypeHandler) UpdateEntry(c *gin.Context) {
 //	@Router       /content/{uid}/{documentId} [delete]
 func (h *ContentTypeHandler) DeleteEntry(c *gin.Context) {
 	if err := h.svc.DeleteEntry(c.Param("uid"), c.Param("documentId")); err != nil {
-		NotFound(c, "Entry not found")
+		handleServiceError(c, err)
 		return
 	}
 	Success(c, gin.H{"message": "Entry deleted"})
@@ -314,7 +302,7 @@ func (h *ContentTypeHandler) PublishEntry(c *gin.Context) {
 
 	entry, err := h.svc.PublishEntry(c.Param("uid"), c.Param("documentId"), user.ID)
 	if err != nil {
-		NotFound(c, err.Error())
+		handleServiceError(c, err)
 		return
 	}
 	Success(c, entry)
@@ -341,7 +329,7 @@ func (h *ContentTypeHandler) UnpublishEntry(c *gin.Context) {
 
 	entry, err := h.svc.UnpublishEntry(c.Param("uid"), c.Param("documentId"), user.ID)
 	if err != nil {
-		NotFound(c, err.Error())
+		handleServiceError(c, err)
 		return
 	}
 	Success(c, entry)
@@ -362,7 +350,7 @@ func (h *ContentTypeHandler) UnpublishEntry(c *gin.Context) {
 func (h *ContentTypeHandler) ExportEntries(c *gin.Context) {
 	data, err := h.svc.ExportEntries(c.Param("uid"))
 	if err != nil {
-		NotFound(c, "Content type not found")
+		handleServiceError(c, err)
 		return
 	}
 	Success(c, gin.H{"json": data})
@@ -388,7 +376,7 @@ func (h *ContentTypeHandler) ImportEntries(c *gin.Context) {
 		JSON string `json:"json" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
-		BadRequest(c, err.Error())
+		BadRequest(c, sanitizeBindErr(err))
 		return
 	}
 
@@ -399,7 +387,7 @@ func (h *ContentTypeHandler) ImportEntries(c *gin.Context) {
 
 	count, err := h.svc.ImportEntries(c.Param("uid"), body.JSON, user.ID)
 	if err != nil {
-		BadRequest(c, err.Error())
+		handleServiceError(c, err)
 		return
 	}
 
@@ -411,6 +399,45 @@ func isReservedParam(key string) bool {
 	reserved := map[string]bool{
 		"page": true, "page_size": true, "status": true,
 		"search": true, "sort": true, "populate": true,
+		"locale": true, // i18n
 	}
 	return reserved[key]
+}
+
+// ─── i18n: content entry translation endpoints ──────────────────────────────
+
+// ListEntryTranslations returns sibling translations of an entry.
+// GET /api/v1/content/:uid/:documentId/translations
+func (h *ContentTypeHandler) ListEntryTranslations(c *gin.Context) {
+	translations, err := h.svc.ListEntryTranslations(c.Param("uid"), c.Param("documentId"))
+	if err != nil {
+		handleServiceError(c, err)
+		return
+	}
+	Success(c, translations)
+}
+
+// CreateEntryTranslation creates a new entry as a translation.
+// POST /api/v1/content/:uid/:documentId/translations?locale=zh
+func (h *ContentTypeHandler) CreateEntryTranslation(c *gin.Context) {
+	locale := c.Query("locale")
+	if locale == "" {
+		BadRequest(c, "locale query parameter is required")
+		return
+	}
+	var req services.CreateEntryRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		BadRequest(c, sanitizeBindErr(err))
+		return
+	}
+	user := getCurrentUser(c)
+	if user == nil {
+		return
+	}
+	entry, err := h.svc.CreateEntryTranslation(c.Param("uid"), c.Param("documentId"), locale, req, user.ID)
+	if err != nil {
+		handleServiceError(c, err)
+		return
+	}
+	Created(c, entry)
 }

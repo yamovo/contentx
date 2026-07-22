@@ -32,7 +32,7 @@
     <footer class="blog-footer">
       <div class="footer-inner">
         <div class="footer-brand">
-          <strong>VortexCMS</strong>
+          <strong>ContentX</strong>
           <p>Modern content management powered by Go + Vue 3</p>
         </div>
         <div class="footer-links">
@@ -49,7 +49,7 @@
           </div>
         </div>
         <div class="footer-bottom">
-          <p>&copy; {{ new Date().getFullYear() }} VortexCMS. All rights reserved.</p>
+          <p>&copy; {{ new Date().getFullYear() }} ContentX. All rights reserved.</p>
         </div>
       </div>
     </footer>

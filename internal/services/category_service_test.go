@@ -3,7 +3,7 @@ package services
 import (
 	"testing"
 
-	"github.com/vortexcms/go-cms/internal/models"
+	"github.com/yamovo/contentx/internal/models"
 )
 
 func TestCategoryService_Create(t *testing.T) {

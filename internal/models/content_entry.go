@@ -17,6 +17,10 @@ type ContentEntry struct {
 	CreatedByID   uint       `gorm:"index" json:"created_by_id"`
 	UpdatedByID   uint       `gorm:"index" json:"updated_by_id"`
 	PublishedAt   *time.Time `json:"published_at"`
+	// i18n: Locale is the BCP-47 language tag. TranslationGroupID links
+	// translations of the same logical entry across locales.
+	Locale             string `gorm:"size:10;not null;default:'en';index" json:"locale"`
+	TranslationGroupID *uint  `gorm:"index" json:"translation_group_id,omitempty"`
 	CreatedAt     time.Time  `json:"created_at"`
 	UpdatedAt     time.Time  `json:"updated_at"`
 }
@@ -36,8 +40,14 @@ func (j *JSONMap) Scan(value interface{}) error {
 		*j = make(JSONMap)
 		return nil
 	}
-	bytes, ok := value.([]byte)
-	if !ok {
+	var bytes []byte
+	switch v := value.(type) {
+	case []byte:
+		bytes = v
+	case string:
+		bytes = []byte(v)
+	default:
+		*j = make(JSONMap)
 		return nil
 	}
 	return json.Unmarshal(bytes, j)

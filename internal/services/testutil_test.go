@@ -4,9 +4,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/vortexcms/go-cms/internal/auth"
-	"github.com/vortexcms/go-cms/internal/database"
-	"github.com/vortexcms/go-cms/internal/models"
+	"github.com/yamovo/contentx/internal/auth"
+	"github.com/yamovo/contentx/internal/database"
+	"github.com/yamovo/contentx/internal/models"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )

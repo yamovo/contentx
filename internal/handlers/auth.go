@@ -4,8 +4,8 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
-	"github.com/vortexcms/go-cms/internal/middleware"
-	"github.com/vortexcms/go-cms/internal/services"
+	"github.com/yamovo/contentx/internal/middleware"
+	"github.com/yamovo/contentx/internal/services"
 )
 
 // AuthHandler handles authentication-related requests.
@@ -27,14 +27,14 @@ func NewAuthHandler(svc *services.AuthService) *AuthHandler {
 //	@Accept       json
 //	@Produce      json
 //	@Param        body  body      services.LoginRequest  true  "Login credentials"
-//	@Success      200   {object}  APIResponse{data=object{token=auth.TokenPair,user=services.SafeUser}}
+//	@Success      200   {object}  APIResponse{data=object}
 //	@Failure      400   {object}  APIResponse
 //	@Failure      401   {object}  APIResponse
 //	@Router       /auth/login [post]
 func (h *AuthHandler) Login(c *gin.Context) {
 	var req services.LoginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		BadRequest(c, err.Error())
+		BadRequest(c, sanitizeBindErr(err))
 		return
 	}
 
@@ -59,13 +59,13 @@ func (h *AuthHandler) Login(c *gin.Context) {
 //	@Accept       json
 //	@Produce      json
 //	@Param        body  body      services.RegisterRequest  true  "Registration data"
-//	@Success      201   {object}  APIResponse{data=object{token=auth.TokenPair,user=services.SafeUser}}
+//	@Success      201   {object}  APIResponse{data=object}
 //	@Failure      400   {object}  APIResponse
 //	@Router       /auth/register [post]
 func (h *AuthHandler) Register(c *gin.Context) {
 	var req services.RegisterRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		BadRequest(c, err.Error())
+		BadRequest(c, sanitizeBindErr(err))
 		return
 	}
 
@@ -90,20 +90,20 @@ func (h *AuthHandler) Register(c *gin.Context) {
 //	@Accept       json
 //	@Produce      json
 //	@Param        body  body      services.RefreshRequest  true  "Refresh token"
-//	@Success      200   {object}  APIResponse{data=auth.TokenPair}
+//	@Success      200   {object}  APIResponse{data=object}
 //	@Failure      400   {object}  APIResponse
 //	@Failure      401   {object}  APIResponse
 //	@Router       /auth/refresh [post]
 func (h *AuthHandler) RefreshToken(c *gin.Context) {
 	var req services.RefreshRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		BadRequest(c, err.Error())
+		BadRequest(c, sanitizeBindErr(err))
 		return
 	}
 
 	tokenPair, err := h.svc.RefreshToken(req.RefreshToken)
 	if err != nil {
-		Unauthorized(c, "Invalid refresh token")
+		handleServiceError(c, err)
 		return
 	}
 
@@ -127,7 +127,7 @@ func (h *AuthHandler) Logout(c *gin.Context) {
 		authHeader := c.GetHeader("Authorization")
 		if strings.HasPrefix(authHeader, "Bearer ") {
 			if err := h.svc.Logout(authHeader[7:], claims.UserID); err != nil {
-				InternalError(c)
+				handleServiceError(c, err)
 				return
 			}
 		}
@@ -194,7 +194,7 @@ func (h *AuthHandler) UpdateProfile(c *gin.Context) {
 		Avatar      *string `json:"avatar"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		BadRequest(c, err.Error())
+		BadRequest(c, sanitizeBindErr(err))
 		return
 	}
 
@@ -244,7 +244,7 @@ func (h *AuthHandler) ChangePassword(c *gin.Context) {
 
 	var req services.ChangePasswordRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		BadRequest(c, err.Error())
+		BadRequest(c, sanitizeBindErr(err))
 		return
 	}
 

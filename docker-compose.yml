@@ -38,7 +38,7 @@ services:
       redis:
         condition: service_started
     networks:
-      - vortex-net
+      - contentx-net
 
   postgres:
     image: postgres:16-alpine
@@ -59,7 +59,7 @@ services:
       timeout: 5s
       retries: 5
     networks:
-      - vortex-net
+      - contentx-net
 
   redis:
     image: redis:7-alpine
@@ -72,7 +72,7 @@ services:
     # ports:
     #   - "6379:6379"
     networks:
-      - vortex-net
+      - contentx-net
 
   nginx:
     image: nginx:alpine
@@ -87,7 +87,7 @@ services:
     depends_on:
       - app
     networks:
-      - vortex-net
+      - contentx-net
 
 volumes:
   pg-data:
@@ -97,5 +97,5 @@ volumes:
   logs:
 
 networks:
-  vortex-net:
+  contentx-net:
     driver: bridge

@@ -83,7 +83,7 @@ const headerTitle = computed(() => {
 const headerDesc = computed(() => {
   if (isCategory.value) return 'Browse articles in this category'
   if (isTag.value) return 'Browse articles tagged with this'
-  return 'Latest articles from VortexCMS'
+  return 'Latest articles from ContentX'
 })
 
 function truncate(s: string, n: number) { return !s ? '' : s.length > n ? s.slice(0, n) + '...' : s }

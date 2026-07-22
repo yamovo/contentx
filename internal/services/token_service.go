@@ -6,7 +6,9 @@ import (
 	"errors"
 	"time"
 
-	"github.com/vortexcms/go-cms/internal/models"
+	"github.com/yamovo/contentx/internal/errs"
+	"github.com/yamovo/contentx/internal/models"
+	"github.com/yamovo/contentx/internal/repository"
 	"gorm.io/gorm"
 )
 
@@ -19,31 +21,35 @@ type CreateTokenRequest struct {
 
 // TokenCreatedResponse is returned once after token creation.
 type TokenCreatedResponse struct {
-	ID          uint      `json:"id"`
-	Name        string    `json:"name"`
-	Token       string    `json:"token"` // only shown once
-	Permissions []string  `json:"permissions"`
+	ID          uint       `json:"id"`
+	Name        string     `json:"name"`
+	Token       string     `json:"token"` // only shown once
+	Permissions []string   `json:"permissions"`
 	ExpiresAt   *time.Time `json:"expires_at"`
 	CreatedAt   time.Time  `json:"created_at"`
 }
 
 // TokenService manages API tokens.
 type TokenService struct {
-	db *gorm.DB
+	repo repository.TokenRepository
 }
 
-// NewTokenService creates a new TokenService.
+// NewTokenService creates a TokenService backed by a GORM repository.
+// This constructor is kept for backward compatibility with existing callers
+// and tests; new code should prefer NewTokenServiceWithRepo.
 func NewTokenService(db *gorm.DB) *TokenService {
-	return &TokenService{db: db}
+	return &TokenService{repo: repository.NewTokenRepository(db)}
+}
+
+// NewTokenServiceWithRepo builds a TokenService with an explicit repository,
+// enabling unit tests to inject mocks.
+func NewTokenServiceWithRepo(repo repository.TokenRepository) *TokenService {
+	return &TokenService{repo: repo}
 }
 
 // List returns all API tokens (without the secret).
 func (s *TokenService) List() ([]models.APIToken, error) {
-	var tokens []models.APIToken
-	if err := s.db.Order("created_at DESC").Find(&tokens).Error; err != nil {
-		return nil, err
-	}
-	return tokens, nil
+	return s.repo.List()
 }
 
 // Create generates a new API token.
@@ -74,7 +80,7 @@ func (s *TokenService) Create(req CreateTokenRequest, createdBy uint) (*TokenCre
 		IsActive:    true,
 	}
 
-	if err := s.db.Create(&token).Error; err != nil {
+	if err := s.repo.Create(&token); err != nil {
 		return nil, errors.New("failed to create token")
 	}
 
@@ -90,17 +96,20 @@ func (s *TokenService) Create(req CreateTokenRequest, createdBy uint) (*TokenCre
 
 // Delete removes an API token by ID.
 func (s *TokenService) Delete(id uint) error {
-	result := s.db.Delete(&models.APIToken{}, id)
-	if result.RowsAffected == 0 {
-		return errors.New("token not found")
+	rowsAffected, err := s.repo.Delete(id)
+	if err != nil {
+		return err
 	}
-	return result.Error
+	if rowsAffected == 0 {
+		return errs.ErrNotFound.WithMessage("token not found")
+	}
+	return nil
 }
 
 // Validate checks if a token string is valid and has the required permission.
 func (s *TokenService) Validate(tokenStr string, requiredPerm string) (bool, uint, error) {
-	var token models.APIToken
-	if err := s.db.Where("token = ? AND is_active = ?", tokenStr, true).First(&token).Error; err != nil {
+	token, err := s.repo.FindActiveByToken(tokenStr)
+	if err != nil {
 		return false, 0, errors.New("invalid token")
 	}
 
@@ -109,11 +118,8 @@ func (s *TokenService) Validate(tokenStr string, requiredPerm string) (bool, uin
 		return false, 0, errors.New("token expired")
 	}
 
-	// Update last used.
-	s.db.Model(&token).Updates(map[string]interface{}{
-		"last_used_at": time.Now(),
-		"use_count":    gorm.Expr("use_count + 1"),
-	})
+	// Update last used (best-effort; ignore error).
+	_ = s.repo.UpdateUsage(token.ID, time.Now())
 
 	// Check permission (empty = full access).
 	if requiredPerm == "" {

@@ -3,7 +3,7 @@ package auth_test
 import (
 	"testing"
 
-	"github.com/vortexcms/go-cms/internal/models"
+	"github.com/yamovo/contentx/internal/models"
 )
 
 func TestArticleCalcReadingTime(t *testing.T) {

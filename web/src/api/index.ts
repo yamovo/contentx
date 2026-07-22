@@ -215,13 +215,13 @@ export interface Revision {
 // Auth
 export const authApi = {
   login: (data: { username: string; password: string }) =>
-    post<{ data: TokenPair; user: User }>('/auth/login', data),
+    post<{ data: { token: TokenPair; user: User } }>('/auth/login', data),
   register: (data: { username: string; email: string; password: string; display_name?: string }) =>
-    post<{ data: TokenPair; user: User }>('/auth/register', data),
+    post<{ data: { token: TokenPair; user: User } }>('/auth/register', data),
   refresh: (refresh_token: string) =>
     post<{ data: TokenPair }>('/auth/refresh', { refresh_token }),
   logout: () => post('/auth/logout'),
-  me: () => get<{ data: User; permissions: string[] }>('/auth/me'),
+  me: () => get<{ data: { user: User; permissions: string[] } }>('/auth/me'),
   updateProfile: (data: Partial<User>) => put<{ data: User }>('/auth/profile', data),
   changePassword: (data: { old_password: string; new_password: string }) =>
     put('/auth/password', data),

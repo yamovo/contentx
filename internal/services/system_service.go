@@ -4,7 +4,9 @@ import (
 	"runtime"
 	"runtime/debug"
 
-	"github.com/vortexcms/go-cms/internal/models"
+	"github.com/yamovo/contentx/internal/models"
+	"github.com/yamovo/contentx/internal/plugin"
+	"github.com/yamovo/contentx/internal/repository"
 	"gorm.io/gorm"
 )
 
@@ -21,104 +23,134 @@ type ActivityLogParams struct {
 
 // PluginService handles plugin business logic.
 type PluginService struct {
-	db *gorm.DB
+	repo    repository.PluginRepository
+	manager *plugin.Manager
 }
 
-// NewPluginService creates a new PluginService.
+// NewPluginService creates a PluginService backed by a GORM repository.
 func NewPluginService(db *gorm.DB) *PluginService {
-	return &PluginService{db: db}
+	return &PluginService{repo: repository.NewPluginRepository(db)}
 }
+
+// NewPluginServiceWithRepo builds a PluginService with an explicit repository.
+func NewPluginServiceWithRepo(repo repository.PluginRepository) *PluginService {
+	return &PluginService{repo: repo}
+}
+
+// SetPluginManager attaches the runtime plugin manager so that enable/disable
+// calls are mirrored at runtime (not just in the DB).
+func (s *PluginService) SetPluginManager(m *plugin.Manager) { s.manager = m }
 
 // List returns all plugins ordered by name.
 func (s *PluginService) List() ([]models.Plugin, error) {
-	var plugins []models.Plugin
-	if err := s.db.Order("name ASC").Find(&plugins).Error; err != nil {
-		return nil, err
-	}
-	return plugins, nil
+	return s.repo.List()
 }
 
-// Enable sets a plugin as enabled.
+// Enable sets a plugin as enabled in the DB and at runtime.
 func (s *PluginService) Enable(id uint) error {
-	var plugin models.Plugin
-	if err := s.db.First(&plugin, id).Error; err != nil {
+	p, err := s.repo.FindByID(id)
+	if err != nil {
 		return err
 	}
-	return s.db.Model(&plugin).Update("is_enabled", true).Error
+	if err := s.repo.UpdateEnabled(id, true); err != nil {
+		return err
+	}
+	if s.manager != nil {
+		// Best-effort runtime sync; DB is the source of truth.
+		_ = s.manager.Enable(p.Name)
+	}
+	return nil
 }
 
-// Disable sets a plugin as disabled.
+// Disable sets a plugin as disabled in the DB and at runtime.
 func (s *PluginService) Disable(id uint) error {
-	var plugin models.Plugin
-	if err := s.db.First(&plugin, id).Error; err != nil {
+	p, err := s.repo.FindByID(id)
+	if err != nil {
 		return err
 	}
-	return s.db.Model(&plugin).Update("is_enabled", false).Error
+	if err := s.repo.UpdateEnabled(id, false); err != nil {
+		return err
+	}
+	if s.manager != nil {
+		_ = s.manager.Disable(p.Name)
+	}
+	return nil
 }
 
-// UpdateConfig updates a plugin's configuration JSON.
+// UpdateConfig updates a plugin's configuration JSON and reloads it at runtime.
 func (s *PluginService) UpdateConfig(id uint, config map[string]interface{}) error {
-	var plugin models.Plugin
-	if err := s.db.First(&plugin, id).Error; err != nil {
+	p, err := s.repo.FindByID(id)
+	if err != nil {
 		return err
 	}
-	return s.db.Model(&plugin).Update("config", config).Error
+	p.Config = config
+	if err := s.repo.Save(p); err != nil {
+		return err
+	}
+	if s.manager != nil {
+		_ = s.manager.Reload(p.Name)
+	}
+	return nil
 }
 
 // ---------- ThemeService ----------
 
 // ThemeService handles theme business logic.
 type ThemeService struct {
-	db *gorm.DB
+	repo repository.ThemeRepository
 }
 
-// NewThemeService creates a new ThemeService.
+// NewThemeService creates a ThemeService backed by a GORM repository.
 func NewThemeService(db *gorm.DB) *ThemeService {
-	return &ThemeService{db: db}
+	return &ThemeService{repo: repository.NewThemeRepository(db)}
+}
+
+// NewThemeServiceWithRepo builds a ThemeService with an explicit repository.
+func NewThemeServiceWithRepo(repo repository.ThemeRepository) *ThemeService {
+	return &ThemeService{repo: repo}
 }
 
 // List returns all themes ordered by name.
 func (s *ThemeService) List() ([]models.ThemeConfig, error) {
-	var themes []models.ThemeConfig
-	if err := s.db.Order("name ASC").Find(&themes).Error; err != nil {
-		return nil, err
-	}
-	return themes, nil
+	return s.repo.List()
 }
 
 // Activate activates a theme and deactivates all others.
 func (s *ThemeService) Activate(id uint) error {
-	var theme models.ThemeConfig
-	if err := s.db.First(&theme, id).Error; err != nil {
+	if _, err := s.repo.FindByID(id); err != nil {
 		return err
 	}
-
-	// Deactivate all other themes.
-	if err := s.db.Model(&models.ThemeConfig{}).Where("id != ?", id).Update("is_active", false).Error; err != nil {
+	if err := s.repo.DeactivateAllExcept(id); err != nil {
 		return err
 	}
-	return s.db.Model(&theme).Update("is_active", true).Error
+	return s.repo.UpdateActive(id, true)
 }
 
 // UpdateConfig updates a theme's configuration JSON.
 func (s *ThemeService) UpdateConfig(id uint, config map[string]interface{}) error {
-	var theme models.ThemeConfig
-	if err := s.db.First(&theme, id).Error; err != nil {
+	theme, err := s.repo.FindByID(id)
+	if err != nil {
 		return err
 	}
-	return s.db.Model(&theme).Update("config", config).Error
+	theme.Config = config
+	return s.repo.Save(theme)
 }
 
 // ---------- SystemService ----------
 
 // SystemService provides system information and operations.
 type SystemService struct {
-	db *gorm.DB
+	repo repository.SystemRepository
 }
 
-// NewSystemService creates a new SystemService.
+// NewSystemService creates a SystemService backed by a GORM repository.
 func NewSystemService(db *gorm.DB) *SystemService {
-	return &SystemService{db: db}
+	return &SystemService{repo: repository.NewSystemRepository(db)}
+}
+
+// NewSystemServiceWithRepo builds a SystemService with an explicit repository.
+func NewSystemServiceWithRepo(repo repository.SystemRepository) *SystemService {
+	return &SystemService{repo: repo}
 }
 
 // Info returns system information as a map.
@@ -129,7 +161,7 @@ func (s *SystemService) Info() map[string]interface{} {
 		"name":       "ContentX",
 		"version":    "1.0.0",
 		"go_version": goVersion,
-		"database":   s.db.Dialector.Name(),
+		"database":   s.repo.DialectorName(),
 	}
 
 	// Include build info if available.
@@ -145,11 +177,7 @@ func (s *SystemService) Info() map[string]interface{} {
 
 // Health checks whether the system is healthy by pinging the database.
 func (s *SystemService) Health() (bool, error) {
-	sqlDB, err := s.db.DB()
-	if err != nil {
-		return false, err
-	}
-	if err := sqlDB.Ping(); err != nil {
+	if err := s.repo.Ping(); err != nil {
 		return false, err
 	}
 	return true, nil
@@ -157,34 +185,11 @@ func (s *SystemService) Health() (bool, error) {
 
 // ActivityLog returns activity log entries with pagination and filters.
 func (s *SystemService) ActivityLog(params ActivityLogParams) ([]models.ActivityLog, int64, error) {
-	if params.Page < 1 {
-		params.Page = 1
-	}
-	if params.PageSize < 1 || params.PageSize > 100 {
-		params.PageSize = 50
-	}
-
-	query := s.db.Model(&models.ActivityLog{})
-
-	if params.Entity != "" {
-		query = query.Where("entity = ?", params.Entity)
-	}
-	if params.Action != "" {
-		query = query.Where("action = ?", params.Action)
-	}
-	if params.UserID != "" {
-		query = query.Where("user_id = ?", params.UserID)
-	}
-
-	var total int64
-	if err := query.Count(&total).Error; err != nil {
-		return nil, 0, err
-	}
-
-	var logs []models.ActivityLog
-	if err := query.Order("created_at DESC").Offset((params.Page - 1) * params.PageSize).Limit(params.PageSize).Find(&logs).Error; err != nil {
-		return nil, 0, err
-	}
-
-	return logs, total, nil
+	return s.repo.ListActivityLogs(repository.ActivityLogListFilter{
+		Page:     params.Page,
+		PageSize: params.PageSize,
+		Entity:   params.Entity,
+		Action:   params.Action,
+		UserID:   params.UserID,
+	})
 }

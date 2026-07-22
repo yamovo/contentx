@@ -1,11 +1,10 @@
 package handlers
 
 import (
-	"net/http"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
-	"github.com/vortexcms/go-cms/internal/services"
+	"github.com/yamovo/contentx/internal/services"
 )
 
 // CategoryHandler handles category CRUD operations.
@@ -19,110 +18,186 @@ func NewCategoryHandler(svc *services.CategoryService) *CategoryHandler {
 
 // List returns all categories in a tree structure.
 // GET /api/v1/categories
+//
+//	@Summary      List categories
+//	@Description  Returns all categories as a tree structure
+//	@Tags         Categories
+//	@Produce      json
+//	@Param        all   query   string  false  "Show all categories including empty"  default(false)
+//	@Security     BearerAuth
+//	@Success      200   {object}  APIResponse{data=[]services.CategoryTree}
+//	@Failure      401   {object}  APIResponse
+//	@Router       /categories [get]
 func (h *CategoryHandler) List(c *gin.Context) {
 	showAll := c.Query("all") == "true"
 
 	categories, err := h.svc.List(showAll)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch categories"})
+		handleServiceError(c, err)
 		return
 	}
 
 	tree := services.BuildCategoryTree(categories, nil)
-	c.JSON(http.StatusOK, gin.H{"data": tree})
+	Success(c, tree)
 }
 
 // Get returns a single category.
 // GET /api/v1/categories/:id
+//
+//	@Summary      Get category
+//	@Description  Returns a single category by ID
+//	@Tags         Categories
+//	@Produce      json
+//	@Param        id   path      int     true  "Category ID"
+//	@Security     BearerAuth
+//	@Success      200  {object}  APIResponse{data=models.Category}
+//	@Failure      400  {object}  APIResponse
+//	@Failure      401  {object}  APIResponse
+//	@Failure      404  {object}  APIResponse
+//	@Router       /categories/{id} [get]
 func (h *CategoryHandler) Get(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid category ID"})
+		BadRequest(c, "Invalid category ID")
 		return
 	}
 
 	category, err := h.svc.Get(uint(id))
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Category not found"})
+		handleServiceError(c, err)
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"data": category})
+	Success(c, category)
 }
 
 // Create creates a new category.
 // POST /api/v1/categories
+//
+//	@Summary      Create category
+//	@Description  Creates a new category (requires categories.manage permission)
+//	@Tags         Categories
+//	@Accept       json
+//	@Produce      json
+//	@Param        body  body      services.CreateCategoryRequest  true  "Category data"
+//	@Security     BearerAuth
+//	@Success      201   {object}  APIResponse{data=models.Category}
+//	@Failure      400   {object}  APIResponse
+//	@Failure      401   {object}  APIResponse
+//	@Failure      403   {object}  APIResponse
+//	@Router       /categories [post]
 func (h *CategoryHandler) Create(c *gin.Context) {
 	var req services.CreateCategoryRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		BadRequest(c, sanitizeBindErr(err))
 		return
 	}
 
 	category, err := h.svc.Create(req)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create category"})
+		handleServiceError(c, err)
 		return
 	}
 
-	c.JSON(http.StatusCreated, gin.H{"data": category})
+	Created(c, category)
 }
 
 // Update updates an existing category.
 // PUT /api/v1/categories/:id
+//
+//	@Summary      Update category
+//	@Description  Updates an existing category (requires categories.manage permission)
+//	@Tags         Categories
+//	@Accept       json
+//	@Produce      json
+//	@Param        id    path      int                             true  "Category ID"
+//	@Param        body  body      services.CreateCategoryRequest  true  "Category data"
+//	@Security     BearerAuth
+//	@Success      200   {object}  APIResponse
+//	@Failure      400   {object}  APIResponse
+//	@Failure      401   {object}  APIResponse
+//	@Failure      403   {object}  APIResponse
+//	@Failure      404   {object}  APIResponse
+//	@Router       /categories/{id} [put]
 func (h *CategoryHandler) Update(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid category ID"})
+		BadRequest(c, "Invalid category ID")
 		return
 	}
 
 	var req services.CreateCategoryRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		BadRequest(c, sanitizeBindErr(err))
 		return
 	}
 
 	if err := h.svc.Update(uint(id), req); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update category"})
+		handleServiceError(c, err)
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "Category updated"})
+	Success(c, gin.H{"message": "Category updated"})
 }
 
 // Delete removes a category.
 // DELETE /api/v1/categories/:id
+//
+//	@Summary      Delete category
+//	@Description  Removes a category (requires categories.manage permission)
+//	@Tags         Categories
+//	@Produce      json
+//	@Param        id   path      int     true  "Category ID"
+//	@Security     BearerAuth
+//	@Success      200  {object}  APIResponse
+//	@Failure      400  {object}  APIResponse
+//	@Failure      401  {object}  APIResponse
+//	@Failure      403  {object}  APIResponse
+//	@Failure      404  {object}  APIResponse
+//	@Router       /categories/{id} [delete]
 func (h *CategoryHandler) Delete(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid category ID"})
+		BadRequest(c, "Invalid category ID")
 		return
 	}
 
 	if err := h.svc.Delete(uint(id)); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete category"})
+		handleServiceError(c, err)
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "Category deleted"})
+	Success(c, gin.H{"message": "Category deleted"})
 }
 
 // Reorder updates sort order for multiple categories.
 // PUT /api/v1/categories/reorder
+//
+//	@Summary      Reorder categories
+//	@Description  Updates sort order for multiple categories (requires categories.manage permission)
+//	@Tags         Categories
+//	@Accept       json
+//	@Produce      json
+//	@Param        body  body      object  true  "Reorder payload"
+//	@Security     BearerAuth
+//	@Success      200   {object}  APIResponse
+//	@Failure      400   {object}  APIResponse
+//	@Failure      401   {object}  APIResponse
+//	@Failure      403   {object}  APIResponse
+//	@Router       /categories/reorder [put]
 func (h *CategoryHandler) Reorder(c *gin.Context) {
 	var req struct {
 		Items []services.ReorderItem `json:"items" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		BadRequest(c, sanitizeBindErr(err))
 		return
 	}
 
 	if err := h.svc.Reorder(req.Items); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to reorder categories"})
+		handleServiceError(c, err)
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "Categories reordered"})
+	Success(c, gin.H{"message": "Categories reordered"})
 }

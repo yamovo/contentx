@@ -2,6 +2,8 @@ package cache
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"time"
 )
 
@@ -15,9 +17,9 @@ type Driver interface {
 
 // Config holds cache configuration.
 type Config struct {
-	Driver     string // "memory" or "redis"
-	Redis      RedisConfig
-	Memory     MemoryConfig
+	Driver string // "memory" or "redis"
+	Redis  RedisConfig
+	Memory MemoryConfig
 }
 
 // RedisConfig holds Redis connection settings.
@@ -32,4 +34,25 @@ type RedisConfig struct {
 type MemoryConfig struct {
 	MaxEntries int
 	DefaultTTL time.Duration
+}
+
+// New creates a cache Driver from the given configuration.
+// Supported drivers: "memory" (default) and "redis". For redis, the
+// connection is verified with a ping and an error is returned on failure
+// so the caller can decide whether to fall back to memory.
+func New(cfg Config) (Driver, error) {
+	switch strings.ToLower(strings.TrimSpace(cfg.Driver)) {
+	case "redis":
+		d := NewRedisDriver(cfg.Redis.Addr, cfg.Redis.Password, cfg.Redis.DB, cfg.Redis.Prefix)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := d.Ping(ctx); err != nil {
+			return nil, fmt.Errorf("redis ping failed: %w", err)
+		}
+		return d, nil
+	case "memory", "":
+		return NewMemoryDriver(cfg.Memory.MaxEntries), nil
+	default:
+		return nil, fmt.Errorf("unknown cache driver: %q", cfg.Driver)
+	}
 }

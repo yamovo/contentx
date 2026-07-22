@@ -1,7 +1,7 @@
-.PHONY: build test lint clean dev migrate seed
+.PHONY: build test lint clean dev migrate migrate-down migrate-status seed
 
 # Build variables
-BINARY=vortexcms
+BINARY=contentx
 BUILD_DIR=./bin
 GO=go
 
@@ -30,9 +30,17 @@ clean:
 dev:
 	$(GO) run ./cmd/server
 
-# Run database migrations
+# Run database migrations (apply pending, then exit)
 migrate:
 	$(GO) run ./cmd/server --migrate
+
+# Roll back the last N migrations (default 1)
+migrate-down:
+	$(GO) run ./cmd/server --migrate-down=1
+
+# Show migration status
+migrate-status:
+	$(GO) run ./cmd/server --migrate-status
 
 # Seed the database
 seed:
@@ -48,11 +56,11 @@ vet:
 
 # Generate swagger docs
 swagger:
-	swag init -g cmd/server/main.go -o docs/swagger
+	swag init -g cmd/server/main.go --parseDependency --parseInternal -o docs/api
 
 # Build Docker image
 docker:
-	docker build -t vortexcms:latest .
+	docker build -t contentx:latest .
 
 # Run with Docker Compose
 docker-up:

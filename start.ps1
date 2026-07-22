@@ -1,7 +1,7 @@
-# VortexCMS 启动脚本
+# ContentX 启动脚本
 Write-Host ""
 Write-Host "========================================"
-Write-Host "   VortexCMS v1.0.0"
+Write-Host "   ContentX v1.0.0"
 Write-Host "   正在启动..."
 Write-Host "========================================"
 Write-Host ""
@@ -11,8 +11,8 @@ $env:SERVER_HOST = "0.0.0.0"
 $env:SERVER_PORT = "8080"
 $env:SERVER_MODE = "debug"
 $env:DB_DRIVER = "sqlite"
-$env:DB_NAME = "vortexcms"
-$env:JWT_SECRET = "vortexcms-super-secret-key-change-in-production"
+$env:DB_NAME = "contentx"
+# JWT_SECRET 未设置时 debug 模式会自动生成随机密钥，release 模式会启动失败
 $env:JWT_ACCESS_TTL = "15m"
 $env:JWT_REFRESH_TTL = "168h"
 $env:LIMITS_API_RATE = "300"
@@ -30,4 +30,4 @@ Write-Host ""
 Set-Location $PSScriptRoot
 
 # 启动服务
-.\server.exe
+.\contentx.exe

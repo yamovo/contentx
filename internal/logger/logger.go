@@ -6,7 +6,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/vortexcms/go-cms/internal/config"
+	"github.com/yamovo/contentx/internal/config"
 )
 
 // Setup initializes the global slog logger based on configuration.

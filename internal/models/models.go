@@ -20,22 +20,22 @@ type BaseModel struct {
 // User represents a system user.
 type User struct {
 	BaseModel
-	Username     string         `gorm:"uniqueIndex;size:64;not null" json:"username" validate:"required,min=3,max=64"`
-	Email        string         `gorm:"uniqueIndex;size:255;not null" json:"email" validate:"required,email"`
-	Password     string         `gorm:"size:255;not null" json:"-"`
-	DisplayName  string         `gorm:"size:128" json:"display_name"`
-	Avatar       string         `gorm:"size:512" json:"avatar"`
-	Bio          string         `gorm:"size:1000" json:"bio"`
-	Website      string         `gorm:"size:512" json:"website"`
-	Role         Role           `gorm:"foreignKey:RoleID" json:"role,omitempty"`
-	RoleID       uint           `gorm:"index;not null;default:1" json:"role_id"`
-	Status       UserStatus     `gorm:"size:20;not null;default:'active'" json:"status"`
-	LastLoginAt  *time.Time     `json:"last_login_at"`
-	LastLoginIP  string         `gorm:"size:45" json:"last_login_ip"`
-	LoginCount   int            `gorm:"default:0" json:"login_count"`
-	Preferences  UserPreferences `gorm:"type:json" json:"preferences"`
-	Articles     []Article      `gorm:"foreignKey:AuthorID" json:"articles,omitempty"`
-	Comments     []Comment      `gorm:"foreignKey:UserID" json:"comments,omitempty"`
+	Username    string          `gorm:"uniqueIndex;size:64;not null" json:"username" validate:"required,min=3,max=64"`
+	Email       string          `gorm:"uniqueIndex;size:255;not null" json:"email" validate:"required,email"`
+	Password    string          `gorm:"size:255;not null" json:"-"`
+	DisplayName string          `gorm:"size:128" json:"display_name"`
+	Avatar      string          `gorm:"size:512" json:"avatar"`
+	Bio         string          `gorm:"size:1000" json:"bio"`
+	Website     string          `gorm:"size:512" json:"website"`
+	Role        Role            `gorm:"foreignKey:RoleID" json:"role,omitempty"`
+	RoleID      uint            `gorm:"index;not null;default:1" json:"role_id"`
+	Status      UserStatus      `gorm:"size:20;not null;default:'active'" json:"status"`
+	LastLoginAt *time.Time      `json:"last_login_at"`
+	LastLoginIP string          `gorm:"size:45" json:"last_login_ip"`
+	LoginCount  int             `gorm:"default:0" json:"login_count"`
+	Preferences UserPreferences `gorm:"type:json" json:"preferences"`
+	Articles    []Article       `gorm:"foreignKey:AuthorID" json:"articles,omitempty"`
+	Comments    []Comment       `gorm:"foreignKey:UserID" json:"comments,omitempty"`
 }
 
 // UserStatus represents the status of a user account.
@@ -50,11 +50,11 @@ const (
 
 // UserPreferences stores user-specific settings.
 type UserPreferences struct {
-	Language         string `json:"language"`
-	Theme            string `json:"theme"`
-	EmailNotify      bool   `json:"email_notify"`
-	MarkdownEditor   bool   `json:"markdown_editor"`
-	ItemsPerPage     int    `json:"items_per_page"`
+	Language          string `json:"language"`
+	Theme             string `json:"theme"`
+	EmailNotify       bool   `json:"email_notify"`
+	MarkdownEditor    bool   `json:"markdown_editor"`
+	ItemsPerPage      int    `json:"items_per_page"`
 	DefaultPostStatus string `json:"default_post_status"`
 }
 
@@ -143,6 +143,12 @@ type Article struct {
 	SortOrder     int           `gorm:"default:0" json:"sort_order"`
 	Version       int           `gorm:"default:1" json:"version"`
 	CommentCount  int           `gorm:"default:0" json:"comment_count"`
+	// i18n: Locale is the BCP-47 language tag (e.g. "en", "zh", "ja").
+	// TranslationGroupID links translations of the same content; the first
+	// article created in a group seeds its own group id (its own ID).
+	Locale             string `gorm:"size:10;not null;default:'en';index" json:"locale"`
+	TranslationGroupID *uint  `gorm:"index" json:"translation_group_id,omitempty"`
+	Translations       []Article `gorm:"foreignKey:TranslationGroupID;references:ID" json:"translations,omitempty"`
 	Comments      []Comment     `gorm:"foreignKey:ArticleID" json:"comments,omitempty"`
 	Revisions     []Revision    `gorm:"foreignKey:ArticleID" json:"revisions,omitempty"`
 	CustomFields  []CustomField `gorm:"foreignKey:ArticleID" json:"custom_fields,omitempty"`
@@ -199,59 +205,59 @@ type Category struct {
 // Tag represents an article tag.
 type Tag struct {
 	BaseModel
-	Name      string    `gorm:"size:64;not null;uniqueIndex" json:"name" validate:"required,max=64"`
-	Slug      string    `gorm:"uniqueIndex;size:64;not null" json:"slug"`
-	Count     int       `gorm:"default:0" json:"count"`
-	Color     string    `gorm:"size:7" json:"color"`
-	Articles  []Article `gorm:"many2many:article_tags;" json:"articles,omitempty"`
+	Name     string    `gorm:"size:64;not null;uniqueIndex" json:"name" validate:"required,max=64"`
+	Slug     string    `gorm:"uniqueIndex;size:64;not null" json:"slug"`
+	Count    int       `gorm:"default:0" json:"count"`
+	Color    string    `gorm:"size:7" json:"color"`
+	Articles []Article `gorm:"many2many:article_tags;" json:"articles,omitempty"`
 }
 
 // Comment represents a user comment on an article.
 type Comment struct {
 	BaseModel
-	Article    Article    `gorm:"foreignKey:ArticleID" json:"article,omitempty"`
-	ArticleID  uint       `gorm:"index;not null" json:"article_id"`
-	User       *User      `gorm:"foreignKey:UserID" json:"user,omitempty"`
-	UserID     *uint      `gorm:"index" json:"user_id"`
-	Parent     *Comment   `gorm:"foreignKey:ParentID" json:"parent,omitempty"`
-	ParentID   *uint      `gorm:"index" json:"parent_id"`
-	Children   []Comment  `gorm:"foreignKey:ParentID" json:"children,omitempty"`
-	AuthorName string     `gorm:"size:100" json:"author_name"`
+	Article     Article   `gorm:"foreignKey:ArticleID" json:"article,omitempty"`
+	ArticleID   uint      `gorm:"index;not null" json:"article_id"`
+	User        *User     `gorm:"foreignKey:UserID" json:"user,omitempty"`
+	UserID      *uint     `gorm:"index" json:"user_id"`
+	Parent      *Comment  `gorm:"foreignKey:ParentID" json:"parent,omitempty"`
+	ParentID    *uint     `gorm:"index" json:"parent_id"`
+	Children    []Comment `gorm:"foreignKey:ParentID" json:"children,omitempty"`
+	AuthorName  string    `gorm:"size:100" json:"author_name"`
 	AuthorEmail string    `gorm:"size:255" json:"author_email"`
-	AuthorURL  string     `gorm:"size:512" json:"author_url"`
-	AuthorIP   string     `gorm:"size:45" json:"author_ip"`
-	Content    string     `gorm:"type:text;not null" json:"content" validate:"required"`
-	Status     string     `gorm:"size:20;not null;default:'pending';index" json:"status"`
-	Agent      string     `gorm:"size:512" json:"agent"`
-	Depth      int        `gorm:"default:0" json:"depth"`
-	LikeCount  int        `gorm:"default:0" json:"like_count"`
-	IsSticky   bool       `gorm:"default:false" json:"is_sticky"`
+	AuthorURL   string    `gorm:"size:512" json:"author_url"`
+	AuthorIP    string    `gorm:"size:45" json:"author_ip"`
+	Content     string    `gorm:"type:text;not null" json:"content" validate:"required"`
+	Status      string    `gorm:"size:20;not null;default:'pending';index" json:"status"`
+	Agent       string    `gorm:"size:512" json:"agent"`
+	Depth       int       `gorm:"default:0" json:"depth"`
+	LikeCount   int       `gorm:"default:0" json:"like_count"`
+	IsSticky    bool      `gorm:"default:false" json:"is_sticky"`
 }
 
 // Media represents an uploaded file.
 type Media struct {
 	BaseModel
-	Filename     string `gorm:"size:255;not null" json:"filename"`
-	OriginalName string `gorm:"size:255;not null" json:"original_name"`
-	FilePath     string `gorm:"size:512;not null" json:"file_path"`
-	URL          string `gorm:"size:512;not null" json:"url"`
-	ThumbnailURL string `gorm:"size:512" json:"thumbnail_url"`
-	MimeType     string `gorm:"size:128;not null;index" json:"mime_type"`
-	FileSize     int64  `gorm:"not null" json:"file_size"`
-	Width        int    `json:"width,omitempty"`
-	Height       int    `json:"height,omitempty"`
-	Duration     int    `json:"duration,omitempty"` // seconds for video/audio
-	Alt          string `gorm:"size:512" json:"alt"`
-	Title        string `gorm:"size:255" json:"title"`
-	Caption      string `gorm:"type:text" json:"caption"`
-	Description  string `gorm:"type:text" json:"description"`
-	Folder       string `gorm:"size:255;index;default:'/'" json:"folder"`
-	Uploader     User   `gorm:"foreignKey:UploaderID" json:"uploader,omitempty"`
-	UploaderID   uint   `gorm:"index;not null" json:"uploader_id"`
-	Checksum     string `gorm:"size:64;index" json:"checksum"`
-	IsPublic     bool   `gorm:"default:true" json:"is_public"`
-	Downloads    int64  `gorm:"default:0" json:"downloads"`
-	Meta         map[string]interface{} `gorm:"type:json" json:"meta,omitempty"`
+	Filename     string                 `gorm:"size:255;not null" json:"filename"`
+	OriginalName string                 `gorm:"size:255;not null" json:"original_name"`
+	FilePath     string                 `gorm:"size:512;not null" json:"file_path"`
+	URL          string                 `gorm:"size:512;not null" json:"url"`
+	ThumbnailURL string                 `gorm:"size:512" json:"thumbnail_url"`
+	MimeType     string                 `gorm:"size:128;not null;index" json:"mime_type"`
+	FileSize     int64                  `gorm:"not null" json:"file_size"`
+	Width        int                    `json:"width,omitempty"`
+	Height       int                    `json:"height,omitempty"`
+	Duration     int                    `json:"duration,omitempty"` // seconds for video/audio
+	Alt          string                 `gorm:"size:512" json:"alt"`
+	Title        string                 `gorm:"size:255" json:"title"`
+	Caption      string                 `gorm:"type:text" json:"caption"`
+	Description  string                 `gorm:"type:text" json:"description"`
+	Folder       string                 `gorm:"size:255;index;default:'/'" json:"folder"`
+	Uploader     User                   `gorm:"foreignKey:UploaderID" json:"uploader,omitempty"`
+	UploaderID   uint                   `gorm:"index;not null" json:"uploader_id"`
+	Checksum     string                 `gorm:"size:64;index" json:"checksum"`
+	IsPublic     bool                   `gorm:"default:true" json:"is_public"`
+	Downloads    int64                  `gorm:"default:0" json:"downloads"`
+	Meta         map[string]interface{} `gorm:"type:json;serializer:json" json:"meta,omitempty"`
 }
 
 // Revision stores article version history.
@@ -278,9 +284,9 @@ type CustomField struct {
 // Menu represents a navigation menu.
 type Menu struct {
 	BaseModel
-	Name      string  `gorm:"size:128;not null" json:"name"`
-	Slug      string  `gorm:"uniqueIndex;size:128;not null" json:"slug"`
-	Locations string  `gorm:"size:255" json:"locations"` // comma-separated: header,footer,sidebar
+	Name      string     `gorm:"size:128;not null" json:"name"`
+	Slug      string     `gorm:"uniqueIndex;size:128;not null" json:"slug"`
+	Locations string     `gorm:"size:255" json:"locations"` // comma-separated: header,footer,sidebar
 	Items     []MenuItem `gorm:"foreignKey:MenuID" json:"items,omitempty"`
 }
 
@@ -299,7 +305,7 @@ type MenuItem struct {
 	SortOrder int        `gorm:"default:0;index" json:"sort_order"`
 	IsActive  bool       `gorm:"default:true" json:"is_active"`
 	// Optional link types
-	ArticleID *uint `gorm:"index" json:"article_id"`
+	ArticleID  *uint `gorm:"index" json:"article_id"`
 	CategoryID *uint `gorm:"index" json:"category_id"`
 }
 
@@ -319,16 +325,16 @@ type SiteSetting struct {
 // SEOSetting stores per-page SEO overrides.
 type SEOSetting struct {
 	BaseModel
-	EntityType string `gorm:"size:50;not null;index;uniqueIndex:idx_seo_entity" json:"entity_type"` // article, category, tag, page
-	EntityID   uint   `gorm:"not null;index;uniqueIndex:idx_seo_entity" json:"entity_id"`
-	Title      string `gorm:"size:255" json:"title"`
-	Desc       string `gorm:"size:512" json:"desc"`
-	Keywords   string `gorm:"size:512" json:"keywords"`
-	Canonical  string `gorm:"size:512" json:"canonical"`
-	OGImage    string `gorm:"size:512" json:"og_image"`
-	OGType     string `gorm:"size:50" json:"og_type"`
-	Robots     string `gorm:"size:64" json:"robots"`
-	Extra      map[string]string `gorm:"type:json" json:"extra"`
+	EntityType string            `gorm:"size:50;not null;index;uniqueIndex:idx_seo_entity" json:"entity_type"` // article, category, tag, page
+	EntityID   uint              `gorm:"not null;index;uniqueIndex:idx_seo_entity" json:"entity_id"`
+	Title      string            `gorm:"size:255" json:"title"`
+	Desc       string            `gorm:"size:512" json:"desc"`
+	Keywords   string            `gorm:"size:512" json:"keywords"`
+	Canonical  string            `gorm:"size:512" json:"canonical"`
+	OGImage    string            `gorm:"size:512" json:"og_image"`
+	OGType     string            `gorm:"size:50" json:"og_type"`
+	Robots     string            `gorm:"size:64" json:"robots"`
+	Extra      map[string]string `gorm:"type:json;serializer:json" json:"extra"`
 }
 
 // RedirectRule manages URL redirects (301/302).
@@ -345,31 +351,31 @@ type RedirectRule struct {
 // Plugin represents an installed plugin.
 type Plugin struct {
 	BaseModel
-	Name        string `gorm:"uniqueIndex;size:128;not null" json:"name"`
-	Slug        string `gorm:"uniqueIndex;size:128;not null" json:"slug"`
-	Description string `gorm:"type:text" json:"description"`
-	Author      string `gorm:"size:128" json:"author"`
-	Version     string `gorm:"size:32" json:"version"`
-	Website     string `gorm:"size:512" json:"website"`
-	Config      map[string]interface{} `gorm:"type:json" json:"config"`
-	IsEnabled   bool   `gorm:"default:false;index" json:"is_enabled"`
-	EntryPoint  string `gorm:"size:255" json:"entry_point"`
-	Dependencies string `gorm:"size:512" json:"dependencies"` // comma-separated
-	MinVersion  string `gorm:"size:32" json:"min_version"`   // minimum CMS version
+	Name         string                 `gorm:"uniqueIndex;size:128;not null" json:"name"`
+	Slug         string                 `gorm:"uniqueIndex;size:128;not null" json:"slug"`
+	Description  string                 `gorm:"type:text" json:"description"`
+	Author       string                 `gorm:"size:128" json:"author"`
+	Version      string                 `gorm:"size:32" json:"version"`
+	Website      string                 `gorm:"size:512" json:"website"`
+	Config       map[string]interface{} `gorm:"type:json;serializer:json" json:"config"`
+	IsEnabled    bool                   `gorm:"default:false;index" json:"is_enabled"`
+	EntryPoint   string                 `gorm:"size:255" json:"entry_point"`
+	Dependencies string                 `gorm:"size:512" json:"dependencies"` // comma-separated
+	MinVersion   string                 `gorm:"size:32" json:"min_version"`   // minimum CMS version
 }
 
 // ThemeConfig stores theme settings.
 type ThemeConfig struct {
 	BaseModel
-	Name        string `gorm:"uniqueIndex;size:128;not null" json:"name"`
-	Slug        string `gorm:"uniqueIndex;size:128;not null" json:"slug"`
-	Description string `gorm:"type:text" json:"description"`
-	Author      string `gorm:"size:128" json:"author"`
-	Version     string `gorm:"size:32" json:"version"`
-	Screenshot  string `gorm:"size:512" json:"screenshot"`
-	IsActive    bool   `gorm:"default:false;index" json:"is_active"`
-	Config      map[string]interface{} `gorm:"type:json" json:"config"`
-	TemplateDir string `gorm:"size:255" json:"template_dir"`
+	Name        string                 `gorm:"uniqueIndex;size:128;not null" json:"name"`
+	Slug        string                 `gorm:"uniqueIndex;size:128;not null" json:"slug"`
+	Description string                 `gorm:"type:text" json:"description"`
+	Author      string                 `gorm:"size:128" json:"author"`
+	Version     string                 `gorm:"size:32" json:"version"`
+	Screenshot  string                 `gorm:"size:512" json:"screenshot"`
+	IsActive    bool                   `gorm:"default:false;index" json:"is_active"`
+	Config      map[string]interface{} `gorm:"type:json;serializer:json" json:"config"`
+	TemplateDir string                 `gorm:"size:255" json:"template_dir"`
 }
 
 // PageView stores analytics data.
@@ -393,25 +399,25 @@ type PageView struct {
 // SitemapEntry represents a sitemap URL entry.
 type SitemapEntry struct {
 	BaseModel
-	EntityType  string     `gorm:"size:50;not null;index" json:"entity_type"`
-	EntityID    uint       `gorm:"not null;index" json:"entity_id"`
-	Loc         string     `gorm:"size:512;not null" json:"loc"`
-	LastMod     *time.Time `json:"last_mod"`
-	ChangeFreq  string     `gorm:"size:16;default:'weekly'" json:"change_freq"`
-	Priority    float64    `gorm:"default:0.5" json:"priority"`
-	IsExcluded  bool       `gorm:"default:false" json:"is_excluded"`
+	EntityType string     `gorm:"size:50;not null;index" json:"entity_type"`
+	EntityID   uint       `gorm:"not null;index" json:"entity_id"`
+	Loc        string     `gorm:"size:512;not null" json:"loc"`
+	LastMod    *time.Time `json:"last_mod"`
+	ChangeFreq string     `gorm:"size:16;default:'weekly'" json:"change_freq"`
+	Priority   float64    `gorm:"default:0.5" json:"priority"`
+	IsExcluded bool       `gorm:"default:false" json:"is_excluded"`
 }
 
 // Notification represents a system notification.
 type Notification struct {
 	BaseModel
-	UserID    uint             `gorm:"index;not null" json:"user_id"`
-	Type      string           `gorm:"size:50;not null;index" json:"type"` // comment, mention, system
-	Title     string           `gorm:"size:255;not null" json:"title"`
-	Body      string           `gorm:"type:text" json:"body"`
-	ActionURL string           `gorm:"size:512" json:"action_url"`
-	IsRead    bool             `gorm:"default:false;index" json:"is_read"`
-	ReadAt    *time.Time       `json:"read_at"`
+	UserID    uint              `gorm:"index;not null" json:"user_id"`
+	Type      string            `gorm:"size:50;not null;index" json:"type"` // comment, mention, system
+	Title     string            `gorm:"size:255;not null" json:"title"`
+	Body      string            `gorm:"type:text" json:"body"`
+	ActionURL string            `gorm:"size:512" json:"action_url"`
+	IsRead    bool              `gorm:"default:false;index" json:"is_read"`
+	ReadAt    *time.Time        `json:"read_at"`
 	Extra     map[string]string `gorm:"type:json" json:"extra"`
 }
 
@@ -473,14 +479,14 @@ func (s *StringSlice) Scan(value interface{}) error {
 
 // APIToken represents a long-lived API token for external access.
 type APIToken struct {
-	ID          uint       `gorm:"primarykey" json:"id"`
-	Name        string     `gorm:"size:128;not null" json:"name"`
-	Token       string     `gorm:"size:255;uniqueIndex;not null" json:"-"`
+	ID          uint        `gorm:"primarykey" json:"id"`
+	Name        string      `gorm:"size:128;not null" json:"name"`
+	Token       string      `gorm:"size:255;uniqueIndex;not null" json:"-"`
 	Permissions StringSlice `gorm:"type:text" json:"permissions"`
-	IsActive    bool       `gorm:"default:true;index" json:"is_active"`
-	ExpiresAt   *time.Time `json:"expires_at"`
-	LastUsedAt  *time.Time `json:"last_used_at"`
-	UseCount    int64      `gorm:"default:0" json:"use_count"`
-	CreatedByID uint       `gorm:"index" json:"created_by_id"`
-	CreatedAt   time.Time  `json:"created_at"`
+	IsActive    bool        `gorm:"default:true;index" json:"is_active"`
+	ExpiresAt   *time.Time  `json:"expires_at"`
+	LastUsedAt  *time.Time  `json:"last_used_at"`
+	UseCount    int64       `gorm:"default:0" json:"use_count"`
+	CreatedByID uint        `gorm:"index" json:"created_by_id"`
+	CreatedAt   time.Time   `json:"created_at"`
 }

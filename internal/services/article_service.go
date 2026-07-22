@@ -1,26 +1,68 @@
 package services
 
 import (
-	"net/http"
-	"strconv"
+	"errors"
+	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
 	"github.com/gosimple/slug"
-	"github.com/vortexcms/go-cms/internal/database"
-	"github.com/vortexcms/go-cms/internal/models"
+	"github.com/yamovo/contentx/internal/errs"
+	"github.com/yamovo/contentx/internal/models"
+	"github.com/yamovo/contentx/internal/plugin"
+	"github.com/yamovo/contentx/internal/repository"
 	"gorm.io/gorm"
 )
 
 // ArticleService handles business logic for articles.
 type ArticleService struct {
-	db      *gorm.DB
+	repo    repository.ArticleRepository
 	baseURL string
+	webhook WebhookDispatcher
+	plugins *plugin.Manager
 }
 
-// NewArticleService creates a new ArticleService.
+// NewArticleService creates a new ArticleService backed by a GORM repository.
+// Kept for backward compatibility with existing callers and tests.
 func NewArticleService(db *gorm.DB, baseURL string) *ArticleService {
-	return &ArticleService{db: db, baseURL: baseURL}
+	return &ArticleService{repo: repository.NewArticleRepository(db), baseURL: baseURL}
+}
+
+// NewArticleServiceWithRepo builds an ArticleService with an explicit repository,
+// enabling unit tests to inject mocks.
+func NewArticleServiceWithRepo(repo repository.ArticleRepository, baseURL string) *ArticleService {
+	return &ArticleService{repo: repo, baseURL: baseURL}
+}
+
+// SetWebhookDispatcher attaches a webhook dispatcher for event triggering.
+func (s *ArticleService) SetWebhookDispatcher(d WebhookDispatcher) { s.webhook = d }
+
+// SetPluginManager attaches a plugin manager for hook dispatch.
+func (s *ArticleService) SetPluginManager(m *plugin.Manager) { s.plugins = m }
+
+// fireAction dispatches an action hook if a plugin manager is attached.
+func (s *ArticleService) fireAction(hook string, args map[string]interface{}) {
+	if s.plugins != nil {
+		s.plugins.ExecuteAction(hook, args)
+	}
+}
+
+// applyContentFilter runs the article.filterContent filter hook to allow
+// plugins to transform the content before it is saved.
+func (s *ArticleService) applyContentFilter(content string) string {
+	if s.plugins == nil {
+		return content
+	}
+	v, err := s.plugins.ApplyFilter("article.filterContent", content, nil)
+	if err != nil {
+		slog.Error("plugin filter failed", "hook", "article.filterContent", "error", err)
+		return content
+	}
+	if s, ok := v.(string); ok {
+		return s
+	}
+	return content
 }
 
 // ---------- Request/Response DTOs ----------
@@ -53,6 +95,7 @@ type CreateArticleRequest struct {
 	OGImage       string     `json:"og_image"`
 	Template      string     `json:"template"`
 	RevisionNote  string     `json:"revision_note"`
+	Locale        string     `json:"locale"` // i18n: BCP-47 tag, defaults to "en"
 }
 
 // UpdateArticleRequest is the payload for updating an article.
@@ -96,6 +139,7 @@ type ListArticlesFilter struct {
 	Search     string
 	Sort       string
 	AuthorID   string
+	Locale     string // i18n: filter by locale (exact match)
 }
 
 // BulkActionRequest is the payload for bulk operations on articles.
@@ -120,56 +164,19 @@ func (s *ArticleService) List(filter ListArticlesFilter) (models.ListResponse, e
 		filter.Sort = "newest"
 	}
 
-	query := s.db.Model(&models.Article{}).
-		Preload("Author").
-		Preload("Category").
-		Preload("Tags")
-
-	// Filters.
-	if filter.Status != "" {
-		query = query.Where("status = ?", filter.Status)
-	}
-	if filter.PostType != "" {
-		query = query.Where("post_type = ?", filter.PostType)
-	}
-	if filter.CategoryID != "" {
-		query = query.Where("category_id = ?", filter.CategoryID)
-	}
-	if filter.AuthorID != "" {
-		query = query.Where("author_id = ?", filter.AuthorID)
-	}
-	if filter.TagSlug != "" {
-		query = query.Joins("JOIN article_tags ON article_tags.article_id = articles.id").
-			Joins("JOIN tags ON tags.id = article_tags.tag_id").
-			Where("tags.slug = ?", filter.TagSlug)
-	}
-	if filter.Search != "" {
-		escaped := strings.NewReplacer("%", "\\%", "_", "\\_").Replace(filter.Search)
-		query = query.Where("title LIKE ? OR content LIKE ?", "%"+escaped+"%", "%"+escaped+"%")
-	}
-
-	// Sorting.
-	switch filter.Sort {
-	case "oldest":
-		query = query.Order("articles.created_at ASC")
-	case "title":
-		query = query.Order("articles.title ASC")
-	case "views":
-		query = query.Order("articles.view_count DESC")
-	case "likes":
-		query = query.Order("articles.like_count DESC")
-	default: // newest
-		query = query.Order("articles.is_pinned DESC, articles.published_at DESC, articles.created_at DESC")
-	}
-
-	// Count.
-	var total int64
-	query.Count(&total)
-
-	// Fetch.
-	offset := (filter.Page - 1) * filter.PageSize
-	var articles []models.Article
-	if err := query.Offset(offset).Limit(filter.PageSize).Find(&articles).Error; err != nil {
+	articles, total, err := s.repo.List(repository.ArticleListFilter{
+		Page:       filter.Page,
+		PageSize:   filter.PageSize,
+		Status:     filter.Status,
+		PostType:   filter.PostType,
+		CategoryID: filter.CategoryID,
+		TagSlug:    filter.TagSlug,
+		Search:     filter.Search,
+		Sort:       filter.Sort,
+		AuthorID:   filter.AuthorID,
+		Locale:     filter.Locale,
+	})
+	if err != nil {
 		return models.ListResponse{}, err
 	}
 
@@ -179,34 +186,21 @@ func (s *ArticleService) List(filter ListArticlesFilter) (models.ListResponse, e
 
 // Get returns a single article by ID.
 func (s *ArticleService) Get(id uint) (*models.Article, error) {
-	var article models.Article
-	if err := s.db.
-		Preload("Author").
-		Preload("Category").
-		Preload("Tags").
-		Preload("CustomFields").
-		First(&article, id).Error; err != nil {
-		return nil, err
-	}
-	return &article, nil
+	return s.repo.GetByID(id)
 }
 
 // GetBySlug returns a single published article by slug and increments its view count.
 func (s *ArticleService) GetBySlug(articleSlug string) (*models.Article, error) {
-	var article models.Article
-	if err := s.db.
-		Preload("Author").
-		Preload("Category").
-		Preload("Tags").
-		Where("slug = ? AND status = ?", articleSlug, models.StatusPublished).
-		First(&article).Error; err != nil {
+	article, err := s.repo.GetPublishedBySlug(articleSlug)
+	if err != nil {
 		return nil, err
 	}
 
-	// Increment view count.
-	s.db.Model(&article).UpdateColumn("view_count", gorm.Expr("view_count + 1"))
+	// Increment view count (best-effort, preserves prior behaviour).
+	_ = s.repo.IncrementViewCount(article.ID)
+	article.ViewCount++
 
-	return &article, nil
+	return article, nil
 }
 
 // Create creates a new article and its initial revision.
@@ -238,6 +232,11 @@ func (s *ArticleService) Create(req CreateArticleRequest, userID uint) (*models.
 		article.PostType = models.PostType(req.PostType)
 	} else {
 		article.PostType = models.PostTypePost
+	}
+	if req.Locale != "" {
+		article.Locale = req.Locale
+	} else {
+		article.Locale = "en"
 	}
 	if req.Status != "" {
 		article.Status = models.ArticleStatus(req.Status)
@@ -273,7 +272,10 @@ func (s *ArticleService) Create(req CreateArticleRequest, userID uint) (*models.
 		}
 	}
 	// Ensure unique slug.
-	article.Slug = s.ensureUniqueSlug(article.Slug, 0)
+	article.Slug = s.repo.EnsureUniqueSlug(article.Slug, 0)
+
+	// Allow plugins to transform the content before reading-time calculation.
+	article.Content = s.applyContentFilter(article.Content)
 
 	// Calculate reading time & excerpt.
 	article.CalcReadingTime()
@@ -285,69 +287,151 @@ func (s *ArticleService) Create(req CreateArticleRequest, userID uint) (*models.
 		article.PublishedAt = &now
 	}
 
-	// Tags.
-	if len(req.TagIDs) > 0 {
-		var tags []models.Tag
-		s.db.Where("id IN ?", req.TagIDs).Find(&tags)
-		article.Tags = tags
-	}
-
-	// Create in transaction.
-	err := database.WithTransaction(s.db, func(tx *gorm.DB) error {
-		if err := tx.Create(&article).Error; err != nil {
-			return err
-		}
-
-		// Update tag counts.
-		if len(article.Tags) > 0 {
-			for _, tag := range article.Tags {
-				tx.Model(&models.Tag{}).Where("id = ?", tag.ID).
-					UpdateColumn("count", gorm.Expr("count + 1"))
-			}
-		}
-
-		// Update category post count.
-		if article.CategoryID != nil {
-			tx.Model(&models.Category{}).Where("id = ?", *article.CategoryID).
-				UpdateColumn("post_count", gorm.Expr("post_count + 1"))
-		}
-
-		// Create initial revision.
-		revision := models.Revision{
-			ArticleID: article.ID,
-			Title:     article.Title,
-			Content:   article.Content,
-			Excerpt:   article.Excerpt,
-			EditorID:  userID,
-			Version:   1,
-			Note:      req.RevisionNote,
-		}
-		if revision.Note == "" {
-			revision.Note = "Initial version"
-		}
-		return tx.Create(&revision).Error
-	})
-
-	if err != nil {
+	if err := s.repo.Create(&article, req.TagIDs, req.RevisionNote, userID); err != nil {
 		return nil, err
 	}
 
-	// Reload with associations.
-	s.db.Preload("Author").Preload("Category").Preload("Tags").First(&article, article.ID)
+	if s.webhook != nil {
+		s.webhook.Dispatch(models.WebhookEventEntryCreate, &article)
+	}
 
+	s.fireAction("article.afterCreate", map[string]interface{}{
+		"article": &article,
+		"title":   article.Title,
+		"content": article.Content,
+		"user_id": userID,
+	})
+
+	return &article, nil
+}
+
+// ─── i18n: translation helpers ──────────────────────────────────────────────
+
+// effectiveGroupID returns the translation group id for an article. When the
+// article was created without an explicit group (the common case for the first
+// locale), its own ID serves as the group root.
+func effectiveGroupID(a *models.Article) uint {
+	if a.TranslationGroupID != nil {
+		return *a.TranslationGroupID
+	}
+	return a.ID
+}
+
+// ListTranslations returns all sibling translations of the given article
+// (excluding the article itself). The article's own locale is not included.
+func (s *ArticleService) ListTranslations(articleID uint) ([]models.Article, error) {
+	article, err := s.repo.FindByID(articleID)
+	if err != nil {
+		return nil, err
+	}
+	return s.repo.ListTranslations(effectiveGroupID(article), articleID)
+}
+
+// CreateTranslation creates a new article as a translation of an existing one.
+// The new article inherits the source's category, tags, and translation group,
+// but gets its own title/content/slug and the requested locale.
+func (s *ArticleService) CreateTranslation(sourceID uint, locale string, req CreateArticleRequest, userID uint) (*models.Article, error) {
+	if locale == "" {
+		return nil, errs.ErrBadRequest.WithMessage("locale is required for translation")
+	}
+	source, err := s.repo.FindByID(sourceID)
+	if err != nil {
+		return nil, err
+	}
+	// Refuse duplicate locale within the same group.
+	if existing, err := s.repo.FindTranslationInLocale(effectiveGroupID(source), locale); err == nil && existing != nil {
+		return nil, errs.ErrConflict.WithMessage("translation already exists for this locale")
+	} else if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, err
+	}
+
+	// Build the translated article from the source's metadata.
+	article := models.Article{
+		Title:             req.Title,
+		Content:           req.Content,
+		Excerpt:           req.Excerpt,
+		AuthorID:          userID,
+		CategoryID:        source.CategoryID,
+		FeaturedImage:     source.FeaturedImage,
+		Format:            source.Format,
+		Visibility:        source.Visibility,
+		IsPinned:          source.IsPinned,
+		IsFeatured:        source.IsFeatured,
+		MetaTitle:         req.MetaTitle,
+		MetaDesc:          req.MetaDesc,
+		MetaKeywords:      req.MetaKeywords,
+		CanonicalURL:      req.CanonicalURL,
+		OGImage:           source.OGImage,
+		Template:          source.Template,
+		PostType:          source.PostType,
+		Locale:            locale,
+		TranslationGroupID: new(uint),
+	}
+	*article.TranslationGroupID = effectiveGroupID(source)
+
+	// Status defaults to draft; published_at only if explicitly published.
+	if req.Status != "" {
+		article.Status = models.ArticleStatus(req.Status)
+	} else {
+		article.Status = models.StatusDraft
+	}
+	if article.Status == models.StatusPublished && article.PublishedAt == nil {
+		now := time.Now()
+		article.PublishedAt = &now
+	}
+	if req.PostType != "" {
+		article.PostType = models.PostType(req.PostType)
+	}
+	if req.Visibility != "" {
+		article.Visibility = models.Visibility(req.Visibility)
+	}
+	article.AllowComment = source.AllowComment
+	article.RobotsIndex = source.RobotsIndex
+	article.RobotsFollow = source.RobotsFollow
+
+	// Slug: use provided, else derive from title; ensure unique.
+	if req.Slug != "" {
+		article.Slug = req.Slug
+	} else {
+		article.Slug = slug.MakeLang(req.Title, "zh")
+		if article.Slug == "" {
+			article.Slug = slug.Make(req.Title)
+		}
+	}
+	article.Slug = s.repo.EnsureUniqueSlug(article.Slug, 0)
+
+	article.CalcReadingTime()
+	article.MakeExcerpt(200)
+
+	// Inherit tags from source unless overridden.
+	tagIDs := req.TagIDs
+	if tagIDs == nil {
+		tagIDs = make([]uint, 0, len(source.Tags))
+		for _, t := range source.Tags {
+			tagIDs = append(tagIDs, t.ID)
+		}
+	}
+
+	if err := s.repo.Create(&article, tagIDs, req.RevisionNote, userID); err != nil {
+		return nil, err
+	}
+
+	if s.webhook != nil {
+		s.webhook.Dispatch(models.WebhookEventEntryCreate, &article)
+	}
 	return &article, nil
 }
 
 // Update updates an existing article. The caller must verify ownership or editor status.
 func (s *ArticleService) Update(id uint, req UpdateArticleRequest, userID uint, isEditor bool) (*models.Article, error) {
-	var article models.Article
-	if err := s.db.First(&article, id).Error; err != nil {
+	article, err := s.repo.FindByID(id)
+	if err != nil {
 		return nil, err
 	}
 
 	// Check ownership or admin/editor.
 	if article.AuthorID != userID && !isEditor {
-		return nil, &ForbiddenError{Message: "Not authorized to edit this article"}
+		return nil, errs.ErrForbidden.WithMessage("Not authorized to edit this article")
 	}
 
 	// Apply partial updates.
@@ -356,7 +440,7 @@ func (s *ArticleService) Update(id uint, req UpdateArticleRequest, userID uint, 
 		updates["title"] = *req.Title
 	}
 	if req.Slug != nil {
-		updates["slug"] = s.ensureUniqueSlug(*req.Slug, article.ID)
+		updates["slug"] = s.repo.EnsureUniqueSlug(*req.Slug, article.ID)
 	}
 	if req.Content != nil {
 		updates["content"] = *req.Content
@@ -371,6 +455,11 @@ func (s *ArticleService) Update(id uint, req UpdateArticleRequest, userID uint, 
 		updates["featured_image"] = *req.FeaturedImage
 	}
 	if req.Status != nil {
+		target := models.ArticleStatus(*req.Status)
+		if !models.AllowedTransition(article.Status, target) {
+			return nil, errs.ErrBadRequest.WithMessage(
+				fmt.Sprintf("illegal status transition: %s → %s", article.Status, target))
+		}
 		updates["status"] = *req.Status
 	}
 	if req.PostType != nil {
@@ -425,204 +514,285 @@ func (s *ArticleService) Update(id uint, req UpdateArticleRequest, userID uint, 
 		updates["template"] = *req.Template
 	}
 
-	err := database.WithTransaction(s.db, func(tx *gorm.DB) error {
-		if len(updates) > 0 {
-			if err := tx.Model(&article).Updates(updates).Error; err != nil {
-				return err
-			}
-		}
+	// tagIDs == nil means "do not touch tags"; an empty slice means "clear tags".
+	var tagIDs []uint
+	if req.TagIDs != nil {
+		tagIDs = req.TagIDs
+	}
 
-		// Update tags if provided.
-		if req.TagIDs != nil {
-			var tags []models.Tag
-			tx.Where("id IN ?", req.TagIDs).Find(&tags)
-			if err := tx.Model(&article).Association("Tags").Replace(tags); err != nil {
-				return err
-			}
-			// Recalculate tag counts.
-			tx.Exec("UPDATE tags SET count = (SELECT COUNT(*) FROM article_tags WHERE tag_id = tags.id)")
-		}
-
-		// Create revision.
-		tx.First(&article, article.ID)
-		var version int
-		tx.Model(&models.Revision{}).Where("article_id = ?", article.ID).
-			Select("COALESCE(MAX(version), 0)").Scan(&version)
-		revision := models.Revision{
-			ArticleID: article.ID,
-			Title:     article.Title,
-			Content:   article.Content,
-			Excerpt:   article.Excerpt,
-			EditorID:  userID,
-			Version:   version + 1,
-			Note:      req.RevisionNote,
-		}
-		return tx.Create(&revision).Error
-	})
-
-	if err != nil {
+	if err := s.repo.Update(article, updates, tagIDs, req.RevisionNote, userID); err != nil {
 		return nil, err
 	}
 
-	s.db.Preload("Author").Preload("Category").Preload("Tags").First(&article, article.ID)
-	return &article, nil
+	if s.webhook != nil {
+		s.webhook.Dispatch(models.WebhookEventEntryUpdate, article)
+	}
+
+	s.fireAction("article.afterUpdate", map[string]interface{}{
+		"article": article,
+		"user_id": userID,
+	})
+
+	return article, nil
 }
 
 // Delete soft-deletes an article. The caller must verify ownership or editor status.
 func (s *ArticleService) Delete(id uint, userID uint, isEditor bool) error {
-	var article models.Article
-	if err := s.db.First(&article, id).Error; err != nil {
+	article, err := s.repo.FindByID(id)
+	if err != nil {
 		return err
 	}
 
 	// Check ownership or admin/editor.
 	if article.AuthorID != userID && !isEditor {
-		return &ForbiddenError{Message: "Not authorized"}
+		return errs.ErrForbidden.WithMessage("Not authorized")
 	}
 
-	return s.db.Delete(&article).Error
+	if err := s.repo.Delete(article); err != nil {
+		return err
+	}
+
+	if s.webhook != nil {
+		s.webhook.Dispatch(models.WebhookEventEntryDelete, article)
+	}
+
+	s.fireAction("article.afterDelete", map[string]interface{}{
+		"article_id": id,
+		"user_id":    userID,
+	})
+	return nil
 }
 
 // BulkAction performs a bulk operation on a set of articles. Requires editor privileges.
 func (s *ArticleService) BulkAction(req BulkActionRequest) (int64, error) {
-	var affected int64
-
+	var event string
 	switch req.Action {
 	case "publish":
-		result := s.db.Model(&models.Article{}).
-			Where("id IN ?", req.ArticleIDs).
-			Updates(map[string]interface{}{
-				"status":       models.StatusPublished,
-				"published_at": time.Now(),
-			})
-		affected = result.RowsAffected
-		if result.Error != nil {
-			return 0, result.Error
-		}
-	case "draft":
-		result := s.db.Model(&models.Article{}).
-			Where("id IN ?", req.ArticleIDs).
-			Update("status", models.StatusDraft)
-		affected = result.RowsAffected
-		if result.Error != nil {
-			return 0, result.Error
-		}
-	case "trash":
-		result := s.db.Model(&models.Article{}).
-			Where("id IN ?", req.ArticleIDs).
-			Update("status", models.StatusTrash)
-		affected = result.RowsAffected
-		if result.Error != nil {
-			return 0, result.Error
-		}
+		event = models.WebhookEventEntryPublish
 	case "delete":
-		result := s.db.Where("id IN ?", req.ArticleIDs).Delete(&models.Article{})
-		affected = result.RowsAffected
-		if result.Error != nil {
-			return 0, result.Error
-		}
-	case "move":
-		if req.CategoryID == nil {
-			return 0, &BadRequestError{Message: "category_id required for move action"}
-		}
-		result := s.db.Model(&models.Article{}).
-			Where("id IN ?", req.ArticleIDs).
-			Update("category_id", *req.CategoryID)
-		affected = result.RowsAffected
-		if result.Error != nil {
-			return 0, result.Error
-		}
-	case "pin":
-		result := s.db.Model(&models.Article{}).
-			Where("id IN ?", req.ArticleIDs).
-			Update("is_pinned", true)
-		affected = result.RowsAffected
-		if result.Error != nil {
-			return 0, result.Error
-		}
-	case "unpin":
-		result := s.db.Model(&models.Article{}).
-			Where("id IN ?", req.ArticleIDs).
-			Update("is_pinned", false)
-		affected = result.RowsAffected
-		if result.Error != nil {
-			return 0, result.Error
-		}
-	default:
-		return 0, &BadRequestError{Message: "Unknown action"}
+		event = models.WebhookEventEntryDelete
 	}
 
-	return affected, nil
+	n, err := s.bulkActionRepo(req)
+	if err != nil {
+		return n, err
+	}
+
+	if s.webhook != nil && event != "" && n > 0 {
+		s.webhook.Dispatch(event, map[string]interface{}{
+			"ids":    req.ArticleIDs,
+			"action": req.Action,
+			"count":  n,
+		})
+	}
+	return n, nil
+}
+
+// bulkActionRepo dispatches to the repository without webhook side-effects.
+func (s *ArticleService) bulkActionRepo(req BulkActionRequest) (int64, error) {
+	switch req.Action {
+	case "publish":
+		return s.repo.BulkPublish(req.ArticleIDs, time.Now())
+	case "draft":
+		return s.repo.BulkUpdateStatus(req.ArticleIDs, string(models.StatusDraft))
+	case "trash":
+		return s.repo.BulkUpdateStatus(req.ArticleIDs, string(models.StatusTrash))
+	case "delete":
+		return s.repo.BulkDelete(req.ArticleIDs)
+	case "move":
+		if req.CategoryID == nil {
+			return 0, errs.ErrBadRequest.WithMessage("category_id required for move action")
+		}
+		return s.repo.BulkMoveCategory(req.ArticleIDs, *req.CategoryID)
+	case "pin":
+		return s.repo.BulkSetPinned(req.ArticleIDs, true)
+	case "unpin":
+		return s.repo.BulkSetPinned(req.ArticleIDs, false)
+	default:
+		return 0, errs.ErrBadRequest.WithMessage("Unknown action")
+	}
 }
 
 // Revisions returns the revision history for an article.
 func (s *ArticleService) Revisions(articleID uint) ([]models.Revision, error) {
-	var revisions []models.Revision
-	if err := s.db.
-		Preload("Editor").
-		Where("article_id = ?", articleID).
-		Order("version DESC").
-		Find(&revisions).Error; err != nil {
-		return nil, err
-	}
-	return revisions, nil
+	return s.repo.ListRevisions(articleID)
 }
 
 // RestoreRevision restores an article to a specific revision and creates a new revision recording the restore.
 func (s *ArticleService) RestoreRevision(articleID uint, revisionID uint, userID uint) error {
-	var revision models.Revision
-	if err := s.db.Where("id = ? AND article_id = ?", revisionID, articleID).First(&revision).Error; err != nil {
+	revision, err := s.repo.FindRevision(revisionID, articleID)
+	if err != nil {
 		return err
 	}
 
-	var article models.Article
-	if err := s.db.First(&article, articleID).Error; err != nil {
+	article, err := s.repo.FindByID(articleID)
+	if err != nil {
 		return err
 	}
 
-	return database.WithTransaction(s.db, func(tx *gorm.DB) error {
-		// Restore content.
-		updates := map[string]interface{}{
-			"title":   revision.Title,
-			"content": revision.Content,
-			"excerpt": revision.Excerpt,
-		}
-		if err := tx.Model(&article).Updates(updates).Error; err != nil {
-			return err
-		}
+	return s.repo.RestoreRevision(article, revision, userID)
+}
 
-		// Create a new revision recording the restore.
-		var maxVersion int
-		tx.Model(&models.Revision{}).Where("article_id = ?", article.ID).
-			Select("COALESCE(MAX(version), 0)").Scan(&maxVersion)
-		newRevision := models.Revision{
-			ArticleID: article.ID,
-			Title:     revision.Title,
-			Content:   revision.Content,
-			Excerpt:   revision.Excerpt,
-			EditorID:  userID,
-			Version:   maxVersion + 1,
-			Note:      "Restored from version " + strconv.Itoa(revision.Version),
-		}
-		return tx.Create(&newRevision).Error
-	})
+// ──────────────────────────────────────────────────────────────────────────────
+// Publication workflow (P2-3)
+//
+// 以下方法封装文章的状态机流转：草稿→审核→发布、定时发布、归档、取消发布。
+// 每个方法都校验状态流转合法性（models.AllowedTransition），通过后委托
+// repo.UpdateStatus 原子更新，并触发对应的 webhook 事件。
+// ──────────────────────────────────────────────────────────────────────────────
+
+// transitionTo validates and applies a status transition for a single article.
+// It loads the article, checks the state machine, applies the update via the
+// repository, and returns the reloaded article. The caller is responsible for
+// webhook dispatch (so it can choose the right event name).
+func (s *ArticleService) transitionTo(id uint, target models.ArticleStatus, publishedAt, scheduledAt *time.Time) (*models.Article, error) {
+	article, err := s.repo.FindByID(id)
+	if err != nil {
+		return nil, err
+	}
+	if !models.AllowedTransition(article.Status, target) {
+		return nil, errs.ErrBadRequest.WithMessage(
+			fmt.Sprintf("illegal status transition: %s → %s", article.Status, target))
+	}
+	if err := s.repo.UpdateStatus(id, string(target), publishedAt, scheduledAt); err != nil {
+		return nil, err
+	}
+	// Reload to reflect the persisted state (FindByID does not preload; for
+	// webhook payloads the bare fields are sufficient).
+	updated, err := s.repo.FindByID(id)
+	if err != nil {
+		return article, nil // best-effort: return pre-update snapshot
+	}
+	return updated, nil
+}
+
+// Publish flips an article to published status, recording the publish time if
+// it has none. Triggers the entry.publish webhook event.
+func (s *ArticleService) Publish(id uint) (*models.Article, error) {
+	var publishedAt *time.Time
+	// Only set PublishedAt if the article doesn't already have one. We need
+	// to inspect the current article to decide, so load it first.
+	current, err := s.repo.FindByID(id)
+	if err != nil {
+		return nil, err
+	}
+	if current.PublishedAt == nil {
+		now := time.Now()
+		publishedAt = &now
+	}
+	// Allow publishing from draft/pending/scheduled/trash.
+	if !models.AllowedTransition(current.Status, models.StatusPublished) {
+		return nil, errs.ErrBadRequest.WithMessage(
+			fmt.Sprintf("illegal status transition: %s → published", current.Status))
+	}
+	if err := s.repo.UpdateStatus(id, string(models.StatusPublished), publishedAt, nil); err != nil {
+		return nil, err
+	}
+	updated, err := s.repo.FindByID(id)
+	if err != nil {
+		return current, nil
+	}
+	if s.webhook != nil {
+		s.webhook.Dispatch(models.WebhookEventEntryPublish, updated)
+	}
+	return updated, nil
+}
+
+// Unpublish reverts a published/scheduled article back to draft. Triggers the
+// entry.unpublish webhook event.
+func (s *ArticleService) Unpublish(id uint) (*models.Article, error) {
+	updated, err := s.transitionTo(id, models.StatusDraft, nil, nil)
+	if err != nil {
+		return nil, err
+	}
+	if s.webhook != nil {
+		s.webhook.Dispatch(models.WebhookEventEntryUnpublish, updated)
+	}
+	return updated, nil
+}
+
+// SubmitForReview moves a draft into the pending (review) queue.
+func (s *ArticleService) SubmitForReview(id uint) (*models.Article, error) {
+	return s.transitionTo(id, models.StatusPending, nil, nil)
+}
+
+// Approve marks a pending article as published, recording the publish time if
+// it has none. Triggers the entry.publish webhook event.
+func (s *ArticleService) Approve(id uint) (*models.Article, error) {
+	return s.Publish(id) // pending → published reuses the Publish path
+}
+
+// Schedule marks an article for automatic publication at the given time. The
+// article stays non-public (status=scheduled) until the PublishScheduler flips
+// it. Triggers the entry.schedule webhook event.
+func (s *ArticleService) Schedule(id uint, at time.Time) (*models.Article, error) {
+	if at.IsZero() {
+		return nil, errs.ErrBadRequest.WithMessage("scheduled_at is required")
+	}
+	current, err := s.repo.FindByID(id)
+	if err != nil {
+		return nil, err
+	}
+	if !models.AllowedTransition(current.Status, models.StatusScheduled) {
+		return nil, errs.ErrBadRequest.WithMessage(
+			fmt.Sprintf("illegal status transition: %s → scheduled", current.Status))
+	}
+	if err := s.repo.UpdateStatus(id, string(models.StatusScheduled), nil, &at); err != nil {
+		return nil, err
+	}
+	updated, err := s.repo.FindByID(id)
+	if err != nil {
+		return current, nil
+	}
+	if s.webhook != nil {
+		s.webhook.Dispatch(models.WebhookEventEntrySchedule, updated)
+	}
+	return updated, nil
+}
+
+// Archive moves an article out of the active lifecycle.
+func (s *ArticleService) Archive(id uint) (*models.Article, error) {
+	return s.transitionTo(id, models.StatusArchived, nil, nil)
+}
+
+// PublishDueScheduled publishes all scheduled articles whose ScheduledAt is at
+// or before now. Returns the number of articles flipped. Used by the
+// PublishScheduler worker.
+func (s *ArticleService) PublishDueScheduled(now time.Time) (int, error) {
+	due, err := s.repo.ListScheduledDue(now)
+	if err != nil {
+		return 0, err
+	}
+	if len(due) == 0 {
+		return 0, nil
+	}
+	ids := make([]uint, 0, len(due))
+	for _, a := range due {
+		ids = append(ids, a.ID)
+	}
+	n, err := s.repo.BulkPublish(ids, now)
+	if err != nil {
+		return 0, err
+	}
+	if s.webhook != nil && n > 0 {
+		s.webhook.Dispatch(models.WebhookEventEntryPublish, map[string]interface{}{
+			"ids":   ids,
+			"count": n,
+			"mode":  "scheduled",
+		})
+	}
+	return int(n), nil
 }
 
 // LikeArticle increments the like count for an article.
 func (s *ArticleService) LikeArticle(id uint) error {
-	return s.db.Model(&models.Article{}).Where("id = ?", id).
-		UpdateColumn("like_count", gorm.Expr("like_count + 1")).Error
+	return s.repo.IncrementLikeCount(id)
 }
 
 // GenerateFeed produces an RSS 2.0 XML string of the latest published articles.
 func (s *ArticleService) GenerateFeed() (string, error) {
-	var articles []models.Article
-	if err := s.db.Where("status = ?", models.StatusPublished).
-		Preload("Author").
-		Preload("Category").
-		Order("published_at DESC").
-		Limit(20).
-		Find(&articles).Error; err != nil {
+	articles, err := s.repo.ListPublishedForFeed(20)
+	if err != nil {
 		return "", err
 	}
 
@@ -655,24 +825,6 @@ func (s *ArticleService) GenerateFeed() (string, error) {
 
 // ---------- Private Helpers ----------
 
-// ensureUniqueSlug appends a numeric suffix to slug s until it is unique.
-// excludeID should be 0 when creating, or the article's own ID when updating.
-func (s *ArticleService) ensureUniqueSlug(s2 string, excludeID uint) string {
-	original := s2
-	for i := 1; ; i++ {
-		var count int64
-		query := s.db.Model(&models.Article{}).Where("slug = ?", s2)
-		if excludeID > 0 {
-			query = query.Where("id != ?", excludeID)
-		}
-		query.Count(&count)
-		if count == 0 {
-			return s2
-		}
-		s2 = original + "-" + strconv.Itoa(i)
-	}
-}
-
 // xmlEscape escapes special XML characters in a string.
 func xmlEscape(s string) string {
 	s = strings.ReplaceAll(s, "&", "&amp;")
@@ -684,31 +836,8 @@ func xmlEscape(s string) string {
 }
 
 // ---------- Custom Errors ----------
-
-// ForbiddenError indicates the user lacks permission for the requested action.
-type ForbiddenError struct {
-	Message string
-}
-
-func (e *ForbiddenError) Error() string {
-	return e.Message
-}
-
-// StatusCode returns HTTP 403.
-func (e *ForbiddenError) StatusCode() int {
-	return http.StatusForbidden
-}
-
-// BadRequestError indicates an invalid request.
-type BadRequestError struct {
-	Message string
-}
-
-func (e *BadRequestError) Error() string {
-	return e.Message
-}
-
-// StatusCode returns HTTP 400.
-func (e *BadRequestError) StatusCode() int {
-	return http.StatusBadRequest
-}
+//
+// ArticleService 原有的 ForbiddenError / BadRequestError 已移除，统一使用
+// errs.ErrForbidden / errs.ErrBadRequest 的 WithMessage 副本。这使所有错误
+// 走 handleServiceError 的 AppError 分支，前端可通过 err_code 字段获得
+// 稳定的错误码（FORBIDDEN / BAD_REQUEST）。
