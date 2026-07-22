@@ -15,7 +15,7 @@
 | P0 基础可用 | ✅ 完成 | 核心 CMS、认证权限、管理后台和基础部署可用 |
 | P1 工程化 | ✅ 完成 | Repository 分层、Redis、迁移、错误体系与安全加固完成 |
 | P2 功能完善 | ✅ 完成 | Webhook、S3、工作流、GraphQL、i18n、插件、自定义内容类型完成 |
-| P3-A 生产就绪 | 🚧 进行中 | 5 项完成，1 项进行中，1 项待开始 |
+| P3-A 生产就绪 | 🚧 进行中 | 6 项完成，1 项进行中（7.2 跨数据库对照） |
 | P3-B 商业化基础 | ⏳ 未开始 | 等待 P3-A 验收 |
 | P3-C 卓越与生态 | ⏳ 未开始 | 等待 P3-B 验收 |
 
@@ -58,7 +58,7 @@
 | 7.4 | 全文搜索 | ✅ | 内置索引、REST/GraphQL 与全量重建通过 |
 | 7.5 | 备份与恢复闭环 | ✅ | DB+媒体备份/恢复、REST API、Makefile 入口、20 项测试通过 |
 | 7.6 | 前端工程债清理 | ✅ | vue-tsc 零错误、CI 移除 `\|\| true`、77 项前端测试通过 |
-| 7.7 | CI 实际跑通 | 🚧 | 质量门禁已收紧、工具版本已固定；待远端 PR/main/tag 验证绿勾 |
+| 7.7 | CI 实际跑通 | ✅ | main 分支全链路绿勾（frontend+test+build+docker），GHCR 镜像推送成功 |
 
 ### 7.1 可观测性 ✅
 
@@ -185,7 +185,7 @@
 - `npx vue-tsc --noEmit` → exit code 0 ✅
 - `npx vitest run` → 5 files / 77 tests passed ✅
 
-### 7.7 CI 实际跑通 🚧
+### 7.7 CI 实际跑通 ✅
 
 现状：`.github/workflows/ci.yml` 已包含后端测试、lint、前端测试、构建、Docker 多架构和 tag release。前端类型检查已取消 `|| true` 放行。
 
@@ -199,10 +199,17 @@
 
 待完成（需远端验证，本地无法执行）：
 
-- 在真实 PR 上确认绿勾
-- 在 main 分支推送时确认 Docker 镜像推送到 GHCR
-- 打 `v*` tag 时确认 Release 产物（5 平台二进制 + 压缩包）
+- ~~在真实 PR/main 上确认绿勾~~ → ✅ commit `99df4a2` main 分支 frontend(53s) + test(3m20s,含 vet/linter/tests/coverage) + build(22s) 全绿
+- ~~在 main 分支推送时确认 Docker 镜像推送到 GHCR~~ → ✅ docker job 23m29s 多架构构建(amd64+arm64)并推送 GHCR 成功
+- 打 `v*` tag 时确认 Release 产物（5 平台二进制 + 压缩包）→ 后续发版时验证
 - 后续可考虑固定 Docker 监控镜像版本（见风险列表）
+
+CI 修复历程（golangci-lint v2 迁移）：
+
+1. `golangci-lint-action@v6` → `@v7`（v6 不支持 golangci-lint v2）
+2. `.golangci.yml` v1→v2 配置迁移：`linters-settings` → `linters.settings`、`issues.exclude-rules` → `linters.exclusions.rules`、`gofmt`/`goimports` 移入 `formatters`、移除 `gosimple`（v2 合入 `staticcheck`）
+3. 修复 64 个 lint 错误：errcheck（type assertion comma-ok、defer Close、os.Remove）、staticcheck（noop tracer、De Morgan）、unused、gofmt（结构体对齐）
+4. 添加 `.gitattributes` 强制 `*.go text eol=lf`，消除 Windows CRLF 与 Linux CI 的 gofmt 差异
 
 ## 当前验证记录
 
@@ -221,6 +228,7 @@
 | 2026-07-22 | `npx vitest run`（web） | ✅ 5 个文件 / 77 项测试全部通过 |
 | 2026-07-22 | `go build ./...` + `go vet ./...` | ✅ 7.7 CI 收紧后全绿 |
 | 2026-07-22 | PostgreSQL 压测正式报告 | ✅ 7.2 报告与 P95/P99 分析完成 |
+| 2026-07-22 | GitHub Actions CI（main `99df4a2`） | ✅ 全链路绿勾：frontend(53s)+test(3m20s)+build(22s)+docker(23m29s,GHCR推送) |
 
 说明：最新搜索分页修复后已再次执行完整后端测试与 vet；7.6 前端工程债清理已落地，前端类型检查与测试均通过。
 
@@ -229,13 +237,13 @@
 1. 文章列表在高目标速率下尾延迟明显高于详情和 GraphQL，需要查询与响应体分析。
 2. 10,000 篇内置索引使应用内存达到约 145.4 MiB；大数据量需评估流式重建或外部索引。
 3. MeiliSearch 驱动尚未实现，不能宣称多实例共享搜索。
-4. CI 质量门禁已收紧但尚未在真实 PR/main/tag 上验证全链路绿勾与产物发布。
+4. CI 质量门禁已在 main 分支验证全链路绿勾（frontend+test+build+docker），GHCR 镜像推送成功；tag Release 产物待发版时验证。
 5. Docker 监控镜像使用 `latest`，后续应固定兼容版本。
 
 ## 下一步执行顺序
 
 1. 完成 7.2：统一条件重测内存，补 SQLite/MySQL 对照，发布正式报告。
-2. 完成 7.7：收紧 CI，在真实 PR/main/tag 验证全链路。
+2. ~~完成 7.7：收紧 CI，在真实 PR/main/tag 验证全链路。~~ → ✅ main 分支全链路绿勾
 3. P3-A 全部验收后，再评估 P3-B 多租户、计费、用量和 SSO。
 
 ## 完成定义
