@@ -1,6 +1,7 @@
 package services
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -21,6 +22,7 @@ type ArticleService struct {
 	baseURL string
 	webhook WebhookDispatcher
 	plugins *plugin.Manager
+	search  SearchIndexer // optional; defaults to NoopIndexer when unset
 }
 
 // NewArticleService creates a new ArticleService backed by a GORM repository.
@@ -40,6 +42,73 @@ func (s *ArticleService) SetWebhookDispatcher(d WebhookDispatcher) { s.webhook =
 
 // SetPluginManager attaches a plugin manager for hook dispatch.
 func (s *ArticleService) SetPluginManager(m *plugin.Manager) { s.plugins = m }
+
+// SetSearchIndexer attaches a full-text search indexer. When nil or unset the
+// service uses NoopIndexer so write paths don't need nil checks.
+func (s *ArticleService) SetSearchIndexer(idx SearchIndexer) {
+	if idx == nil {
+		idx = NoopIndexer()
+	}
+	s.search = idx
+}
+
+// indexer returns the configured SearchIndexer (NoopIndexer if unset).
+func (s *ArticleService) indexer() SearchIndexer {
+	if s.search == nil {
+		return NoopIndexer()
+	}
+	return s.search
+}
+
+// indexArticle pushes the article into the search index. Best-effort:
+// errors are logged but never returned to the caller, since search is a
+// secondary concern and should not break a successful write.
+func (s *ArticleService) indexArticle(article *models.Article) {
+	idx := s.indexer()
+	if idx == nil {
+		return
+	}
+	doc := ArticleToSearchDoc(article)
+	if err := idx.Index(context.Background(), doc); err != nil {
+		slog.Warn("search index failed", "article_id", article.ID, "error", err)
+	}
+}
+
+// unindexArticle removes an article from the search index (best-effort).
+func (s *ArticleService) unindexArticle(id uint, postType models.PostType) {
+	idx := s.indexer()
+	if idx == nil {
+		return
+	}
+	docType := "article"
+	if postType == models.PostTypePage {
+		docType = "page"
+	}
+	if err := idx.Delete(context.Background(), id, docType); err != nil {
+		slog.Warn("search unindex failed", "article_id", id, "error", err)
+	}
+}
+
+// reindexByID reloads the article with associations preloaded (via GetByID)
+// and pushes it into the search index. Used by status-transition paths
+// (Publish/Unpublish/Schedule/Archive) where the in-memory article came
+// from FindByID (no preloads), so the indexed document would otherwise lose
+// author/category/tag metadata.
+//
+// Skipped entirely when the indexer is NoopIndexer (search disabled) to
+// avoid the extra GetByID DB round-trip.
+func (s *ArticleService) reindexByID(id uint) {
+	idx := s.indexer()
+	if idx == nil || idx.Name() == "noop" {
+		return
+	}
+	article, err := s.repo.GetByID(id)
+	if err != nil {
+		slog.Warn("search reindex: reload failed", "article_id", id, "error", err)
+		return
+	}
+	s.indexArticle(article)
+}
 
 // fireAction dispatches an action hook if a plugin manager is attached.
 func (s *ArticleService) fireAction(hook string, args map[string]interface{}) {
@@ -184,6 +253,51 @@ func (s *ArticleService) List(filter ListArticlesFilter) (models.ListResponse, e
 	return models.NewListResponse(articles, paginate), nil
 }
 
+// Search runs a full-text query against the configured SearchIndexer and
+// returns ranked hits. Public callers should pass Status="published" so the
+// search surface only exposes published content; admin callers may omit it
+// to search across all statuses.
+func (s *ArticleService) Search(ctx context.Context, q SearchQuery) (*SearchResult, error) {
+	return s.indexer().Search(ctx, q)
+}
+
+// ReindexAll rebuilds the search index from scratch using all articles in
+// the database. Intended for startup warm-up or admin-triggered reindex.
+func (s *ArticleService) ReindexAll(ctx context.Context) (int, error) {
+	// Pull all articles with associations preloaded in batches, then hand
+	// the full slice to the indexer's ReindexAll (which atomically clears
+	// and rebuilds). Collecting in memory is fine for typical CMS scale
+	// (< 100k articles); a streaming approach would be needed beyond that.
+	// List deliberately caps public page sizes at 100. Keep the reindex batch
+	// within that contract so a larger requested size is not silently reset to
+	// the default of 20 and mistaken for the final page.
+	const batchSize = 100
+	var all []models.Article
+	page := 1
+	for {
+		resp, err := s.List(ListArticlesFilter{Page: page, PageSize: batchSize, Sort: "oldest"})
+		if err != nil {
+			return 0, err
+		}
+		articles, ok := resp.Items.([]models.Article)
+		if !ok || len(articles) == 0 {
+			break
+		}
+		all = append(all, articles...)
+		if len(articles) < batchSize {
+			break
+		}
+		page++
+	}
+	if len(all) == 0 {
+		return 0, nil
+	}
+	if err := s.indexer().ReindexAll(ctx, all); err != nil {
+		return 0, err
+	}
+	return len(all), nil
+}
+
 // Get returns a single article by ID.
 func (s *ArticleService) Get(id uint) (*models.Article, error) {
 	return s.repo.GetByID(id)
@@ -206,25 +320,25 @@ func (s *ArticleService) GetBySlug(articleSlug string) (*models.Article, error) 
 // Create creates a new article and its initial revision.
 func (s *ArticleService) Create(req CreateArticleRequest, userID uint) (*models.Article, error) {
 	article := models.Article{
-		Title:          req.Title,
-		Content:        req.Content,
-		Excerpt:        req.Excerpt,
-		AuthorID:       userID,
-		CategoryID:     req.CategoryID,
-		FeaturedImage:  req.FeaturedImage,
-		Format:         req.Format,
-		Visibility:     models.Visibility(req.Visibility),
-		Password:       req.Password,
-		IsPinned:       req.IsPinned,
-		IsFeatured:     req.IsFeatured,
-		PublishedAt:    req.PublishedAt,
-		ScheduledAt:    req.ScheduledAt,
-		MetaTitle:      req.MetaTitle,
-		MetaDesc:       req.MetaDesc,
-		MetaKeywords:   req.MetaKeywords,
-		CanonicalURL:   req.CanonicalURL,
-		OGImage:        req.OGImage,
-		Template:       req.Template,
+		Title:         req.Title,
+		Content:       req.Content,
+		Excerpt:       req.Excerpt,
+		AuthorID:      userID,
+		CategoryID:    req.CategoryID,
+		FeaturedImage: req.FeaturedImage,
+		Format:        req.Format,
+		Visibility:    models.Visibility(req.Visibility),
+		Password:      req.Password,
+		IsPinned:      req.IsPinned,
+		IsFeatured:    req.IsFeatured,
+		PublishedAt:   req.PublishedAt,
+		ScheduledAt:   req.ScheduledAt,
+		MetaTitle:     req.MetaTitle,
+		MetaDesc:      req.MetaDesc,
+		MetaKeywords:  req.MetaKeywords,
+		CanonicalURL:  req.CanonicalURL,
+		OGImage:       req.OGImage,
+		Template:      req.Template,
 	}
 
 	// Defaults.
@@ -295,6 +409,8 @@ func (s *ArticleService) Create(req CreateArticleRequest, userID uint) (*models.
 		s.webhook.Dispatch(models.WebhookEventEntryCreate, &article)
 	}
 
+	s.indexArticle(&article)
+
 	s.fireAction("article.afterCreate", map[string]interface{}{
 		"article": &article,
 		"title":   article.Title,
@@ -347,24 +463,24 @@ func (s *ArticleService) CreateTranslation(sourceID uint, locale string, req Cre
 
 	// Build the translated article from the source's metadata.
 	article := models.Article{
-		Title:             req.Title,
-		Content:           req.Content,
-		Excerpt:           req.Excerpt,
-		AuthorID:          userID,
-		CategoryID:        source.CategoryID,
-		FeaturedImage:     source.FeaturedImage,
-		Format:            source.Format,
-		Visibility:        source.Visibility,
-		IsPinned:          source.IsPinned,
-		IsFeatured:        source.IsFeatured,
-		MetaTitle:         req.MetaTitle,
-		MetaDesc:          req.MetaDesc,
-		MetaKeywords:      req.MetaKeywords,
-		CanonicalURL:      req.CanonicalURL,
-		OGImage:           source.OGImage,
-		Template:          source.Template,
-		PostType:          source.PostType,
-		Locale:            locale,
+		Title:              req.Title,
+		Content:            req.Content,
+		Excerpt:            req.Excerpt,
+		AuthorID:           userID,
+		CategoryID:         source.CategoryID,
+		FeaturedImage:      source.FeaturedImage,
+		Format:             source.Format,
+		Visibility:         source.Visibility,
+		IsPinned:           source.IsPinned,
+		IsFeatured:         source.IsFeatured,
+		MetaTitle:          req.MetaTitle,
+		MetaDesc:           req.MetaDesc,
+		MetaKeywords:       req.MetaKeywords,
+		CanonicalURL:       req.CanonicalURL,
+		OGImage:            source.OGImage,
+		Template:           source.Template,
+		PostType:           source.PostType,
+		Locale:             locale,
 		TranslationGroupID: new(uint),
 	}
 	*article.TranslationGroupID = effectiveGroupID(source)
@@ -419,6 +535,7 @@ func (s *ArticleService) CreateTranslation(sourceID uint, locale string, req Cre
 	if s.webhook != nil {
 		s.webhook.Dispatch(models.WebhookEventEntryCreate, &article)
 	}
+	s.indexArticle(&article)
 	return &article, nil
 }
 
@@ -528,6 +645,8 @@ func (s *ArticleService) Update(id uint, req UpdateArticleRequest, userID uint, 
 		s.webhook.Dispatch(models.WebhookEventEntryUpdate, article)
 	}
 
+	s.indexArticle(article)
+
 	s.fireAction("article.afterUpdate", map[string]interface{}{
 		"article": article,
 		"user_id": userID,
@@ -555,6 +674,8 @@ func (s *ArticleService) Delete(id uint, userID uint, isEditor bool) error {
 	if s.webhook != nil {
 		s.webhook.Dispatch(models.WebhookEventEntryDelete, article)
 	}
+
+	s.unindexArticle(article.ID, article.PostType)
 
 	s.fireAction("article.afterDelete", map[string]interface{}{
 		"article_id": id,
@@ -630,7 +751,12 @@ func (s *ArticleService) RestoreRevision(articleID uint, revisionID uint, userID
 		return err
 	}
 
-	return s.repo.RestoreRevision(article, revision, userID)
+	if err := s.repo.RestoreRevision(article, revision, userID); err != nil {
+		return err
+	}
+	// Content changed: re-index with full preloaded metadata.
+	s.reindexByID(articleID)
+	return nil
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -663,6 +789,9 @@ func (s *ArticleService) transitionTo(id uint, target models.ArticleStatus, publ
 	if err != nil {
 		return article, nil // best-effort: return pre-update snapshot
 	}
+	// Status changes affect search visibility (e.g. draft→published makes the
+	// article publicly searchable). Re-index with full preloaded metadata.
+	s.reindexByID(id)
 	return updated, nil
 }
 
@@ -695,6 +824,7 @@ func (s *ArticleService) Publish(id uint) (*models.Article, error) {
 	if s.webhook != nil {
 		s.webhook.Dispatch(models.WebhookEventEntryPublish, updated)
 	}
+	s.reindexByID(id)
 	return updated, nil
 }
 
@@ -747,6 +877,7 @@ func (s *ArticleService) Schedule(id uint, at time.Time) (*models.Article, error
 	if s.webhook != nil {
 		s.webhook.Dispatch(models.WebhookEventEntrySchedule, updated)
 	}
+	s.reindexByID(id)
 	return updated, nil
 }
 
@@ -780,6 +911,10 @@ func (s *ArticleService) PublishDueScheduled(now time.Time) (int, error) {
 			"count": n,
 			"mode":  "scheduled",
 		})
+	}
+	// Re-index auto-published articles so they become publicly searchable.
+	for _, id := range ids {
+		s.reindexByID(id)
 	}
 	return int(n), nil
 }

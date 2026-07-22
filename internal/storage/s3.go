@@ -9,6 +9,8 @@ import (
 	"io"
 	"net/http"
 	"time"
+
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
 // S3Driver stores files on S3-compatible storage (AWS S3, MinIO, Alibaba OSS).
@@ -37,7 +39,7 @@ func NewS3Driver(cfg S3Config) *S3Driver {
 	return &S3Driver{
 		config:    cfg,
 		publicURL: publicURL,
-		client:    &http.Client{Timeout: 30 * time.Second},
+		client:    &http.Client{Timeout: 30 * time.Second, Transport: otelhttp.NewTransport(http.DefaultTransport)},
 	}
 }
 

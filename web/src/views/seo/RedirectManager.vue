@@ -49,10 +49,10 @@
 
 <script setup lang="ts">
 import { ref, reactive, onMounted } from 'vue'
-import { seoApi } from '@/api'
+import { seoApi, type Redirect } from '@/api'
 import { ElMessage } from 'element-plus'
 
-const redirects = ref<any[]>([])
+const redirects = ref<Redirect[]>([])
 const loading = ref(false)
 const dialogVisible = ref(false)
 const form = reactive({ from_path: '', to_path: '', status_code: 301, note: '' })

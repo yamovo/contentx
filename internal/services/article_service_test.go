@@ -1,8 +1,46 @@
 package services
 
 import (
+	"context"
+	"fmt"
 	"testing"
+
+	"github.com/yamovo/contentx/internal/models"
 )
+
+func TestArticleService_ReindexAllPaginatesPastPublicLimit(t *testing.T) {
+	db := setupTestDB(t)
+	user := createTestUser(t, db, "reindex-author", "author")
+
+	articles := make([]models.Article, 250)
+	for i := range articles {
+		articles[i] = models.Article{
+			Title:    fmt.Sprintf("Reindex article %03d", i+1),
+			Slug:     fmt.Sprintf("reindex-article-%03d", i+1),
+			Content:  "benchmark content",
+			AuthorID: user.ID,
+			Status:   models.StatusPublished,
+		}
+	}
+	if err := db.CreateInBatches(&articles, 100).Error; err != nil {
+		t.Fatalf("seed articles: %v", err)
+	}
+
+	svc := NewArticleService(db, "http://localhost:8080")
+	indexer := &MockSearchIndexer{}
+	svc.SetSearchIndexer(indexer)
+
+	indexed, err := svc.ReindexAll(context.Background())
+	if err != nil {
+		t.Fatalf("ReindexAll: %v", err)
+	}
+	if indexed != 250 {
+		t.Fatalf("indexed = %d, want 250", indexed)
+	}
+	if len(indexer.Reindexed) != 250 {
+		t.Fatalf("reindexed documents = %d, want 250", len(indexer.Reindexed))
+	}
+}
 
 func TestArticleService_Create(t *testing.T) {
 	db := setupTestDB(t)

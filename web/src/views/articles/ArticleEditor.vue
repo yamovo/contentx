@@ -166,7 +166,7 @@
           <el-tree-select
             v-model="form.category_id"
             :data="categoryTree"
-            :props="{ label: 'name', value: 'id', children: 'children' }"
+            :props="treeSelectProps"
             placeholder="选择分类"
             check-strictly
             clearable
@@ -230,6 +230,8 @@ import { marked } from 'marked'
 const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
+
+const treeSelectProps = { label: 'name', value: 'id', children: 'children' } as any
 
 const isEdit = computed(() => !!route.params.id)
 const saving = ref(false)

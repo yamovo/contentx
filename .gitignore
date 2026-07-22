@@ -36,6 +36,9 @@ logs/
 .env
 *.log
 
+# Benchmark binary artifacts (vegeta .bin files exceed GitHub 100MB limit)
+reports/benchmarks/raw/**/*.bin
+
 # Backups
 .security-backup-*/
 

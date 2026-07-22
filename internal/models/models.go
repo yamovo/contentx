@@ -110,7 +110,7 @@ type Article struct {
 	BaseModel
 	Title         string        `gorm:"size:512;not null;index" json:"title" validate:"required,max=512"`
 	Slug          string        `gorm:"uniqueIndex;size:512;not null" json:"slug"`
-	Content       string        `gorm:"type:longtext" json:"content"`
+	Content       string        `gorm:"type:text" json:"content"`
 	Excerpt       string        `gorm:"type:text" json:"excerpt"`
 	Author        User          `gorm:"foreignKey:AuthorID" json:"author,omitempty"`
 	AuthorID      uint          `gorm:"index;not null" json:"author_id"`
@@ -146,12 +146,12 @@ type Article struct {
 	// i18n: Locale is the BCP-47 language tag (e.g. "en", "zh", "ja").
 	// TranslationGroupID links translations of the same content; the first
 	// article created in a group seeds its own group id (its own ID).
-	Locale             string `gorm:"size:10;not null;default:'en';index" json:"locale"`
-	TranslationGroupID *uint  `gorm:"index" json:"translation_group_id,omitempty"`
-	Translations       []Article `gorm:"foreignKey:TranslationGroupID;references:ID" json:"translations,omitempty"`
-	Comments      []Comment     `gorm:"foreignKey:ArticleID" json:"comments,omitempty"`
-	Revisions     []Revision    `gorm:"foreignKey:ArticleID" json:"revisions,omitempty"`
-	CustomFields  []CustomField `gorm:"foreignKey:ArticleID" json:"custom_fields,omitempty"`
+	Locale             string        `gorm:"size:10;not null;default:'en';index" json:"locale"`
+	TranslationGroupID *uint         `gorm:"index" json:"translation_group_id,omitempty"`
+	Translations       []Article     `gorm:"foreignKey:TranslationGroupID;references:ID" json:"translations,omitempty"`
+	Comments           []Comment     `gorm:"foreignKey:ArticleID" json:"comments,omitempty"`
+	Revisions          []Revision    `gorm:"foreignKey:ArticleID" json:"revisions,omitempty"`
+	CustomFields       []CustomField `gorm:"foreignKey:ArticleID" json:"custom_fields,omitempty"`
 }
 
 // ArticleStatus represents the publication status.
@@ -265,7 +265,7 @@ type Revision struct {
 	BaseModel
 	ArticleID uint   `gorm:"index;not null" json:"article_id"`
 	Title     string `gorm:"size:512" json:"title"`
-	Content   string `gorm:"type:longtext" json:"content"`
+	Content   string `gorm:"type:text" json:"content"`
 	Excerpt   string `gorm:"type:text" json:"excerpt"`
 	Editor    User   `gorm:"foreignKey:EditorID" json:"editor,omitempty"`
 	EditorID  uint   `gorm:"index;not null" json:"editor_id"`
@@ -278,7 +278,7 @@ type CustomField struct {
 	BaseModel
 	ArticleID uint   `gorm:"index;not null" json:"article_id"`
 	Key       string `gorm:"size:255;not null;index" json:"key"`
-	Value     string `gorm:"type:longtext" json:"value"`
+	Value     string `gorm:"type:text" json:"value"`
 }
 
 // Menu represents a navigation menu.
@@ -313,7 +313,7 @@ type MenuItem struct {
 type SiteSetting struct {
 	ID        uint   `gorm:"primarykey" json:"id"`
 	Key       string `gorm:"uniqueIndex;size:128;not null" json:"key"`
-	Value     string `gorm:"type:longtext" json:"value"`
+	Value     string `gorm:"type:text" json:"value"`
 	Type      string `gorm:"size:20;default:'string'" json:"type"` // string, int, bool, json, text
 	Group     string `gorm:"size:64;not null;index" json:"group"`
 	Label     string `gorm:"size:255" json:"label"`

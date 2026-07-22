@@ -19,6 +19,22 @@ func TestEnvStr(t *testing.T) {
 	}
 }
 
+func TestLoadTracingConfig(t *testing.T) {
+	t.Setenv("OTEL_ENABLED", "true")
+	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://tempo:4318")
+	t.Setenv("OTEL_EXPORTER_OTLP_INSECURE", "true")
+	t.Setenv("OTEL_TRACE_SAMPLE_RATIO", "0.25")
+	t.Setenv("OTEL_SERVICE_NAME", "contentx-test")
+
+	cfg := Load()
+	if !cfg.Tracing.Enabled || cfg.Tracing.Endpoint != "http://tempo:4318" || cfg.Tracing.SampleRatio != 0.25 {
+		t.Fatalf("unexpected tracing config: %+v", cfg.Tracing)
+	}
+	if cfg.Tracing.ServiceName != "contentx-test" || !cfg.Tracing.Insecure {
+		t.Fatalf("unexpected tracing identity/transport config: %+v", cfg.Tracing)
+	}
+}
+
 func TestEnvInt(t *testing.T) {
 	os.Unsetenv("TEST_INT")
 	if got := envInt("TEST_INT", 42); got != 42 {

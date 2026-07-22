@@ -118,7 +118,7 @@
             <el-button text size="small" @click="$router.push(`/admin/articles/${row.id}/revisions`)">
               历史
             </el-button>
-            <el-dropdown trigger="click" @command="(cmd: string) => handleCommand(cmd, row)">
+            <el-dropdown trigger="click" @command="(cmd: string) => handleCommand(cmd, row as Article)">
               <el-button text size="small">更多</el-button>
               <template #dropdown>
                 <el-dropdown-menu>

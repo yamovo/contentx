@@ -27,6 +27,11 @@ export default defineConfig({
     environment: 'jsdom',
     globals: true,
     include: ['src/**/*.{test,spec}.ts'],
+    server: {
+      deps: {
+        inline: [/element-plus/],
+      },
+    },
   },
   server: {
     port: 3000,

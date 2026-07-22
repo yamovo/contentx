@@ -16,7 +16,7 @@ COPY web/ .
 RUN npm run build
 
 # Production stage
-FROM alpine:3.19
+FROM alpine:3.20
 RUN apk --no-cache add ca-certificates tzdata
 
 # Run as non-root user

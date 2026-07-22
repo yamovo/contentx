@@ -1,3 +1,5 @@
+version: "2"
+
 run:
   timeout: 5m
 
@@ -12,10 +14,9 @@ linters:
     - gofmt
     - goimports
     - misspell
-
-linters-settings:
-  errcheck:
-    check-type-assertions: true
+  settings:
+    errcheck:
+      check-type-assertions: true
 
 issues:
   exclude-rules:

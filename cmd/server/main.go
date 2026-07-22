@@ -21,6 +21,8 @@ import (
 	"github.com/yamovo/contentx/internal/handlers"
 	"github.com/yamovo/contentx/internal/logger"
 	"github.com/yamovo/contentx/internal/middleware"
+	"github.com/yamovo/contentx/internal/models"
+	"github.com/yamovo/contentx/internal/observability"
 	"github.com/yamovo/contentx/internal/services"
 
 	swaggerFiles "github.com/swaggo/files"
@@ -66,6 +68,27 @@ func main() {
 	// Initialize structured logger.
 	logger.Setup(cfg.Log)
 
+	traceShutdown, err := observability.InitTracing(context.Background(), observability.TraceOptions{
+		Enabled:     cfg.Tracing.Enabled,
+		Endpoint:    cfg.Tracing.Endpoint,
+		Insecure:    cfg.Tracing.Insecure,
+		SampleRatio: cfg.Tracing.SampleRatio,
+		ServiceName: cfg.Tracing.ServiceName,
+		Version:     version,
+		Environment: cfg.Server.Mode,
+	})
+	if err != nil {
+		slog.Error("failed to initialize OpenTelemetry", "error", err)
+		os.Exit(1)
+	}
+	defer func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := traceShutdown(ctx); err != nil {
+			slog.Warn("OpenTelemetry shutdown failed", "error", err)
+		}
+	}()
+
 	// Set gin mode.
 	gin.SetMode(cfg.Server.Mode)
 
@@ -73,6 +96,10 @@ func main() {
 	db, err := database.Connect(cfg.Database)
 	if err != nil {
 		slog.Error("failed to connect to database", "error", err)
+		os.Exit(1)
+	}
+	if err := observability.InstrumentGORM(db, cfg.Database.Driver); err != nil {
+		slog.Error("failed to instrument database tracing", "error", err)
 		os.Exit(1)
 	}
 
@@ -151,6 +178,7 @@ func main() {
 		cacheDriver = cache.NewMemoryDriver(cfg.Cache.MaxEntries)
 	}
 	slog.Info("cache initialized", "driver", cfg.Cache.Driver)
+	baseCacheDriver := cacheDriver
 
 	// Initialize JWT manager and token store.
 	// 优先使用 Redis-backed 黑名单（多实例共享、重启不丢失）；
@@ -163,12 +191,37 @@ func main() {
 	r := gin.New()
 
 	// 配置 validator：让 ValidationErrors 中的字段名返回 JSON tag 名
-	// （而非默认的结构体字段 PascalCase），便于脱敏后的错误消息直接对前端友好。
+	// （而非默认的结构体字段名 PascalCase），便于脱敏后的错误消息直接对前端友好。
 	handlers.RegisterJSONTagNameFunc()
+
+	// Prometheus 指标采集器（全局共享，/metrics 端点输出）。
+	promCollector := middleware.NewPrometheusCollector()
+	observability.SetMetricsRecorder(promCollector)
+	cacheDriver = cache.NewMeteredDriver(cacheDriver)
+	promCollector.SetSnapshotter(func() {
+		var activeUsers int64
+		if err := db.Model(&models.User{}).Where("status = ?", models.UserStatusActive).Count(&activeUsers).Error; err == nil {
+			promCollector.SetGauge("active_users_total", "Current number of active users", float64(activeUsers))
+		}
+		for _, status := range []models.ArticleStatus{
+			models.StatusDraft, models.StatusPending, models.StatusScheduled,
+			models.StatusPublished, models.StatusArchived, models.StatusTrash,
+		} {
+			var count int64
+			if err := db.Model(&models.Article{}).Where("status = ?", status).Count(&count).Error; err == nil {
+				promCollector.SetGaugeWithLabels("articles_total", "Current number of articles", map[string]string{"status": string(status)}, float64(count))
+			}
+		}
+		if sqlDB, err := db.DB(); err == nil {
+			promCollector.SetGauge("db_connections_in_use", "Database connections currently in use", float64(sqlDB.Stats().InUse))
+		}
+	})
 
 	// Global middleware.
 	r.Use(middleware.RecoverMiddleware())
 	r.Use(middleware.RequestID())
+	r.Use(middleware.TracingMiddleware(cfg.Tracing.ServiceName))
+	r.Use(middleware.PrometheusMiddleware(promCollector))
 	r.Use(middleware.LoggerMiddleware())
 	r.Use(middleware.CORSMiddleware(cfg.CORS))
 	r.Use(middleware.SecurityHeaders())
@@ -181,6 +234,16 @@ func main() {
 	// Register all routes.
 	rateLimiter := handlers.RegisterRoutes(r, db, cfg, jwtMgr, tokenStore, guard, cacheDriver)
 
+	// Prometheus /metrics 端点（无需认证）。
+	if cfg.Metrics.Enabled {
+		path := cfg.Metrics.Path
+		if path == "" {
+			path = "/metrics"
+		}
+		r.GET(path, gin.WrapH(promCollector.MetricsHandler()))
+		slog.Info("prometheus metrics endpoint enabled", "path", path)
+	}
+
 	// Start the scheduled-publish worker. It periodically scans for articles
 	// whose ScheduledAt has passed and flips them to published. The scheduler
 	// uses its own ArticleService instance (sharing the same db + webhook
@@ -188,6 +251,17 @@ func main() {
 	schedulerArticleSvc := services.NewArticleService(db, cfg.Server.BaseURL)
 	schedulerArticleSvc.SetWebhookDispatcher(services.NewWebhookService(db))
 	publishScheduler := services.NewPublishScheduler(schedulerArticleSvc, time.Minute, slog.Default())
+
+	// 多实例部署时注入分布式锁，防止多实例重复执行定时发布。
+	// Redis 可用时用 RedisLock；不可用时降级为 MemoryLock（仅保护同进程）。
+	if redisDrv, ok := baseCacheDriver.(*cache.RedisDriver); ok {
+		publishScheduler.SetDistributedLock(cache.NewRedisLock(redisDrv.Client(), cfg.Redis.Prefix))
+		slog.Info("publish scheduler: using redis distributed lock")
+	} else {
+		publishScheduler.SetDistributedLock(cache.NewMemoryLock())
+		slog.Info("publish scheduler: using in-memory lock (single instance)")
+	}
+
 	publishScheduler.Start()
 	defer publishScheduler.Stop()
 
@@ -249,7 +323,7 @@ func main() {
 	defer cancel()
 
 	rateLimiter.Shutdown()
-	if closer, ok := cacheDriver.(interface{ Close() error }); ok {
+	if closer, ok := baseCacheDriver.(interface{ Close() error }); ok {
 		_ = closer.Close()
 	}
 	if err := srv.Shutdown(ctx); err != nil {

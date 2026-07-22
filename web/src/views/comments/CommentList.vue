@@ -66,7 +66,7 @@
           <template #default="{ row }">
             <el-button v-if="row.status !== 'approved'" text size="small" type="success" @click="approve(row.id)">批准</el-button>
             <el-button v-if="row.status !== 'spam'" text size="small" type="warning" @click="markSpam(row.id)">垃圾</el-button>
-            <el-button text size="small" @click="replyTo(row)">回复</el-button>
+            <el-button text size="small" @click="replyTo(row as Comment)">回复</el-button>
             <el-popconfirm title="确认删除？" @confirm="deleteComment(row.id)">
               <template #reference>
                 <el-button text size="small" type="danger">删除</el-button>

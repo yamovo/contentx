@@ -82,7 +82,7 @@
         </el-table-column>
         <el-table-column label="操作" width="120">
           <template #default="{ row }">
-            <el-button text size="small" @click.stop="copyUrl(row)">复制URL</el-button>
+            <el-button text size="small" @click.stop="copyUrl(row as Media)">复制URL</el-button>
             <el-popconfirm title="确认删除？" @confirm="deleteMedia(row.id)">
               <template #reference>
                 <el-button text size="small" type="danger" @click.stop>删除</el-button>
@@ -119,7 +119,7 @@
     <el-dialog v-model="showStats" title="媒体库统计" width="400px">
       <div v-if="mediaStats" class="stats-content">
         <el-statistic title="总文件数" :value="mediaStats.total_files" />
-        <el-statistic title="总大小" :value="formatSize(mediaStats.total_size)" />
+        <el-statistic title="总大小" :value="mediaStats.total_size" :formatter="formatSize" />
         <el-statistic title="图片" :value="mediaStats.images" />
         <el-statistic title="视频" :value="mediaStats.videos" />
         <el-statistic title="文档" :value="mediaStats.documents" />

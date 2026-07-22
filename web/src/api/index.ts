@@ -327,7 +327,7 @@ export const seoApi = {
   updateSetting: (type: string, id: number, data: any) => put(`/seo/${type}/${id}`, data),
   sitemap: () => get('/seo/sitemap'),
   robotsTxt: () => get('/seo/robots.txt'),
-  listRedirects: () => get('/seo/redirects'),
+  listRedirects: () => get<{ data: Redirect[] }>('/seo/redirects'),
   createRedirect: (data: any) => post('/seo/redirects', data),
   deleteRedirect: (id: number) => del(`/seo/redirects/${id}`),
 }
@@ -358,8 +358,28 @@ export const analyticsApi = {
 }
 
 // Plugins & Themes
+export interface Plugin {
+  id: number
+  name: string
+  version: string
+  description: string
+  author: string
+  is_enabled: boolean
+  config?: Record<string, any>
+}
+
+export interface Redirect {
+  id: number
+  from_path: string
+  to_path: string
+  status_code: number
+  hit_count: number
+  is_active: boolean
+  note: string
+}
+
 export const pluginApi = {
-  list: () => get('/plugins'),
+  list: () => get<{ data: Plugin[] }>('/plugins'),
   enable: (id: number) => post(`/plugins/${id}/enable`),
   disable: (id: number) => post(`/plugins/${id}/disable`),
   updateConfig: (id: number, config: any) => put(`/plugins/${id}/config`, config),

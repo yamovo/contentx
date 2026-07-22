@@ -1,4 +1,4 @@
-.PHONY: build test lint clean dev migrate migrate-down migrate-status seed
+.PHONY: build test lint clean dev migrate migrate-down migrate-status seed backup restore-backup
 
 # Build variables
 BINARY=contentx
@@ -69,3 +69,17 @@ docker-up:
 # Stop Docker Compose
 docker-down:
 	docker-compose down
+
+# Create a full backup (database + media) via the admin API.
+# Usage: make backup API=http://localhost:8080 TOKEN=xxx
+API ?= http://localhost:8080
+TOKEN ?= 
+backup:
+	@curl -sS -X POST "$(API)/api/v1/admin/backup?type=all" \
+		-H "Authorization: Bearer $(TOKEN)" | python -m json.tool
+
+# Restore from a backup file via the admin API.
+# Usage: make restore-backup API=http://localhost:8080 TOKEN=xxx FILE=db-20260722-150405.sql
+restore-backup:
+	@curl -sS -X POST "$(API)/api/v1/admin/backup/$(FILE)/restore" \
+		-H "Authorization: Bearer $(TOKEN)" | python -m json.tool

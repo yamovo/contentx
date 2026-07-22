@@ -174,13 +174,49 @@ func NewSchema(svc Services) (graphql.Schema, error) {
 	articleConnectionType := graphql.NewObject(graphql.ObjectConfig{
 		Name: "ArticleConnection",
 		Fields: graphql.Fields{
-			"items":      listNonNullField(articleType),
+			"items": &graphql.Field{
+				Type: graphql.NewList(graphql.NewNonNull(articleType)),
+			},
 			"page":       nonNullIntField(),
 			"pageSize":   nonNullIntField(),
 			"total":      nonNullIntField(),
 			"totalPages": nonNullIntField(),
 			"hasNext":    nonNullBoolField(),
 			"hasPrev":    nonNullBoolField(),
+		},
+	})
+
+	// ---------- Search types ----------
+	// Exposed via the `search` Query field so headless consumers can run
+	// full-text queries through GraphQL (mirrors REST /api/v1/search).
+	searchHitType := graphql.NewObject(graphql.ObjectConfig{
+		Name: "SearchHit",
+		Fields: graphql.Fields{
+			"id":          nonNullStringField(),
+			"type":        stringField(),
+			"title":       stringField(),
+			"excerpt":     stringField(),
+			"slug":        stringField(),
+			"score":       floatField(),
+			"highlight":   stringField(),
+			"locale":      stringField(),
+			"authorId":    stringField(),
+			"authorName":  stringField(),
+			"publishedAt": stringField(),
+		},
+	})
+
+	searchResultType := graphql.NewObject(graphql.ObjectConfig{
+		Name: "SearchResult",
+		Fields: graphql.Fields{
+			"hits": &graphql.Field{
+				Type: graphql.NewList(graphql.NewNonNull(searchHitType)),
+			},
+			"total":      nonNullIntField(),
+			"page":       nonNullIntField(),
+			"pageSize":   nonNullIntField(),
+			"totalPages": nonNullIntField(),
+			"took":       stringField(),
 		},
 	})
 
@@ -256,6 +292,17 @@ func NewSchema(svc Services) (graphql.Schema, error) {
 			"feed": &graphql.Field{
 				Type:    graphql.NewNonNull(graphql.String),
 				Resolve: r.feed,
+			},
+			"search": &graphql.Field{
+				Type: searchResultType,
+				Args: graphql.FieldConfigArgument{
+					"q":        nonNullStringArg(),
+					"type":     stringArgConfig(),
+					"locale":   stringArgConfig(),
+					"page":     intArgConfig(),
+					"pageSize": intArgConfig(),
+				},
+				Resolve: r.search,
 			},
 		},
 	})
@@ -381,6 +428,10 @@ func intField() *graphql.Field {
 
 func nonNullIntField() *graphql.Field {
 	return &graphql.Field{Type: graphql.NewNonNull(graphql.Int)}
+}
+
+func floatField() *graphql.Field {
+	return &graphql.Field{Type: graphql.Float}
 }
 
 func boolField() *graphql.Field {

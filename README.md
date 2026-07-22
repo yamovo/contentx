@@ -1,333 +1,206 @@
-# 🌪️ ContentX
-
-> **高性能 Go Headless CMS** — API-first 内容平台，单二进制部署，自定义内容类型，REST + GraphQL 双 API，多语言内容，插件扩展。
-
-[![Go Version](https://img.shields.io/badge/Go-1.22+-00ADD8?logo=go)](https://go.dev)
-[![Swagger](https://img.shields.io/badge/API--Docs-Swagger-85EA2D?logo=swagger)](/swagger/index.html)
-[![GraphQL](https://img.shields.io/badge/GraphQL-Ready-E10098?logo=graphql)](/api/v1/graphql)
-[![License](https://img.shields.io/badge/license-MIT-green)](./LICENSE)
-
----
-
-## 为什么选 ContentX
-
-| | ContentX | Strapi | Ghost |
-|---|-----------|--------|-------|
-| 语言 | **Go** | Node.js | Node.js |
-| 内存占用 | **~30MB** | ~200MB | ~150MB |
-| Docker 镜像 | **< 30MB** | ~500MB | ~400MB |
-| 部署方式 | **单二进制** | npm + Node | npm + Node |
-| 自定义内容类型 | ✅ | ✅ | ❌ |
-| REST + GraphQL | ✅ 双 API | ✅ | ❌ |
-| 多语言内容 (i18n) | ✅ | ✅ | ❌ |
-| 发布工作流 | ✅ 6 态状态机 | ✅ | ⚠️ 2 态 |
-| 插件系统 | ✅ Hook/Filter | ✅ | ✅ |
-| Webhook | ✅ | ✅ | ✅ |
-| API Token | ✅ 细粒度 | ✅ | ❌ |
-| SDK | TypeScript | JS/TS | ❌ |
-| SQLite 零依赖 | ✅ | ❌ | ❌ |
-
----
-
-## 核心能力
-
-### 🧩 自定义内容类型
-
-像 Strapi 一样定义内容结构，自动生成 CRUD API：
-
-```bash
-# 创建 "产品" 内容类型
-curl -X POST /api/v1/content-types \
-  -H "Authorization: Bearer {token}" \
-  -d '{
-    "uid": "product",
-    "name": "产品",
-    "fields": [
-      {"name": "title", "label": "标题", "field_type": "text", "required": true},
-      {"name": "price", "label": "价格", "field_type": "float", "min_value": 0},
-      {"name": "status", "label": "状态", "field_type": "enum", "options": ["在售", "下架"]}
-    ]
-  }'
-
-# 自动生成的 API：
-# GET    /api/v1/content/product           # 列表
-# GET    /api/v1/content/product/:id       # 详情
-# POST   /api/v1/content/product           # 创建
-# PUT    /api/v1/content/product/:id       # 更新
-# DELETE /api/v1/content/product/:id       # 删除
-# POST   /api/v1/content/product/:id/publish   # 发布
-```
-
-### 🔐 API Token 系统
-
-```bash
-# 创建细粒度 Token
-curl -X POST /api/v1/system/tokens \
-  -d '{"name":"Next.js","permissions":["articles.read","categories.read"]}'
-# → vc_live_aa3f2a989d57960db02e3328ffe5b079
-```
-
-### 🌐 多语言内容 (i18n)
-
-为文章和自定义内容创建多语言翻译版本，通过 `TranslationGroupID` 关联：
-
-```bash
-# 为文章创建中文翻译
-curl -X POST /api/v1/articles/42/translations?locale=zh \
-  -H "Authorization: Bearer {token}" \
-  -d '{"title":"你好世界","content":"<p>内容</p>"}'
-
-# 列出文章的所有翻译
-curl /api/v1/articles/42/translations
-
-# 按语言筛选文章列表
-curl /api/v1/articles?locale=zh
-```
-
-支持 BCP-47 语言标签（`en`/`zh`/`ja` 等），翻译自动继承源文章的分类、标签、特色图等元数据。
-
-### 🚀 GraphQL API
-
-只读 GraphQL 端点，适合前端灵活查询，复用 REST 同一 Service 层：
-
-```bash
-# POST /api/v1/graphql
-curl -X POST /api/v1/graphql \
-  -d '{"query":"{ articles(page:1,pageSize:5){ total items{ title slug author{ displayName } comments{ content } } } }"}'
-
-# GET /api/v1/graphql?query=...
-curl "/api/v1/graphql?query={ articles { items { title } } }"
-```
-
-6 个对象类型（Article/User/Category/Tag/Comment/ArticleConnection）+ 10 个 Query 字段，支持嵌套关系和分页。敏感字段（password/email）自动排除。
-
-### 📋 发布工作流
-
-6 态发布状态机，支持审核流程和定时发布：
-
-```
-draft → pending → published → archived
-  ↘         ↗        ↙
-   trash ←──── scheduled
-```
-
-```bash
-# 提交审核
-curl -X POST /api/v1/articles/42/submit-review
-# 审核通过并发布
-curl -X POST /api/v1/articles/42/approve
-# 定时发布
-curl -X POST /api/v1/articles/42/schedule -d '{"publish_at":"2026-08-01T10:00:00Z"}'
-# 归档
-curl -X POST /api/v1/articles/42/archive
-```
-
-`PublishScheduler` 后台 worker 自动执行定时发布任务。
-
-### 🔌 插件系统
-
-Go 接口 + Hook/Filter 机制，运行时启用/禁用，配置热重载：
-
-```go
-// 实现 Plugin 接口
-type MyPlugin struct{}
-func (p *MyPlugin) Name() string { return "my-plugin" }
-func (p *MyPlugin) Hooks() []plugin.HookRegistration {
-    return []plugin.HookRegistration{
-        {Name: "article.afterCreate", Type: plugin.HookAction, Fn: p.onCreated},
-        {Name: "article.filterContent", Type: plugin.HookFilter, Fn: p.transform},
-    }
-}
-```
-
-```bash
-# 运行时启用/禁用/配置
-curl -X POST /api/v1/plugins/1/enable
-curl -X PUT /api/v1/plugins/1/config -d '{"verbose":true}'
-```
-
-内置 `WordCountPlugin` 示例：文章创建/删除时记录字数日志，内容保存前规范化空白字符。
-
-### 🪝 Webhook
-
-内容变更时自动通知外部系统，支持 HMAC 签名，覆盖 8 类业务事件（文章/评论/媒体/用户的 CRUD）：
-
-```bash
-curl -X POST /api/v1/webhooks \
-  -d '{"name":"Discord","url":"https://hooks.example.com","events":["entry.create","entry.publish"]}'
-```
-
-### 📖 Swagger 文档
-
-启动后访问 `http://localhost:8080/swagger/index.html`，114 个方法中 95.6% 有 OpenAPI 注解。
-
----
-
-## 界面预览
-
-| 登录 | 仪表盘 |
-|:---:|:---:|
-| ![登录](docs/screenshots/login.png) | ![仪表盘](docs/screenshots/dashboard.png) |
-
-| 文章管理 | 媒体库 |
-|:---:|:---:|
-| ![文章](docs/screenshots/articles.png) | ![媒体](docs/screenshots/media.png) |
-
-| 数据分析 | 系统设置 |
-|:---:|:---:|
-| ![分析](docs/screenshots/analytics.png) | ![设置](docs/screenshots/settings.png) |
-
----
-
-## 快速开始
-
-### 仅需 Go
-
-```bash
-git clone https://github.com/yamovo/contentx.git
-cd contentx
-go run cmd/server/main.go
-
-# API:     http://localhost:8080/api/v1
-# Swagger: http://localhost:8080/swagger/index.html
-# 账号:    admin（密码在启动日志中自动生成，或设置 ADMIN_PASSWORD 环境变量）
-```
-
-### TypeScript SDK
-
-```bash
-npm install @contentx/sdk
-```
-
-```typescript
-import { ContentX } from '@contentx/sdk'
-
-const cms = new ContentX({
-  baseURL: 'http://localhost:8080/api/v1',
-  token: 'vc_live_...',
-})
-
-// 内置内容（按语言筛选）
-const articles = await cms.articles.list({ status: 'published', locale: 'zh' })
-
-// 动态内容类型
-const products = await cms.content('product').list()
-await cms.content('product').create({
-  data: { title: 'Go 语言圣经', price: 99.9, status: '在售' }
-})
-```
-
----
-
-## API 概览
-
-| 分组 | 接口数 | 说明 |
-|------|--------|------|
-| Auth | 7 | 登录、注册、Token 刷新、个人信息 |
-| Articles | 16 | CRUD、批量操作、版本历史、RSS、发布工作流（6 态）、翻译 |
-| GraphQL | 2 | 只读查询端点（GET + POST） |
-| Content Types | 4 | 自定义内容类型管理 |
-| Content Entries | 10 | 动态内容 CRUD + 发布/取消发布 + 翻译 |
-| Categories | 6 | 树形分类、拖拽排序 |
-| Tags | 6 | 增删改查、标签合并 |
-| Comments | 9 | 审核、垃圾标记、批量操作 |
-| Media | 8 | 上传（单/批量）、文件夹管理、S3/本地双路径 |
-| Users & Roles | 8 | 用户管理、角色权限分配 |
-| Plugins | 4 | 列表、启用/禁用、配置更新 |
-| Webhooks | 4 | 配置、日志查看 |
-| API Tokens | 3 | 创建、列表、删除 |
-| SEO | 5 | Meta、Sitemap、重定向 |
-| System | 3 | 系统信息、健康检查、活动日志 |
-
-> 完整文档：启动后访问 `/swagger/index.html`
-
----
-
-## 项目结构
-
-```
-contentx/
-├── cmd/server/main.go          # 入口
-├── internal/
-│   ├── auth/                   # JWT、密码、API Key、TOTP
-│   ├── config/                 # 30+ 环境变量
-│   ├── database/               # 连接、迁移、种子
-│   ├── errs/                   # 统一错误码体系
-│   ├── graphql/                # GraphQL schema + resolvers
-│   ├── models/                 # 数据模型（含动态内容类型、i18n 字段）
-│   ├── handlers/               # HTTP 处理器（Swagger 注解 95.6%）
-│   ├── middleware/             # 认证、限流、CORS、RBAC
-│   ├── plugin/                 # 插件接口 + Hook/Filter + Manager
-│   ├── repository/             # GORM 仓库接口层（12 个 Service 全量重构）
-│   ├── services/               # 业务逻辑层（覆盖率 83.5%）
-│   ├── storage/                # 存储驱动（Local / S3）
-│   └── cache/                  # 缓存驱动（Memory / Redis）
-├── sdk/typescript/             # TypeScript SDK
-├── docs/
-│   └── api/                    # Swagger JSON/YAML
-└── web/                        # Vue 3 管理后台
-```
-
----
-
-## 配置
-
-```env
-# 数据库
-DB_DRIVER=sqlite               # postgres | mysql | sqlite
-
-# 服务器
-SERVER_PORT=8080
-SERVER_MODE=debug              # debug | release
-
-# 认证
-JWT_SECRET=your-secret-key
-
-# 存储
-STORAGE_DRIVER=local           # local | s3
-S3_ENDPOINT=minio:9000
-S3_BUCKET=contentx
-
-# 缓存
-CACHE_DRIVER=memory            # memory | redis
-REDIS_ADDR=localhost:6379
-
-# 多语言 (i18n)
-I18N_DEFAULT_LOCALE=en         # 默认语言
-I18N_LOCALES=en,zh,ja          # 支持的语言列表（逗号分隔）
-```
-
----
-
-## 测试
-
-```bash
-go test ./...                       # 全部测试
-go test ./internal/services/ -v     # Service 层（含 i18n、工作流、mock）
-go test ./internal/graphql/ -v      # GraphQL schema + resolvers
-go test ./internal/plugin/ -v       # 插件 Manager + Hook/Filter
-```
-
----
+# ContentX
+
+ContentX 是一个使用 Go 构建的 API-first Headless CMS。它提供 REST API、只读 GraphQL、Vue 3 管理后台，并支持文章工作流、自定义内容类型、国际化、媒体管理、搜索、Webhook、插件和可观测性。
+
+当前发布基线为 `v1.0.0`。仓库正在进行 P3-A“生产就绪”改进；准确进度、未完成项和验收证据见 [PROGRESS.md](./PROGRESS.md)。
+
+## 主要能力
+
+- 内容管理：文章、页面、分类、标签、评论、修订历史和定时发布
+- 发布工作流：草稿、待审核、已排期、已发布、已归档和回收站
+- 自定义内容类型：运行时定义字段，并通过统一 REST API 管理内容条目
+- API：REST、只读 GraphQL、Swagger/OpenAPI 和 TypeScript SDK
+- 国际化：文章和自定义内容条目的多语言版本及翻译组
+- 权限与认证：JWT、刷新令牌、API Token、角色和细粒度权限
+- 媒体存储：本地文件或 S3 兼容存储
+- 搜索：内置 BM25 倒排索引、中文 bigram、高亮、筛选和分页
+- 集成：Webhook HMAC 签名、编译期插件接口、Hook/Filter
+- 运行能力：Redis 缓存、分布式定时任务锁、Prometheus、Grafana 和 OpenTelemetry
 
 ## 技术栈
 
-| 层级 | 技术 |
-|------|------|
-| 后端 | Go 1.22+ / Gin / GORM |
-| 数据库 | PostgreSQL / MySQL / SQLite |
-| API | REST + GraphQL（只读） |
-| 认证 | JWT + API Token + RBAC + TOTP |
-| 多语言 | BCP-47 Locale + TranslationGroup |
-| 插件 | Plugin 接口 + Hook/Filter + Manager |
-| 文档 | Swagger / OpenAPI 2.0（95.6% 覆盖） |
-| 存储 | Local / S3 兼容 |
-| 缓存 | Memory / Redis |
-| 前端 | Vue 3 + TypeScript + Element Plus |
-| SDK | TypeScript (@contentx/sdk) |
+| 层 | 实现 |
+|---|---|
+| 后端 | Go 1.25、Gin、GORM |
+| 数据库 | PostgreSQL、MySQL、SQLite |
+| 缓存与协调 | Redis，可回退到进程内实现 |
+| 前端 | Vue 3、TypeScript、Vite、Element Plus |
+| API | REST、GraphQL、Swagger/OpenAPI |
+| 可观测性 | Prometheus、Grafana、OpenTelemetry、Tempo |
+| 部署 | 单应用镜像、Docker Compose、Nginx |
 
----
+## 快速开始
 
-## License
+### Docker Compose（推荐）
 
-MIT © 2026 ContentX
+要求：Docker Desktop 或 Docker Engine 已启动。
+
+在项目根目录创建 `.env`，至少设置以下值：
+
+```env
+POSTGRES_PASSWORD=replace-with-a-strong-password
+REDIS_PASSWORD=replace-with-a-strong-password
+JWT_SECRET=replace-with-at-least-32-random-characters
+ADMIN_PASSWORD=replace-with-at-least-8-characters
+GRAFANA_PASSWORD=replace-with-a-strong-password
+```
+
+启动应用、PostgreSQL、Redis 和 Nginx：
+
+```bash
+docker compose up -d --build
+```
+
+需要监控与链路追踪时：
+
+```bash
+docker compose --profile monitor up -d --build
+```
+
+默认入口：
+
+| 服务 | 地址 |
+|---|---|
+| 管理后台 | http://localhost:8080 |
+| REST API | http://localhost:8080/api/v1 |
+| Swagger | http://localhost:8080/swagger/index.html |
+| GraphQL | http://localhost:8080/api/v1/graphql |
+| 健康检查 | http://localhost:8080/api/v1/system/health |
+| Prometheus | http://localhost:9090 |
+| Grafana | http://localhost:3001 |
+| Tempo | http://localhost:3200 |
+
+如端口冲突，可在 `.env` 中修改 `APP_PORT`、`HTTP_PORT` 和 `HTTPS_PORT`。管理账号为 `admin`，密码取自 `ADMIN_PASSWORD`。
+
+停止服务：
+
+```bash
+docker compose --profile monitor down
+```
+
+### 本地开发
+
+后端默认使用 SQLite，适合快速开发：
+
+```bash
+go run ./cmd/server
+```
+
+前端开发服务器：
+
+```bash
+cd web
+npm ci
+npm run dev
+```
+
+生产模式不会自动接受弱密钥：必须提供有效的 `JWT_SECRET`、`ADMIN_PASSWORD`，使用 PostgreSQL/MySQL 时还必须提供数据库密码。
+
+## 常用接口
+
+所有业务接口以 `/api/v1` 为前缀。完整请求结构和响应模型以运行中的 Swagger 文档为准。
+
+| 分组 | 示例 | 说明 |
+|---|---|---|
+| Auth | `POST /auth/login` | 登录、注册、刷新、注销和个人资料 |
+| Articles | `GET /articles` | CRUD、修订、工作流、翻译和批量操作 |
+| Search | `GET /search?q=go` | 公开搜索仅返回已发布内容 |
+| GraphQL | `POST /graphql` | 只读聚合查询 |
+| Content Types | `POST /content-types` | 定义自定义内容结构 |
+| Content | `GET /content/:uid` | 自定义内容 CRUD、发布、导入导出和翻译 |
+| Media | `POST /media/upload` | 媒体上传与管理 |
+| Webhooks | `POST /webhooks` | Webhook 配置与投递日志 |
+| System | `GET /system/health` | 健康检查、系统信息、审计日志和 API Token |
+
+GraphQL 示例：
+
+```bash
+curl -X POST http://localhost:8080/api/v1/graphql \
+  -H "Content-Type: application/json" \
+  -d '{"query":"{ articles(page: 1, pageSize: 5) { total items { title slug } } }"}'
+```
+
+## 搜索说明
+
+`SEARCH_ENGINE=builtin` 是当前完整实现：索引保存在应用进程内，启动时从数据库重建，适合单实例或对短暂索引重建可接受的部署。
+
+- `builtin`：已实现，支持 BM25、中文 bigram、高亮、筛选和分页
+- `noop`：关闭搜索
+- `meilisearch`：当前仅保留配置入口，会记录警告并回退到 `builtin`，尚未集成外部驱动
+
+多实例部署时，各实例拥有独立内存索引；在外部搜索驱动完成前，不应把它描述为共享搜索集群。
+
+## 可观测性
+
+应用可暴露 `/metrics`，并通过 OTLP/HTTP 导出 Trace。监控 profile 会自动配置 Prometheus、Grafana 和 Tempo。
+
+核心指标包括 HTTP 请求量和耗时、活跃用户、文章状态、数据库连接、缓存命中/未命中及 Webhook 投递结果。详细配置和排障见 [docs/observability.md](./docs/observability.md)。
+
+## 阶段性性能基线
+
+以下数据来自 2026-07-22 的本机 Docker/PostgreSQL 16 测试，只用于记录当前仓库状态，不代表其他硬件、网络或数据库后端。读取目标速率为 1,000 req/s，写入目标速率为 100 req/s。
+
+| 场景 | 成功率 | P50 | P95 | P99 |
+|---|---:|---:|---:|---:|
+| 文章列表（20 条） | 100% | 5.74 ms | 351.12 ms | 1.07 s |
+| 文章详情 | 100% | 2.66 ms | 3.79 ms | 4.82 ms |
+| GraphQL 查询 | 100% | 3.13 ms | 4.30 ms | 5.22 ms |
+| 并发更新 | 100% | 9.04 ms | 12.04 ms | 17.57 ms |
+
+10,000 篇文章完整建立内存搜索索引后，应用容器观测为约 `145.4 MiB`；当前应用镜像约 `61.3 MiB`。因此旧文档中的“~30MB 内存”和“镜像 <30MB”已删除。SQLite/MySQL 对照、1,000/10,000 篇可比内存采样和正式报告仍在进行，见 [PROGRESS.md](./PROGRESS.md)。
+
+原始 Vegeta JSON 位于 `reports/benchmarks/raw/postgres/`，复现脚本位于 `scripts/benchmark/`。
+
+## 验证与开发命令
+
+```bash
+# 后端
+go test ./...
+go vet ./...
+go build ./cmd/server
+
+# 前端
+cd web
+npm ci
+npm run type-check
+npm run test -- --run
+npm run build
+```
+
+Windows 上若 Go 不在 `PATH`，可直接使用本机安装位置，例如：
+
+```powershell
+& 'D:\tool\Go\bin\go.exe' test ./...
+```
+
+## 项目结构
+
+```text
+cmd/server/             应用入口与 HTTP 服务
+internal/handlers/      路由、HTTP handler 和 DTO
+internal/services/      业务逻辑、工作流、搜索和调度器
+internal/repository/    数据访问接口与 GORM 实现
+internal/models/        数据模型
+internal/cache/         内存/Redis 缓存和分布式锁
+internal/storage/       本地/S3 兼容存储
+internal/observability/ 指标与链路追踪
+internal/graphql/       GraphQL schema 与 resolver
+web/                    Vue 3 管理后台
+sdk/typescript/         TypeScript SDK
+deploy/                 Nginx、Prometheus、Grafana、Tempo 配置
+docs/                   OpenAPI、运行文档和截图
+scripts/benchmark/      可复现压测脚本与数据集
+reports/benchmarks/     压测原始结果与后续报告
+```
+
+## 当前边界
+
+- GraphQL 当前只读，写操作走 REST。
+- 内置搜索索引不跨实例共享，外部 MeiliSearch 驱动尚未完成。
+- CI 中前端类型检查目前允许失败，仍属于 P3-A 待清理项。
+- 备份与恢复尚未完成端到端演练。
+- README 中的性能数字是阶段性本机结果，不是 SLA。
+
+## 许可证
+
+[MIT](./LICENSE)

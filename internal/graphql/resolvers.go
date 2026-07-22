@@ -13,6 +13,7 @@ package graphql
 import (
 	"errors"
 	"strconv"
+	"time"
 
 	"github.com/graphql-go/graphql"
 	"github.com/yamovo/contentx/internal/models"
@@ -147,6 +148,61 @@ func (r *Resolver) user(p graphql.ResolveParams) (interface{}, error) {
 // feed returns the site RSS feed as a raw XML string.
 func (r *Resolver) feed(_ graphql.ResolveParams) (interface{}, error) {
 	return r.Article.GenerateFeed()
+}
+
+// search runs a full-text query against the configured SearchIndexer. The
+// public GraphQL surface forces status=published so only published content is
+// exposed, mirroring the REST /api/v1/search endpoint.
+func (r *Resolver) search(p graphql.ResolveParams) (interface{}, error) {
+	q := services.SearchQuery{
+		Query:    strArg(p, "q"),
+		Type:     strArg(p, "type"),
+		Status:   "published", // public surface: only published content
+		Locale:   strArg(p, "locale"),
+		Page:     intArg(p, "page"),
+		PageSize: intArg(p, "pageSize"),
+	}
+	if q.Query == "" {
+		return nil, errors.New("argument 'q' is required")
+	}
+	result, err := r.Article.Search(p.Context, q)
+	if err != nil {
+		return nil, err
+	}
+	// Convert []SearchHit to []map[string]interface{} for graphql-go.
+	hits := make([]map[string]interface{}, 0, len(result.Hits))
+	for _, h := range result.Hits {
+		hits = append(hits, map[string]interface{}{
+			"id":          strconv.FormatUint(uint64(h.ID), 10),
+			"type":        h.Type,
+			"title":       h.Title,
+			"excerpt":     h.Excerpt,
+			"slug":        h.Slug,
+			"score":       h.Score,
+			"highlight":   h.Highlight,
+			"locale":      h.Locale,
+			"authorId":    strconv.FormatUint(uint64(h.AuthorID), 10),
+			"authorName":  h.AuthorName,
+			"publishedAt": formatTime(h.PublishedAt),
+		})
+	}
+	return map[string]interface{}{
+		"hits":       hits,
+		"total":      result.Total,
+		"page":       result.Page,
+		"pageSize":   result.PageSize,
+		"totalPages": result.TotalPages,
+		"took":       result.Took,
+	}, nil
+}
+
+// formatTime renders a *time.Time as RFC3339 or empty string when nil. Used
+// by the search resolver to serialize PublishedAt.
+func formatTime(t *time.Time) string {
+	if t == nil {
+		return ""
+	}
+	return t.Format(time.RFC3339)
 }
 
 // ---------- Field resolvers for nested relations ----------

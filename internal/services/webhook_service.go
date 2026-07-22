@@ -2,6 +2,7 @@ package services
 
 import (
 	"bytes"
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
@@ -12,7 +13,9 @@ import (
 	"time"
 
 	"github.com/yamovo/contentx/internal/models"
+	"github.com/yamovo/contentx/internal/observability"
 	"github.com/yamovo/contentx/internal/repository"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"gorm.io/gorm"
 )
 
@@ -33,7 +36,7 @@ type WebhookService struct {
 func NewWebhookService(db *gorm.DB) *WebhookService {
 	return &WebhookService{
 		repo:   repository.NewWebhookRepository(db),
-		client: &http.Client{Timeout: 10 * time.Second},
+		client: &http.Client{Timeout: 10 * time.Second, Transport: otelhttp.NewTransport(http.DefaultTransport)},
 	}
 }
 
@@ -42,7 +45,7 @@ func NewWebhookService(db *gorm.DB) *WebhookService {
 func NewWebhookServiceWithRepo(repo repository.WebhookRepository) *WebhookService {
 	return &WebhookService{
 		repo:   repo,
-		client: &http.Client{Timeout: 10 * time.Second},
+		client: &http.Client{Timeout: 10 * time.Second, Transport: otelhttp.NewTransport(http.DefaultTransport)},
 	}
 }
 
@@ -142,7 +145,7 @@ func (s *WebhookService) deliver(wh models.Webhook, payload WebhookPayload) {
 		return
 	}
 
-	req, err := http.NewRequest("POST", wh.URL, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(context.Background(), "POST", wh.URL, bytes.NewReader(body))
 	if err != nil {
 		slog.Error("webhook request failed", "webhook_id", wh.ID, "error", err)
 		return
@@ -180,6 +183,15 @@ func (s *WebhookService) deliver(wh models.Webhook, payload WebhookPayload) {
 			slog.Warn("webhook returned non-2xx", "webhook_id", wh.ID, "status", resp.StatusCode)
 		}
 	}
+	status := "success"
+	if !log.Success {
+		status = "failure"
+	}
+	observability.IncCounterWithLabels(
+		"webhook_dispatch_total",
+		"Total webhook delivery attempts",
+		map[string]string{"event": payload.Event, "status": status},
+	)
 
 	_ = s.repo.CreateLog(&log)
 }

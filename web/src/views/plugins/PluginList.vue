@@ -21,9 +21,9 @@
 </template>
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import { pluginApi } from '@/api'
+import { pluginApi, type Plugin } from '@/api'
 import { ElMessage } from 'element-plus'
-const plugins = ref<any[]>([])
+const plugins = ref<Plugin[]>([])
 async function fetchPlugins() {
   try { plugins.value = (await pluginApi.list()).data } catch {}
 }

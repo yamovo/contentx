@@ -1,9 +1,9 @@
 package config
 
 import (
-	"fmt"
 	"crypto/rand"
 	"encoding/base64"
+	"fmt"
 	"log/slog"
 	"os"
 	"strconv"
@@ -13,29 +13,46 @@ import (
 
 // Config holds all application configuration.
 type Config struct {
-	Server   ServerConfig
-	Database DatabaseConfig
-	Redis    RedisConfig
-	JWT      JWTConfig
-	Upload   UploadConfig
-	Mail     MailConfig
-	Search   SearchConfig
-	Cache    CacheConfig
-	Queue    QueueConfig
-	Plugin   PluginConfig
-	Theme    ThemeConfig
-	Backup   BackupConfig
+	Server    ServerConfig
+	Database  DatabaseConfig
+	Redis     RedisConfig
+	JWT       JWTConfig
+	Upload    UploadConfig
+	Mail      MailConfig
+	Search    SearchConfig
+	Cache     CacheConfig
+	Queue     QueueConfig
+	Plugin    PluginConfig
+	Theme     ThemeConfig
+	Backup    BackupConfig
 	Analytics AnalyticsConfig
-	Limits   LimitsConfig
-	CORS     CORSConfig
-	Log      LogConfig
-	I18n     I18nConfig
+	Limits    LimitsConfig
+	CORS      CORSConfig
+	Log       LogConfig
+	I18n      I18nConfig
+	Metrics   MetricsConfig
+	Tracing   TracingConfig
 }
 
 // I18nConfig holds internationalization settings.
 type I18nConfig struct {
 	DefaultLocale string   // e.g. "en"
 	Locales       []string // supported locales, e.g. ["en", "zh", "ja"]
+}
+
+// MetricsConfig holds Prometheus metrics endpoint settings.
+type MetricsConfig struct {
+	Enabled bool   // 是否启用 /metrics 端点
+	Path    string // 端点路径，默认 /metrics
+}
+
+// TracingConfig holds OpenTelemetry OTLP export settings.
+type TracingConfig struct {
+	Enabled     bool
+	Endpoint    string
+	Insecure    bool
+	SampleRatio float64
+	ServiceName string
 }
 
 // ServerConfig holds HTTP server settings.
@@ -76,10 +93,10 @@ type RedisConfig struct {
 
 // JWTConfig holds JWT authentication settings.
 type JWTConfig struct {
-	Secret           string
+	Secret          string
 	AccessTokenTTL  time.Duration
 	RefreshTokenTTL time.Duration
-	Issuer           string
+	Issuer          string
 }
 
 // UploadConfig holds file upload settings.
@@ -128,9 +145,9 @@ type SearchConfig struct {
 
 // CacheConfig holds cache settings.
 type CacheConfig struct {
-	Driver      string // memory, redis
-	DefaultTTL  time.Duration
-	MaxEntries  int
+	Driver     string // memory, redis
+	DefaultTTL time.Duration
+	MaxEntries int
 }
 
 // QueueConfig holds job queue settings.
@@ -170,9 +187,9 @@ type AnalyticsConfig struct {
 
 // LimitsConfig holds rate limiting and resource limits.
 type LimitsConfig struct {
-	APIRateLimit   int // requests per minute
+	APIRateLimit    int // requests per minute
 	UploadRateLimit int
-	MaxPageSize    int
+	MaxPageSize     int
 	DefaultPageSize int
 	MaxCommentDepth int
 	MaxMenuDepth    int
@@ -180,11 +197,11 @@ type LimitsConfig struct {
 
 // CORSConfig holds CORS settings.
 type CORSConfig struct {
-	AllowedOrigins []string
-	AllowedMethods []string
-	AllowedHeaders []string
+	AllowedOrigins   []string
+	AllowedMethods   []string
+	AllowedHeaders   []string
 	AllowCredentials bool
-	MaxAge         int
+	MaxAge           int
 }
 
 // LogConfig holds logging settings.
@@ -232,13 +249,13 @@ func Load() *Config {
 			Prefix:   envStr("REDIS_PREFIX", "contentx:"),
 		},
 		JWT: JWTConfig{
-			Secret:           loadJWTSecret(),
+			Secret:          loadJWTSecret(),
 			AccessTokenTTL:  envDuration("JWT_ACCESS_TTL", 15*time.Minute),
 			RefreshTokenTTL: envDuration("JWT_REFRESH_TTL", 7*24*time.Hour),
-			Issuer:           envStr("JWT_ISSUER", "contentx"),
+			Issuer:          envStr("JWT_ISSUER", "contentx"),
 		},
 		Upload: UploadConfig{
-			Driver:       envStr("STORAGE_DRIVER", "local"), // local | s3
+			Driver:       envStr("STORAGE_DRIVER", "local"),        // local | s3
 			MaxSize:      int64(envInt("UPLOAD_MAX_SIZE", 20<<20)), // 20MB
 			AllowedTypes: envSlice("UPLOAD_ALLOWED_TYPES", []string{"image/jpeg", "image/png", "image/gif", "image/webp", "application/pdf", "video/mp4"}),
 			StoragePath:  envStr("UPLOAD_STORAGE_PATH", "./uploads"),
@@ -329,6 +346,17 @@ func Load() *Config {
 		I18n: I18nConfig{
 			DefaultLocale: envStr("I18N_DEFAULT_LOCALE", "en"),
 			Locales:       envSlice("I18N_LOCALES", []string{"en"}),
+		},
+		Metrics: MetricsConfig{
+			Enabled: envBool("METRICS_ENABLED", true),
+			Path:    envStr("METRICS_PATH", "/metrics"),
+		},
+		Tracing: TracingConfig{
+			Enabled:     envBool("OTEL_ENABLED", false),
+			Endpoint:    envStr("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4318"),
+			Insecure:    envBool("OTEL_EXPORTER_OTLP_INSECURE", true),
+			SampleRatio: envFloat("OTEL_TRACE_SAMPLE_RATIO", 1.0),
+			ServiceName: envStr("OTEL_SERVICE_NAME", "contentx"),
 		},
 	}
 }

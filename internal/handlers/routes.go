@@ -1,10 +1,12 @@
 package handlers
 
 import (
+	"context"
 	"log/slog"
 
 	"github.com/gin-gonic/gin"
 	"github.com/yamovo/contentx/internal/auth"
+	"github.com/yamovo/contentx/internal/backup"
 	"github.com/yamovo/contentx/internal/cache"
 	"github.com/yamovo/contentx/internal/config"
 	"github.com/yamovo/contentx/internal/graphql"
@@ -58,6 +60,25 @@ func RegisterRoutes(
 	articleSvc.SetPluginManager(pluginMgr)
 	pluginSvc.SetPluginManager(pluginMgr)
 
+	// ─── Search Indexer: builtin in-memory by default; MeiliSearch when
+	// configured. The indexer is injected into ArticleService so every
+	// create/update/delete/status-transition keeps the index in sync.
+	searchIdx := buildSearchIndexer(cfg)
+	articleSvc.SetSearchIndexer(searchIdx)
+	if searchIdx.Name() != "noop" {
+		// Warm up the index from the database on startup (best-effort;
+		// failures are logged but non-fatal). Runs in a goroutine so it
+		// never blocks the server from accepting traffic.
+		go func() {
+			n, err := articleSvc.ReindexAll(context.Background())
+			if err != nil {
+				slog.Warn("search index warmup failed", "error", err)
+				return
+			}
+			slog.Info("search index warmed up", "indexed", n, "engine", searchIdx.Name())
+		}()
+	}
+
 	// Build and inject the storage driver based on configuration. When the
 	// driver is "local" (or unset) we keep the legacy inline disk logic in
 	// MediaService (store == nil). When it is "s3" we construct an S3Driver
@@ -85,6 +106,9 @@ func RegisterRoutes(
 	tokenH := NewTokenHandler(tokenSvc)
 	contentTypeH := NewContentTypeHandler(contentTypeSvc)
 	webhookH := NewWebhookHandler(webhookSvc)
+	searchH := NewSearchHandler(articleSvc)
+	backupMgr := backup.NewManager(cfg.Backup, cfg.Database, cfg.Upload.StoragePath, db)
+	backupH := NewBackupHandler(backupMgr)
 
 	// Rate limiter for specific groups.
 	rl := middleware.NewIPRateLimit()
@@ -112,6 +136,9 @@ func RegisterRoutes(
 		api.GET("/seo/robots.txt", seoH.RobotsTxt)
 		api.GET("/settings/public", settingsH.PublicSettings)
 		api.POST("/analytics/record", analyticsH.RecordView)
+
+		// Public full-text search (forces status=published).
+		api.GET("/search", searchH.Search)
 
 		// GraphQL (read-only public endpoint). Reuses the same service
 		// instances as the REST handlers; the schema exposes published
@@ -349,6 +376,22 @@ func RegisterRoutes(
 			webhooks.DELETE("/:id", middleware.RequireAdmin(), webhookH.Delete)
 			webhooks.GET("/:id/logs", middleware.RequireAdmin(), webhookH.Logs)
 		}
+
+		// Search (admin: cross-status search + manual reindex).
+		searchAdmin := protected.Group("/search")
+		{
+			searchAdmin.GET("/admin", searchH.AdminSearch)
+			searchAdmin.POST("/reindex", middleware.RequireAdmin(), searchH.Reindex)
+		}
+
+		// Backup & restore (admin only).
+		backupGroup := protected.Group("/admin/backup")
+		{
+			backupGroup.GET("", middleware.RequireAdmin(), backupH.List)
+			backupGroup.POST("", middleware.RequireAdmin(), backupH.Create)
+			backupGroup.POST("/:file/restore", middleware.RequireAdmin(), backupH.Restore)
+			backupGroup.DELETE("/:file", middleware.RequireAdmin(), backupH.Delete)
+		}
 	}
 
 	// System health (unauthenticated).
@@ -389,5 +432,31 @@ func buildStorageDriver(cfg *config.Config) storage.Driver {
 	default:
 		slog.Warn("unknown storage driver; falling back to local disk", "driver", cfg.Upload.Driver)
 		return nil
+	}
+}
+
+// buildSearchIndexer constructs a SearchIndexer from the application config.
+//   - "builtin" (default): in-memory inverted index with BM25 + CJK bigram
+//     tokenization. Zero external dependencies; rebuilt on startup.
+//   - "meilisearch": external MeiliSearch server. When the SDK or server is
+//     unreachable, falls back to builtin with a warning so the app still runs.
+//   - "noop"/"off"/"disabled": search disabled entirely (NoopIndexer).
+func buildSearchIndexer(cfg *config.Config) services.SearchIndexer {
+	switch cfg.Search.Engine {
+	case "", "builtin", "memory":
+		return services.NewBuiltinIndexer()
+	case "noop", "off", "disabled":
+		return services.NoopIndexer()
+	case "meilisearch", "meili":
+		// MeiliSearch SDK is not bundled to avoid pulling a network
+		// dependency at build time. When the operator configures
+		// SEARCH_ENGINE=meilisearch we log a notice and fall back to the
+		// builtin indexer; a future task can wire the real client.
+		slog.Warn("meilisearch engine requested but SDK not bundled; falling back to builtin indexer",
+			"engine", cfg.Search.Engine, "meili_url", cfg.Search.MeiliURL)
+		return services.NewBuiltinIndexer()
+	default:
+		slog.Warn("unknown search engine; falling back to builtin", "engine", cfg.Search.Engine)
+		return services.NewBuiltinIndexer()
 	}
 }

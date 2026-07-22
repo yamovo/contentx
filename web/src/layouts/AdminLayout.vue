@@ -199,8 +199,9 @@ function handleCommand(cmd: string) {
 
 
 function onBeforeEnter(el: Element) {
-  (el as HTMLElement).style.opacity = '0'
-  (el as HTMLElement).style.transform = 'translateX(12px)'
+  const s = (el as HTMLElement).style
+  s.opacity = '0'
+  s.transform = 'translateX(12px)'
 }
 
 function onEnter(el: Element, done: () => void) {

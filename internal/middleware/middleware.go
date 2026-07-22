@@ -73,6 +73,9 @@ func LoggerMiddleware() gin.HandlerFunc {
 		if requestID, exists := c.Get("request_id"); exists {
 			attrs = append(attrs, slog.String("request_id", requestID.(string)))
 		}
+		if traceID, exists := c.Get("trace_id"); exists {
+			attrs = append(attrs, slog.String("trace_id", traceID.(string)))
+		}
 
 		level := slog.LevelInfo
 		if status >= 500 {

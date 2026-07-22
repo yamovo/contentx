@@ -1,0 +1,21 @@
+# ContentX Prometheus 配置
+# 抓取间隔 15 秒，抓取 app 容器的 /metrics 端点
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  # ContentX 应用指标
+  - job_name: 'contentx'
+    static_configs:
+      - targets: ['app:8080']
+        labels:
+          service: 'contentx'
+    metrics_path: /metrics
+    scrape_interval: 10s
+
+  # Prometheus 自身指标
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']

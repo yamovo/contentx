@@ -21,7 +21,7 @@
         <el-table-column label="排序" prop="sort_order" width="80" align="center" />
         <el-table-column label="操作" width="200">
           <template #default="{ row }">
-            <el-button text size="small" @click="openDialog(row)">编辑</el-button>
+            <el-button text size="small" @click="openDialog(row as Category)">编辑</el-button>
             <el-popconfirm title="确认删除？文章将移至未分类" @confirm="deleteCategory(row.id)">
               <template #reference>
                 <el-button text size="small" type="danger">删除</el-button>
@@ -48,7 +48,7 @@
           <el-tree-select
             v-model="form.parent_id"
             :data="categoryTree"
-            :props="{ label: 'name', value: 'id', children: 'children' }"
+            :props="treeSelectProps"
             placeholder="顶级分类"
             check-strictly
             clearable
@@ -82,6 +82,8 @@ const loading = ref(false)
 const dialogVisible = ref(false)
 const saving = ref(false)
 const editingId = ref<number | null>(null)
+
+const treeSelectProps = { label: 'name', value: 'id', children: 'children' } as any
 
 const form = reactive({
   name: '', slug: '', description: '', parent_id: null as number | null,
