@@ -136,7 +136,12 @@ func RequireRole(roleSlugs ...string) gin.HandlerFunc {
 			return
 		}
 
-		u := user.(*models.User)
+		u, ok := user.(*models.User)
+		if !ok {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid user context"})
+			c.Abort()
+			return
+		}
 		for _, slug := range roleSlugs {
 			if u.Role.Slug == slug {
 				c.Next()
@@ -189,7 +194,11 @@ func GetCurrentUser(c *gin.Context) *models.User {
 	if !exists {
 		return nil
 	}
-	return user.(*models.User)
+	u, ok := user.(*models.User)
+	if !ok {
+		return nil
+	}
+	return u
 }
 
 // GetClaims retrieves the JWT claims from context.
@@ -198,5 +207,9 @@ func GetClaims(c *gin.Context) *auth.Claims {
 	if !exists {
 		return nil
 	}
-	return claims.(*auth.Claims)
+	cl, ok := claims.(*auth.Claims)
+	if !ok {
+		return nil
+	}
+	return cl
 }

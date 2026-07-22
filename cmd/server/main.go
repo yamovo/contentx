@@ -156,7 +156,7 @@ func main() {
 	}
 
 	// Create upload directory.
-	os.MkdirAll(cfg.Upload.StoragePath, 0755)
+	_ = os.MkdirAll(cfg.Upload.StoragePath, 0755)
 
 	// Initialize cache (memory or redis based on config). Fall back to the
 	// in-memory cache if the configured backend cannot be reached at startup.

@@ -16,10 +16,12 @@ type WordCountPlugin struct {
 // NewWordCountPlugin creates the built-in word-count plugin.
 func NewWordCountPlugin() *WordCountPlugin { return &WordCountPlugin{} }
 
-func (p *WordCountPlugin) Name() string        { return "word-count" }
-func (p *WordCountPlugin) Version() string     { return "1.0.0" }
-func (p *WordCountPlugin) Description() string { return "Logs article word counts and normalizes content whitespace" }
-func (p *WordCountPlugin) Author() string      { return "ContentX" }
+func (p *WordCountPlugin) Name() string    { return "word-count" }
+func (p *WordCountPlugin) Version() string { return "1.0.0" }
+func (p *WordCountPlugin) Description() string {
+	return "Logs article word counts and normalizes content whitespace"
+}
+func (p *WordCountPlugin) Author() string { return "ContentX" }
 
 func (p *WordCountPlugin) Init(config map[string]interface{}) error {
 	p.config = config

@@ -57,9 +57,9 @@ func TestPasswordStrengthScore(t *testing.T) {
 		minScore int
 	}{
 		{"abc", 0},
-	 {"Abcdef1", 2},
-	 {"Abcdef1!", 4},
-	 {"MyStr0ng!Pass123", 5},
+		{"Abcdef1", 2},
+		{"Abcdef1!", 4},
+		{"MyStr0ng!Pass123", 5},
 	}
 
 	for _, tt := range tests {

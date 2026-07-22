@@ -31,12 +31,12 @@ func setupTestDB(t *testing.T) *gorm.DB {
 
 // fakePlugin is a configurable test plugin for verifying hook dispatch.
 type fakePlugin struct {
-	name     string
-	version  string
-	desc     string
-	author   string
-	initErr  error
-	hooks    []HookRegistration
+	name      string
+	version   string
+	desc      string
+	author    string
+	initErr   error
+	hooks     []HookRegistration
 	initCalls int
 	mu        sync.Mutex
 }

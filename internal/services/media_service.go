@@ -315,10 +315,10 @@ func (s *MediaService) removeStoredFile(filePath, thumbnailURL string) {
 		return
 	}
 	// Legacy local-disk path.
-	os.Remove(filePath)
+	_ = os.Remove(filePath)
 	if thumbnailURL != "" {
 		thumbPath := strings.Replace(thumbnailURL, s.cfg.URLPrefix, s.cfg.StoragePath, 1)
-		os.Remove(thumbPath)
+		_ = os.Remove(thumbPath)
 	}
 }
 
