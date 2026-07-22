@@ -71,10 +71,14 @@ func LoggerMiddleware() gin.HandlerFunc {
 		}
 
 		if requestID, exists := c.Get("request_id"); exists {
-			attrs = append(attrs, slog.String("request_id", requestID.(string)))
+			if rid, ok := requestID.(string); ok {
+				attrs = append(attrs, slog.String("request_id", rid))
+			}
 		}
 		if traceID, exists := c.Get("trace_id"); exists {
-			attrs = append(attrs, slog.String("trace_id", traceID.(string)))
+			if tid, ok := traceID.(string); ok {
+				attrs = append(attrs, slog.String("trace_id", tid))
+			}
 		}
 
 		level := slog.LevelInfo
@@ -190,7 +194,10 @@ func ActivityLogger(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 
-		u := user.(*models.User)
+		u, ok := user.(*models.User)
+		if !ok {
+			return
+		}
 		log := models.ActivityLog{
 			UserID:    &u.ID,
 			Action:    method,

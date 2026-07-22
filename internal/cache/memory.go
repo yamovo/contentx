@@ -16,9 +16,9 @@ type cacheEntry struct {
 
 // MemoryDriver is a simple in-memory cache with LRU-like eviction.
 type MemoryDriver struct {
-	mu       sync.RWMutex
-	entries  map[string]*cacheEntry
-	maxSize  int
+	mu      sync.RWMutex
+	entries map[string]*cacheEntry
+	maxSize int
 }
 
 // NewMemoryDriver creates a new in-memory cache.
