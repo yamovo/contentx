@@ -17,7 +17,7 @@ type LocalDriver struct {
 
 // NewLocalDriver creates a new local storage driver.
 func NewLocalDriver(basePath, urlPrefix string) *LocalDriver {
-	os.MkdirAll(basePath, 0755)
+	_ = os.MkdirAll(basePath, 0755)
 	return &LocalDriver{basePath: basePath, urlPrefix: urlPrefix}
 }
 

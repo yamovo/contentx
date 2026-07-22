@@ -17,8 +17,8 @@ type UserListFilter struct {
 // UserRepository defines data-access operations for users.
 type UserRepository interface {
 	List(filter UserListFilter) ([]models.User, int64, error)
-	GetByID(id uint) (*models.User, error)         // preloads Role
-	FindByID(id uint) (*models.User, error)        // no preload; returns gorm.ErrRecordNotFound if missing
+	GetByID(id uint) (*models.User, error)  // preloads Role
+	FindByID(id uint) (*models.User, error) // no preload; returns gorm.ErrRecordNotFound if missing
 	Create(user *models.User) error
 	UpdateFields(id uint, updates map[string]interface{}) error
 	UpdatePassword(id uint, hashedPassword string) error
@@ -101,9 +101,9 @@ func (r *gormUserRepository) SoftDelete(user *models.User) error {
 
 // RoleRepository defines data-access operations for roles and permissions.
 type RoleRepository interface {
-	List() ([]models.Role, error)                       // preloads Permissions, ordered by id ASC
-	GetByID(id uint) (*models.Role, error)              // preloads Permissions
-	FindByID(id uint) (*models.Role, error)             // no preload; returns gorm.ErrRecordNotFound if missing
+	List() ([]models.Role, error)           // preloads Permissions, ordered by id ASC
+	GetByID(id uint) (*models.Role, error)  // preloads Permissions
+	FindByID(id uint) (*models.Role, error) // no preload; returns gorm.ErrRecordNotFound if missing
 	Create(role *models.Role) error
 	UpdateField(id uint, field string, value interface{}) error
 	ReplacePermissions(roleID uint, perms []models.Permission) error

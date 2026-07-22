@@ -54,7 +54,7 @@ func main() {
 	flag.Parse()
 
 	// Load .env file (ignore error if not found).
-	godotenv.Load()
+	_ = godotenv.Load()
 
 	// Load configuration.
 	cfg := config.Load()

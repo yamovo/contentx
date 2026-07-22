@@ -67,7 +67,9 @@ func TestAPIKey_HasScope(t *testing.T) {
 }
 
 func TestHashAPIKey_Deterministic(t *testing.T) {
-	if HashAPIKey("vx_abc") != HashAPIKey("vx_abc") {
+	h1 := HashAPIKey("vx_abc")
+	h2 := HashAPIKey("vx_abc")
+	if h1 != h2 {
 		t.Fatal("hash must be deterministic")
 	}
 	if HashAPIKey("a") == HashAPIKey("b") {

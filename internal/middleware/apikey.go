@@ -67,7 +67,12 @@ func RequireScope(scope string) gin.HandlerFunc {
 			return
 		}
 
-		apiKey := apiKeyValue.(*auth.APIKey)
+		apiKey, ok := apiKeyValue.(*auth.APIKey)
+		if !ok {
+			c.JSON(http.StatusForbidden, gin.H{"error": "Invalid API key type"})
+			c.Abort()
+			return
+		}
 		if !apiKey.HasScope(scope) {
 			c.JSON(http.StatusForbidden, gin.H{
 				"error":          "Insufficient API key scope",

@@ -269,7 +269,7 @@ func (p *PrometheusCollector) MetricsHandler() http.HandlerFunc {
 		sb.WriteString("# TYPE process_uptime_seconds gauge\n")
 		fmt.Fprintf(&sb, "process_uptime_seconds %d\n", int64(time.Since(p.startTime).Seconds()))
 
-		w.Write([]byte(sb.String()))
+		_, _ = w.Write([]byte(sb.String()))
 	}
 }
 

@@ -149,8 +149,8 @@ func (m *Manager) Restore(path string) error {
 		if err != nil {
 			return err
 		}
-		defer f.Close()
-		cmd := exec.Command("mysql",
+		defer func() { _ = f.Close() }()
+	cmd := exec.Command("mysql",
 			"-h", m.dbCfg.Host,
 			"-P", strconv.Itoa(m.dbCfg.Port),
 			"-u", m.dbCfg.User,
@@ -314,7 +314,7 @@ func (m *Manager) cleanup(prefix string) {
 	sort.Slice(files, func(i, j int) bool { return files[i].Name() < files[j].Name() })
 	for _, f := range files[:len(files)-m.cfg.MaxBackups] {
 		path := filepath.Join(m.cfg.Dir, f.Name())
-		os.Remove(path)
+		_ = os.Remove(path)
 		slog.Info("removed old backup", "path", path)
 	}
 }
@@ -353,12 +353,12 @@ func copyFile(src, dst string) error {
 	if err != nil {
 		return err
 	}
-	defer in.Close()
+	defer func() { _ = in.Close() }()
 	out, err := os.Create(dst)
 	if err != nil {
 		return err
 	}
-	defer out.Close()
+	defer func() { _ = out.Close() }()
 	_, err = io.Copy(out, in)
 	return err
 }
@@ -369,11 +369,11 @@ func tarGz(srcDir, destPath string) error {
 	if err != nil {
 		return err
 	}
-	defer out.Close()
+	defer func() { _ = out.Close() }()
 	gz := gzip.NewWriter(out)
-	defer gz.Close()
+	defer func() { _ = gz.Close() }()
 	tw := tar.NewWriter(gz)
-	defer tw.Close()
+	defer func() { _ = tw.Close() }()
 
 	return filepath.Walk(srcDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
@@ -399,7 +399,7 @@ func tarGz(srcDir, destPath string) error {
 		if err != nil {
 			return err
 		}
-		defer f.Close()
+		defer func() { _ = f.Close() }()
 		_, err = io.Copy(tw, f)
 		return err
 	})
@@ -411,12 +411,12 @@ func untarGz(srcPath, dstDir string) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	gz, err := gzip.NewReader(f)
 	if err != nil {
 		return err
 	}
-	defer gz.Close()
+	defer func() { _ = gz.Close() }()
 	tr := tar.NewReader(gz)
 	for {
 		hdr, err := tr.Next()
@@ -437,18 +437,18 @@ func untarGz(srcPath, dstDir string) error {
 		}
 		switch hdr.Typeflag {
 		case tar.TypeDir:
-			os.MkdirAll(dst, 0755)
+			_ = os.MkdirAll(dst, 0755)
 		case tar.TypeReg:
-			os.MkdirAll(filepath.Dir(dst), 0755)
+			_ = os.MkdirAll(filepath.Dir(dst), 0755)
 			out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, os.FileMode(hdr.Mode))
 			if err != nil {
 				return err
 			}
 			if _, err := io.Copy(out, tr); err != nil {
-				out.Close()
+				_ = out.Close()
 				return err
 			}
-			out.Close()
+			_ = out.Close()
 		}
 	}
 	return nil

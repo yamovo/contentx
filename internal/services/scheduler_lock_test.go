@@ -14,7 +14,6 @@ import (
 // fakePublisher 记录 PublishDueScheduled 调用次数。
 type fakePublisher struct {
 	calls atomic.Int64
-	mu    sync.Mutex
 	delay time.Duration
 }
 
@@ -53,7 +52,7 @@ func TestPublishScheduler_NoLock_SingleInstance(t *testing.T) {
 // TestPublishScheduler_WithLock_PreventsConcurrentExecution 验证分布式锁阻止并发执行。
 func TestPublishScheduler_WithLock_PreventsConcurrentExecution(t *testing.T) {
 	pub := &fakePublisher{delay: 100 * time.Millisecond} // 每次 sweep 耗时 100ms
-	lock := cache.NewMemoryLock()                         // 进程内锁模拟分布式锁
+	lock := cache.NewMemoryLock()                        // 进程内锁模拟分布式锁
 
 	s := NewPublishScheduler(pub, 50*time.Millisecond, slog.Default())
 	s.SetDistributedLock(lock)

@@ -178,7 +178,7 @@ func (s *WebhookService) deliver(wh models.Webhook, payload WebhookPayload) {
 	} else {
 		log.Response = resp.StatusCode
 		log.Success = resp.StatusCode >= 200 && resp.StatusCode < 300
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		if !log.Success {
 			slog.Warn("webhook returned non-2xx", "webhook_id", wh.ID, "status", resp.StatusCode)
 		}

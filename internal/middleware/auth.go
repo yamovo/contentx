@@ -108,7 +108,12 @@ func RequirePermission(permissionSlug string) gin.HandlerFunc {
 			return
 		}
 
-		u := user.(*models.User)
+		u, ok := user.(*models.User)
+		if !ok {
+			c.JSON(http.StatusForbidden, gin.H{"error": "Invalid user type"})
+			c.Abort()
+			return
+		}
 		if !hasPermission(u, permissionSlug) {
 			c.JSON(http.StatusForbidden, gin.H{
 				"error":      "Insufficient permissions",

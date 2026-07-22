@@ -442,10 +442,6 @@ func nonNullBoolField() *graphql.Field {
 	return &graphql.Field{Type: graphql.NewNonNull(graphql.Boolean)}
 }
 
-func listNonNullField(t graphql.Type) *graphql.Field {
-	return &graphql.Field{Type: graphql.NewList(graphql.NewNonNull(t))}
-}
-
 func nonNullIDArg() *graphql.ArgumentConfig {
 	return &graphql.ArgumentConfig{Type: graphql.NewNonNull(graphql.ID)}
 }

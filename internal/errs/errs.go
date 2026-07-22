@@ -39,11 +39,11 @@
 //	  - SERVICE_UNAVAILABLE 服务不可用
 //
 // 业务自定义错误码（通过 errs.New 创建）：
-//	  - CREATE_TYPE_FAILED       创建内容类型失败
-//	  - CREATE_ENTRY_FAILED      创建内容条目失败
-//	  - UPDATE_ENTRY_FAILED      更新内容条目失败
-//	  - PUBLISH_ENTRY_FAILED     发布内容条目失败
-//	  - UNPUBLISH_ENTRY_FAILED   取消发布内容条目失败
+//   - CREATE_TYPE_FAILED       创建内容类型失败
+//   - CREATE_ENTRY_FAILED      创建内容条目失败
+//   - UPDATE_ENTRY_FAILED      更新内容条目失败
+//   - PUBLISH_ENTRY_FAILED     发布内容条目失败
+//   - UNPUBLISH_ENTRY_FAILED   取消发布内容条目失败
 //
 // # 使用方式
 //

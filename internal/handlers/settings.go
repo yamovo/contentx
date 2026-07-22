@@ -570,7 +570,10 @@ func (h *MenuHandler) DeleteItem(c *gin.Context) {
 		return
 	}
 
-	h.svc.DeleteItem(uint(itemID))
+	if err := h.svc.DeleteItem(uint(itemID)); err != nil {
+		handleServiceError(c, err)
+		return
+	}
 	Success(c, gin.H{"message": "Menu item deleted"})
 }
 

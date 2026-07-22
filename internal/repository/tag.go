@@ -21,7 +21,7 @@ type TagRepository interface {
 	UpdateFields(id uint, updates map[string]interface{}) error
 	Delete(tag *models.Tag) error
 	ClearArticleAssociations(tagID uint) error
-	MergeTags(srcID, targetID uint) error           // re-points article_tags from src to target, then deletes src rows
+	MergeTags(srcID, targetID uint) error // re-points article_tags from src to target, then deletes src rows
 	CountArticleAssociations(tagID uint) (int64, error)
 	UpdateCount(tagID uint, count int64) error
 	DeleteByIDs(ids []uint) (rowsAffected int64, err error)

@@ -83,7 +83,7 @@ func (h *MediaHandler) Upload(c *gin.Context) {
 		BadRequest(c, "No file provided")
 		return
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	user := middleware.GetCurrentUser(c)
 	if user == nil {

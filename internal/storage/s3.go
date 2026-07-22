@@ -59,7 +59,7 @@ func (d *S3Driver) Upload(ctx context.Context, key string, reader io.Reader, con
 	if err != nil {
 		return "", fmt.Errorf("upload: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode >= 400 {
 		return "", fmt.Errorf("upload failed: status %d", resp.StatusCode)
@@ -82,7 +82,7 @@ func (d *S3Driver) Delete(ctx context.Context, key string) error {
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode >= 400 && resp.StatusCode != 404 {
 		return fmt.Errorf("delete failed: status %d", resp.StatusCode)

@@ -9,7 +9,7 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/propagation"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
-	"go.opentelemetry.io/otel/trace"
+	"go.opentelemetry.io/otel/trace/noop"
 )
 
 func TestTracingMiddleware_MapsRequestAndTraceIDs(t *testing.T) {
@@ -18,7 +18,7 @@ func TestTracingMiddleware_MapsRequestAndTraceIDs(t *testing.T) {
 	otel.SetTextMapPropagator(propagation.TraceContext{})
 	t.Cleanup(func() {
 		_ = provider.Shutdown(t.Context())
-		otel.SetTracerProvider(trace.NewNoopTracerProvider())
+		otel.SetTracerProvider(noop.NewTracerProvider())
 	})
 
 	gin.SetMode(gin.TestMode)

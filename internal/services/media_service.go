@@ -153,7 +153,7 @@ func (s *MediaService) Upload(file io.Reader, header *multipart.FileHeader, fold
 	// Generate unique filename.
 	ext := filepath.Ext(header.Filename)
 	hash := sha256.New()
-	fmt.Fprintf(hash, "%s-%d-%s", header.Filename, time.Now().UnixNano(), header.Filename)
+	_, _ = fmt.Fprintf(hash, "%s-%d-%s", header.Filename, time.Now().UnixNano(), header.Filename)
 	filename := fmt.Sprintf("%x%s", hash.Sum(nil), ext)
 
 	// Prepare the file content as a single reader. We've already consumed `buf[:n]`
@@ -207,11 +207,11 @@ func (s *MediaService) Upload(file io.Reader, header *multipart.FileHeader, fold
 			return nil, fmt.Errorf("failed to create file: %w", err)
 		}
 		if _, err := io.Copy(dst, fileContent); err != nil {
-			dst.Close()
-			os.Remove(filePath)
+			_ = dst.Close()
+			_ = os.Remove(filePath)
 			return nil, fmt.Errorf("failed to write file: %w", err)
 		}
-		dst.Close()
+		_ = dst.Close()
 		url = s.cfg.URLPrefix + "/" + folder + "/" + filename
 	}
 
@@ -234,9 +234,9 @@ func (s *MediaService) Upload(file io.Reader, header *multipart.FileHeader, fold
 	if err := s.repo.Create(&media); err != nil {
 		// Best-effort cleanup of the stored file.
 		if s.store != nil {
-			s.store.Delete(context.Background(), key)
+			_ = s.store.Delete(context.Background(), key)
 		} else {
-			os.Remove(filePath)
+			_ = os.Remove(filePath)
 		}
 		return nil, fmt.Errorf("failed to save media record: %w", err)
 	}

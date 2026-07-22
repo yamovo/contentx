@@ -130,7 +130,7 @@ func NewSystemRepository(db *gorm.DB) SystemRepository {
 }
 
 func (r *gormSystemRepository) DialectorName() string {
-	return r.db.Dialector.Name()
+	return r.db.Name()
 }
 
 func (r *gormSystemRepository) Ping() error {

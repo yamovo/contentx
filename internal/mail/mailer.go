@@ -63,7 +63,7 @@ func (m *Mailer) Send(msg *Message) error {
 
 	var sb strings.Builder
 	for k, v := range headers {
-		sb.WriteString(fmt.Sprintf("%s: %s\r\n", k, v))
+		fmt.Fprintf(&sb, "%s: %s\r\n", k, v)
 	}
 	sb.WriteString("\r\n")
 	sb.WriteString(msg.Body)
@@ -93,13 +93,13 @@ func (m *Mailer) sendTLS(addr string, auth smtp.Auth, from string, to []string, 
 	if err != nil {
 		return fmt.Errorf("TLS dial failed: %w", err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	client, err := smtp.NewClient(conn, host)
 	if err != nil {
 		return fmt.Errorf("SMTP client creation failed: %w", err)
 	}
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	if auth != nil {
 		if err := client.Auth(auth); err != nil {

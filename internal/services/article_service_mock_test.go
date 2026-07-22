@@ -2,6 +2,7 @@ package services
 
 import (
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -396,8 +397,8 @@ func TestMockArticle_GenerateFeed_WithData(t *testing.T) {
 	if contains(xml, "<Post>") {
 		t.Fatal("title with < > should be XML-escaped")
 	}
-	if contains(xml, "&lt;Post&gt;") {
-		// 正确转义
+	if !strings.Contains(xml, "&lt;Post&gt;") {
+		t.Fatal("title should be XML-escaped as &lt;Post&gt;")
 	}
 }
 

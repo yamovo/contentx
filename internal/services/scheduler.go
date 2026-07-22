@@ -124,7 +124,7 @@ func (s *PublishScheduler) Tick() (int, error) {
 		s.logger.Debug("publish scheduler skipped — lock held by another instance")
 		return 0, nil
 	}
-	defer release()
+	defer func() { _ = release() }()
 
 	return s.pub.PublishDueScheduled(time.Now())
 }
