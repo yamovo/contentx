@@ -116,8 +116,8 @@ func RequirePermission(permissionSlug string) gin.HandlerFunc {
 		}
 		if !hasPermission(u, permissionSlug) {
 			c.JSON(http.StatusForbidden, gin.H{
-				"error":      "Insufficient permissions",
-				"required":   permissionSlug,
+				"error":    "Insufficient permissions",
+				"required": permissionSlug,
 			})
 			c.Abort()
 			return

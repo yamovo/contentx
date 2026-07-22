@@ -11,12 +11,12 @@ import (
 // MetricsCollector collects HTTP request metrics in memory.
 // For production, use prometheus/client_golang.
 type MetricsCollector struct {
-	mu              sync.RWMutex
-	requestCounts   map[string]int64
-	latencySum      map[string]time.Duration
-	latencyCount    map[string]int64
-	statusCounts    map[string]int64
-	startTime       time.Time
+	mu            sync.RWMutex
+	requestCounts map[string]int64
+	latencySum    map[string]time.Duration
+	latencyCount  map[string]int64
+	statusCounts  map[string]int64
+	startTime     time.Time
 }
 
 // NewMetricsCollector creates a new metrics collector.
@@ -51,10 +51,10 @@ func MetricsMiddleware(collector *MetricsCollector) gin.HandlerFunc {
 
 // MetricsResponse is the metrics data structure.
 type MetricsResponse struct {
-	Uptime       string                     `json:"uptime"`
-	TotalRequests int64                     `json:"total_requests"`
-	Endpoints    []EndpointMetrics          `json:"endpoints"`
-	StatusCodes  map[string]int64           `json:"status_codes"`
+	Uptime        string            `json:"uptime"`
+	TotalRequests int64             `json:"total_requests"`
+	Endpoints     []EndpointMetrics `json:"endpoints"`
+	StatusCodes   map[string]int64  `json:"status_codes"`
 }
 
 // EndpointMetrics holds metrics for a single endpoint.

@@ -336,10 +336,10 @@ func (b *BuiltinIndexer) docsMatchingToken(token string) map[string]struct{} {
 // Title hits are boosted by a field weight of 3.
 func (b *BuiltinIndexer) bm25Locked(key string, queryTokens []string) float64 {
 	const (
-		k1       = 1.2
-		bParam   = 0.75 // BM25 length-normalization bias
-		titleW   = 3.0
-		bodyW    = 1.0
+		k1     = 1.2
+		bParam = 0.75 // BM25 length-normalization bias
+		titleW = 3.0
+		bodyW  = 1.0
 	)
 	N := len(b.docs)
 	if N == 0 {

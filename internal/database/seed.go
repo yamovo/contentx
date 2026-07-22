@@ -2,14 +2,14 @@ package database
 
 import (
 	"crypto/rand"
-	"fmt"
 	"encoding/hex"
+	"fmt"
 	"log/slog"
 	"os"
 
 	"github.com/yamovo/contentx/internal/auth"
-	"golang.org/x/crypto/bcrypt"
 	"github.com/yamovo/contentx/internal/models"
+	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 )
 

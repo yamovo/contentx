@@ -6,24 +6,24 @@ import (
 )
 
 const (
-	defaultMaxAttempts = 5
-	defaultLockDuration = 15 * time.Minute
+	defaultMaxAttempts    = 5
+	defaultLockDuration   = 15 * time.Minute
 	defaultWindowDuration = 15 * time.Minute
 )
 
 // LoginGuard tracks failed login attempts and locks accounts.
 // Safe for concurrent use.
 type LoginGuard struct {
-	mu          sync.RWMutex
-	attempts    map[string]*attemptRecord
-	maxAttempts int
-	lockDuration time.Duration
+	mu             sync.RWMutex
+	attempts       map[string]*attemptRecord
+	maxAttempts    int
+	lockDuration   time.Duration
 	windowDuration time.Duration
 }
 
 type attemptRecord struct {
-	count     int
-	lockedUntil time.Time
+	count        int
+	lockedUntil  time.Time
 	firstAttempt time.Time
 }
 

@@ -156,12 +156,13 @@ func (a *Article) Trash() {
 // status to target is allowed by the publication state machine.
 //
 // Allowed transitions:
-//   draft      → pending, published, scheduled, archived, trash
-//   pending    → draft, published, archived, trash
-//   published  → draft, archived, trash
-//   scheduled  → draft, published, archived, trash
-//   archived   → draft, trash
-//   trash      → draft, published (restore)
+//
+//	draft      → pending, published, scheduled, archived, trash
+//	pending    → draft, published, archived, trash
+//	published  → draft, archived, trash
+//	scheduled  → draft, published, archived, trash
+//	archived   → draft, trash
+//	trash      → draft, published (restore)
 func (a *Article) CanTransitionTo(target ArticleStatus) bool {
 	return AllowedTransition(a.Status, target)
 }
@@ -307,8 +308,8 @@ func (m *Media) Extension() string {
 
 // Paginate is a helper for pagination params.
 type Paginate struct {
-	Page     int `json:"page"`
-	PageSize int `json:"page_size"`
+	Page     int   `json:"page"`
+	PageSize int   `json:"page_size"`
 	Total    int64 `json:"total"`
 }
 

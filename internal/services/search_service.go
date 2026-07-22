@@ -41,17 +41,17 @@ type SearchQuery struct {
 
 // SearchHit is one result row.
 type SearchHit struct {
-	ID          uint      `json:"id"`
-	Type        string    `json:"type"`
-	Title       string    `json:"title"`
-	Excerpt     string    `json:"excerpt"`
-	Slug        string    `json:"slug"`
-	Score       float64   `json:"score"`
-	Highlight   string    `json:"highlight,omitempty"`
-	Locale      string    `json:"locale,omitempty"`
-	AuthorID    uint      `json:"author_id,omitempty"`
-	AuthorName  string    `json:"author_name,omitempty"`
-	CategoryID  *uint     `json:"category_id,omitempty"`
+	ID          uint       `json:"id"`
+	Type        string     `json:"type"`
+	Title       string     `json:"title"`
+	Excerpt     string     `json:"excerpt"`
+	Slug        string     `json:"slug"`
+	Score       float64    `json:"score"`
+	Highlight   string     `json:"highlight,omitempty"`
+	Locale      string     `json:"locale,omitempty"`
+	AuthorID    uint       `json:"author_id,omitempty"`
+	AuthorName  string     `json:"author_name,omitempty"`
+	CategoryID  *uint      `json:"category_id,omitempty"`
 	PublishedAt *time.Time `json:"published_at,omitempty"`
 }
 
@@ -82,8 +82,8 @@ type SearchIndexer interface {
 // nil checks on every write path.
 type noopIndexer struct{}
 
-func (noopIndexer) Index(context.Context, SearchDocument) error                  { return nil }
-func (noopIndexer) Delete(context.Context, uint, string) error                   { return nil }
+func (noopIndexer) Index(context.Context, SearchDocument) error { return nil }
+func (noopIndexer) Delete(context.Context, uint, string) error  { return nil }
 func (noopIndexer) Search(context.Context, SearchQuery) (*SearchResult, error) {
 	return &SearchResult{Hits: []SearchHit{}}, nil
 }

@@ -13,16 +13,16 @@ import (
 
 const (
 	// TOTP digits and period.
-	totpDigits  = 6
-	totpPeriod  = 30 // seconds
-	totpSkew    = 1  // allow 1 period skew
-	issuerName  = "ContentX"
+	totpDigits = 6
+	totpPeriod = 30 // seconds
+	totpSkew   = 1  // allow 1 period skew
+	issuerName = "ContentX"
 )
 
 // TOTPConfig holds 2FA configuration for a user.
 type TOTPConfig struct {
-	Secret    string `json:"-" gorm:"size:32"`
-	Enabled   bool   `json:"enabled"`
+	Secret      string `json:"-" gorm:"size:32"`
+	Enabled     bool   `json:"enabled"`
 	BackupCodes string `json:"-" gorm:"type:text"` // comma-separated hashed codes
 }
 

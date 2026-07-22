@@ -10,9 +10,9 @@ import (
 )
 
 var (
-	ErrInvalidToken  = errors.New("invalid or expired token")
-	ErrTokenExpired  = errors.New("token has expired")
-	ErrTokenRevoked  = errors.New("token has been revoked")
+	ErrInvalidToken = errors.New("invalid or expired token")
+	ErrTokenExpired = errors.New("token has expired")
+	ErrTokenRevoked = errors.New("token has been revoked")
 )
 
 // Claims represents JWT claims.
@@ -138,6 +138,7 @@ func (m *JWTManager) RefreshAccessToken(refreshTokenStr string) (*TokenPair, err
 // Tokens are stored in memory only, so:
 //   - Blacklisted tokens are lost on server restart.
 //   - Multiple server instances do not share the blacklist.
+//
 // For production, replace with a Redis-backed implementation.
 type Blacklist struct {
 	tokens map[string]time.Time

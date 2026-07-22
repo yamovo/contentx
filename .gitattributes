@@ -1,0 +1,9 @@
+# Normalize line endings to LF for Go source files
+*.go text eol=lf
+
+# Shell scripts use LF
+*.sh text eol=lf
+
+# Windows scripts use CRLF
+*.bat text eol=crlf
+*.cmd text eol=crlf
