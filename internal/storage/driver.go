@@ -23,10 +23,10 @@ type Driver interface {
 
 // Config holds storage configuration.
 type Config struct {
-	Driver     string // "local" or "s3"
-	LocalPath  string
-	URLPrefix  string
-	S3         S3Config
+	Driver    string // "local" or "s3"
+	LocalPath string
+	URLPrefix string
+	S3        S3Config
 }
 
 // S3Config holds S3-compatible storage settings.

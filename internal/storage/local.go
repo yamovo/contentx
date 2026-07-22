@@ -11,7 +11,7 @@ import (
 
 // LocalDriver stores files on the local filesystem.
 type LocalDriver struct {
-	basePath string
+	basePath  string
 	urlPrefix string
 }
 

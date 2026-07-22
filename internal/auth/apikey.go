@@ -10,12 +10,12 @@ import (
 
 // APIKey represents an API key for programmatic access.
 type APIKey struct {
-	ID        uint      `json:"id" gorm:"primaryKey"`
-	UserID    uint      `json:"user_id" gorm:"index"`
-	Name      string    `json:"name" gorm:"size:128"`
-	KeyHash   string    `json:"-" gorm:"size:64;uniqueIndex"`
-	KeyPrefix string    `json:"key_prefix" gorm:"size:8"`
-	Scopes    string    `json:"scopes" gorm:"type:text"` // comma-separated scopes
+	ID        uint       `json:"id" gorm:"primaryKey"`
+	UserID    uint       `json:"user_id" gorm:"index"`
+	Name      string     `json:"name" gorm:"size:128"`
+	KeyHash   string     `json:"-" gorm:"size:64;uniqueIndex"`
+	KeyPrefix string     `json:"key_prefix" gorm:"size:8"`
+	Scopes    string     `json:"scopes" gorm:"type:text"` // comma-separated scopes
 	ExpiresAt *time.Time `json:"expires_at"`
 	LastUsed  *time.Time `json:"last_used"`
 	CreatedAt time.Time  `json:"created_at"`
