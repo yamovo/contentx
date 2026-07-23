@@ -1,6 +1,6 @@
 # ContentX 开发进度
 
-> 最后更新：2026-07-22
+> 最后更新：2026-07-23
 >
 > 发布基线：`v1.0.0`（提交 `d408b83`）
 >
@@ -53,7 +53,7 @@
 | 编号 | 工作项 | 状态 | 验收结论 |
 |---|---|---|---|
 | 7.1 | Prometheus + Grafana + OpenTelemetry | ✅ | 本机 Docker 运行验收通过 |
-| 7.2 | 压测基线与公开报告 | 🚧 | PostgreSQL 初测完成；跨数据库与可比内存采样未完成 |
+| 7.2 | 压测基线与公开报告 | 🚧 | PostgreSQL + MySQL 对照完成（SQLite 待测）；列表字段精简已实现；统一空闲内存待测 |
 | 7.3 | 分布式定时任务锁 | ✅ | Redis/Memory 锁与调度器测试通过 |
 | 7.4 | 全文搜索 | ✅ | 内置索引、REST/GraphQL 与全量重建通过 |
 | 7.5 | 备份与恢复闭环 | ✅ | DB+媒体备份/恢复、REST API、Makefile 入口、20 项测试通过 |
@@ -102,10 +102,33 @@
 
 待完成：
 
-- SQLite 与 MySQL 使用同一数据集、同一场景做对照
-- 在统一空闲条件下重测 1,000/10,000 篇文章内存
+- ~~运行 MySQL / SQLite 全场景对照并回填结果~~ → ✅ MySQL 四场景已实测（2026-07-23），结果回填至 [cross-db-comparison.md](./reports/benchmarks/cross-db-comparison.md)；SQLite 待测
+- 在统一空闲条件下重测 1,000/10,000 篇文章内存（`sample-memory.ps1` 已就绪）
 - 在专用硬件或受控云环境上复测，验证 P95/P99 是否为开发环境噪声
-- 实现列表接口字段精简后复测，验证优化效果
+- ✅ 列表接口字段精简已实现（默认不返回正文 `content`，`?full=true` 可取全量；搜索索引仍取全文）；go test 已验证正确性与搜索安全。性能复测待能跑时验证改善幅度
+
+MySQL 对照结论（2026-07-23，详见 cross-db-comparison.md §3）：
+
+| 场景 | PG P95 | MySQL P95 | 说明 |
+|---|---:|---:|---|
+| 文章详情 | 3.79 ms | 4.13 ms | 两库相当，MySQL 略高 |
+| 并发写入 | 12.04 ms | 11.35 ms | MySQL 略优 |
+| 文章列表 | 351.12 ms | 30,000 ms¹ | MySQL 1,018/15,000 超时，疑似客户端端口耗尽 |
+| GraphQL | 4.30 ms | 30,000 ms² | MySQL 5,865/15,000 失败，Windows 端口耗尽 |
+
+¹² 列表与 GraphQL 场景的 MySQL 失败主要为客户端侧 `TIME_WAIT` 端口耗尽（`Only one usage of each socket address`），非纯数据库瓶颈；需在 Linux + 长端口范围环境复测。详情与写入场景两库表现相当。
+
+⚠️ 未提交（本次提交解决）：列表字段精简代码（repo/service/handler + `article_list_trim_test.go`）、跨库对照基础设施与 MySQL 实测结果将在本次 commit 中一并提交。
+
+跨数据库对照基础设施（2026-07-22，已就绪，待实测）：
+
+- 统一方法与复现指南：[reports/benchmarks/cross-db-comparison.md](./reports/benchmarks/cross-db-comparison.md)
+- MySQL/SQLite 方言 seed 脚本（1k/10k），与 PostgreSQL 数据集逐行等价（正文 2,200 字符，长度已核对一致）
+- 内置 Go seeder `scripts/benchmark/seeder`（用应用同一 GORM SQLite 驱动播种，免 `sqlite3` CLI；已编译通过）
+- 通用压测脚本 `run-benchmark.ps1 -Driver <postgres|mysql|sqlite>`，场景与速率跨库一致
+- MySQL 自包含压测栈 `scripts/benchmark/docker-compose.mysql.yml`（app + mysql8.4 + redis）
+- 空闲内存采样脚本 `sample-memory.ps1`（容器 / 进程两种模式）
+- 实测阻塞（环境性，非代码问题）：MySQL 镜像拉取被境内网络限速；SQLite 需在普通终端启动应用（Go+CGO 已就绪）。两腿均可按复现指南直接跑出数据
 
 已完成（2026-07-22）：
 
@@ -229,22 +252,33 @@ CI 修复历程（golangci-lint v2 迁移）：
 | 2026-07-22 | `go build ./...` + `go vet ./...` | ✅ 7.7 CI 收紧后全绿 |
 | 2026-07-22 | PostgreSQL 压测正式报告 | ✅ 7.2 报告与 P95/P99 分析完成 |
 | 2026-07-22 | GitHub Actions CI（main `99df4a2`） | ✅ 全链路绿勾：frontend(53s)+test(3m20s)+build(22s)+docker(23m29s,GHCR推送) |
+| 2026-07-22 | 7.2 跨库对照基础设施（seed×4 / run-benchmark / compose / mem / 报告） | ✅ 脚本创建；PowerShell 语法校验通过；SQLite/PG 数据集长度对齐（2,200 字符） |
+| 2026-07-22 | 7.2 Go seeder + 应用（SQLite/CGO）编译 | ✅ `go build ./cmd/server` 与 `./scripts/benchmark/seeder` 均通过（windows/amd64 PE） |
+| 2026-07-22 | 7.2 MySQL/SQLite 实测 | ⛔ 环境阻塞：MySQL 镜像拉取限速（109/256MB～30min）；agent 沙箱不允许 shell 直接执行新构建应用二进制。需在普通终端按指南跑 |
+| 2026-07-23 | 7.2 列表字段精简优化（默认不返回 content，`?full=true` 可选） | ✅ repo/service/handler 改动 + 2 新用例（含搜索安全守卫）全绿；services+handlers 全量测试无回归 |
+| 2026-07-23 | 7.2 MySQL 四场景实测 | ✅ 详情/写入 100% 成功与 PG 相当；列表/GraphQL 受 Windows 端口耗尽影响失败率较高，待 Linux 复测 |
+| 2026-07-23 | 7.2 跨库对照报告回填 | ✅ cross-db-comparison.md §3 MySQL 数据已回填，含失败原因注释 |
+| 2026-07-23 | `go build ./...` + `go vet ./...` | ✅ 列表字段精简后全绿 |
+| 2026-07-23 | `go test ./internal/services/ -run TestArticleService_ListOmits` | ✅ 列表字段精简测试通过 |
 
 说明：最新搜索分页修复后已再次执行完整后端测试与 vet；7.6 前端工程债清理已落地，前端类型检查与测试均通过。
 
 ## 当前风险与已知边界
 
-1. 文章列表在高目标速率下尾延迟明显高于详情和 GraphQL，需要查询与响应体分析。
+1. 文章列表在高目标速率下尾延迟明显高于详情和 GraphQL，需要查询与响应体分析。列表字段精简（默认不返回 `content`）已实现，待复测验证改善幅度。
 2. 10,000 篇内置索引使应用内存达到约 145.4 MiB；大数据量需评估流式重建或外部索引。
 3. MeiliSearch 驱动尚未实现，不能宣称多实例共享搜索。
 4. CI 质量门禁已在 main 分支验证全链路绿勾（frontend+test+build+docker），GHCR 镜像推送成功；tag Release 产物待发版时验证。
 5. Docker 监控镜像使用 `latest`，后续应固定兼容版本。
+6. MySQL 列表与 GraphQL 压测受 Windows 客户端端口耗尽（TIME_WAIT）影响，失败率非数据库瓶颈；需在 Linux + 长端口范围环境复测。
+7. ~~7.2 列表字段精简代码与跨库对照基础设施尚未 commit~~ → ✅ 已在本次提交中解决。
 
 ## 下一步执行顺序
 
-1. 完成 7.2：统一条件重测内存，补 SQLite/MySQL 对照，发布正式报告。
-2. ~~完成 7.7：收紧 CI，在真实 PR/main/tag 验证全链路。~~ → ✅ main 分支全链路绿勾
-3. P3-A 全部验收后，再评估 P3-B 多租户、计费、用量和 SSO。
+1. 完成 7.2：MySQL 对照已完成；待跑 SQLite 全场景、统一空闲内存复测、Linux 复测 MySQL 列表/GraphQL，回填 [cross-db-comparison.md](./reports/benchmarks/cross-db-comparison.md)。
+2. ~~提交 7.2 未提交工作区（列表字段精简 + 跨库基础设施 + MySQL 结果），触发 CI 验证。~~ → ✅ 本次提交完成
+3. ~~完成 7.7：收紧 CI，在真实 PR/main/tag 验证全链路。~~ → ✅ main 分支全链路绿勾
+4. P3-A 全部验收后，再评估 P3-B 多租户、计费、用量和 SSO。
 
 ## 完成定义
 

@@ -37,6 +37,7 @@ func NewArticleHandler(svc *services.ArticleService) *ArticleHandler {
 //	@Param        search      query  string  false  "Search keyword"
 //	@Param        sort        query  string  false  "Sort order"  Enums(newest,oldest,most_viewed,most_liked)  default(newest)
 //	@Param        author_id   query  string  false  "Filter by author ID"
+//	@Param        full        query  bool    false  "Include full article body (content). Default false: list omits content for smaller payloads."
 //	@Security     BearerAuth
 //	@Success      200  {object}  APIResponse{data=object}
 //	@Failure      401  {object}  APIResponse
@@ -56,6 +57,7 @@ func (h *ArticleHandler) List(c *gin.Context) {
 		Sort:       c.DefaultQuery("sort", "newest"),
 		AuthorID:   c.Query("author_id"),
 		Locale:     c.Query("locale"),
+		Full:       c.Query("full") == "true",
 	}
 
 	result, err := h.svc.List(filter)

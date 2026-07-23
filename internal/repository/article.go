@@ -22,6 +22,7 @@ type ArticleListFilter struct {
 	Sort       string // newest | oldest | title | views | likes
 	AuthorID   string
 	Locale     string // i18n: filter by locale (exact match)
+	Full       bool   // when false (default) the heavy Content column is omitted
 }
 
 // ArticleRepository defines data-access operations for articles, including
@@ -140,7 +141,14 @@ func (r *gormArticleRepository) List(filter ArticleListFilter) ([]models.Article
 
 	var articles []models.Article
 	offset := (filter.Page - 1) * filter.PageSize
-	if err := query.Offset(offset).Limit(filter.PageSize).Find(&articles).Error; err != nil {
+	findQuery := query.Offset(offset).Limit(filter.PageSize)
+	if !filter.Full {
+		// List responses omit the large Content column to cut payload size and
+		// GC pressure (see reports/benchmarks/postgres-baseline.md §4). Callers
+		// that need the body pass Full=true or use the detail endpoint.
+		findQuery = findQuery.Omit("Content")
+	}
+	if err := findQuery.Find(&articles).Error; err != nil {
 		return nil, 0, err
 	}
 	return articles, total, nil

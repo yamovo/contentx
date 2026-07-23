@@ -209,6 +209,7 @@ type ListArticlesFilter struct {
 	Sort       string
 	AuthorID   string
 	Locale     string // i18n: filter by locale (exact match)
+	Full       bool   // when true the response includes the full Content body
 }
 
 // BulkActionRequest is the payload for bulk operations on articles.
@@ -244,6 +245,7 @@ func (s *ArticleService) List(filter ListArticlesFilter) (models.ListResponse, e
 		Sort:       filter.Sort,
 		AuthorID:   filter.AuthorID,
 		Locale:     filter.Locale,
+		Full:       filter.Full,
 	})
 	if err != nil {
 		return models.ListResponse{}, err
@@ -275,7 +277,7 @@ func (s *ArticleService) ReindexAll(ctx context.Context) (int, error) {
 	var all []models.Article
 	page := 1
 	for {
-		resp, err := s.List(ListArticlesFilter{Page: page, PageSize: batchSize, Sort: "oldest"})
+		resp, err := s.List(ListArticlesFilter{Page: page, PageSize: batchSize, Sort: "oldest", Full: true})
 		if err != nil {
 			return 0, err
 		}

@@ -124,7 +124,7 @@ vegeta attack -rate=100 -duration=10s -header="Authorization: Bearer <token>" -h
 
 ### 4.5 优化方向
 
-1. 列表接口返回精简字段（不含正文），提供 `fields` 参数按需加载
+1. 列表接口返回精简字段（不含正文），提供 `full` 参数按需加载 —— ✅ 已实现：`GET /articles` 默认省略 `content`，`?full=true` 取全量；搜索索引仍取全文。性能复测待补。
 2. 对列表查询结果增加缓存层（已有 Redis 基础设施）
 3. 评估 JSON 序列化优化（如预分配 buffer、流式编码）
 4. 调整 GOGC 参数降低 GC 频率或使用 GOMEMLIMIT
@@ -151,4 +151,5 @@ vegeta attack -rate=100 -duration=10s -header="Authorization: Bearer <token>" -h
 - [ ] SQLite 与 MySQL 使用同一数据集、同一场景做对照
 - [ ] 在统一空闲条件下重测 1,000/10,000 篇文章内存
 - [ ] 在专用硬件或受控云环境上重测，验证 P95/P99 是否为开发环境噪声
+- [x] 实现列表接口字段精简（默认省略 `content`，`?full=true` 取全量）—— 已实现并单测；性能复测待补
 - [ ] 实现列表接口字段精简后复测，验证 P95/P99 改善幅度

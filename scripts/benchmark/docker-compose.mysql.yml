@@ -1,0 +1,83 @@
+# Self-contained MySQL benchmark stack for the 7.2 cross-database comparison.
+# The main docker-compose.yml is PostgreSQL-only, so this file stands alone
+# rather than acting as an override.
+#
+# Usage (from repo root):
+#   docker compose -f scripts/benchmark/docker-compose.mysql.yml up -d --build
+#   # wait until healthy, then seed:
+#   mysql -h127.0.0.1 -P13306 -ucontentx -pbenchpass contentx < scripts/benchmark/seed_mysql_10000.sql
+#   # run the load test:
+#   pwsh scripts/benchmark/run-benchmark.ps1 -Driver mysql -AdminPassword 'BenchAdmin123!'
+#   docker compose -f scripts/benchmark/docker-compose.mysql.yml down -v
+#
+# App is published on 18080 (same as the PostgreSQL baseline) and MySQL on 13306.
+
+services:
+  app:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    container_name: contentx-bench-app
+    restart: "no"
+    ports:
+      - "18090:8080"
+    environment:
+      - SERVER_MODE=release
+      - SERVER_PORT=8080
+      - DB_DRIVER=mysql
+      - DB_HOST=mysql
+      - DB_PORT=3306
+      - DB_USER=contentx
+      - DB_PASSWORD=${DB_PASSWORD:-benchpass}
+      - DB_NAME=contentx
+      - DB_TIMEZONE=UTC
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-benchredis}
+      - JWT_SECRET=${JWT_SECRET:-bench-jwt-secret-change-me-please-32chars}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-BenchAdmin123!}
+      - CACHE_DRIVER=redis
+      - QUEUE_DRIVER=redis
+      - METRICS_ENABLED=true
+      - OTEL_ENABLED=false
+      # Effectively disable the per-minute API rate limiter for load testing
+      # (bucket seeds this many tokens; 15k requests won't exhaust it).
+      - LIMITS_API_RATE=100000000
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    networks:
+      - bench-net
+
+  mysql:
+    image: mysql:8.4
+    container_name: contentx-bench-mysql
+    restart: "no"
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-benchroot}
+      MYSQL_DATABASE: contentx
+      MYSQL_USER: contentx
+      MYSQL_PASSWORD: ${DB_PASSWORD:-benchpass}
+    ports:
+      - "13306:3306"
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-p${MYSQL_ROOT_PASSWORD:-benchroot}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - bench-net
+
+  redis:
+    image: redis:7-alpine
+    container_name: contentx-bench-redis
+    restart: "no"
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD:-benchredis}"]
+    networks:
+      - bench-net
+
+networks:
+  bench-net:
+    driver: bridge
