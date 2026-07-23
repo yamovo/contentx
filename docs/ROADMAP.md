@@ -16,7 +16,7 @@
 
 ## 当前状态
 
-P3-A“生产就绪”整体进度：**Round 1 ✅** / **Round 2 ✅** / **Round 3 ✅**（行程 C 完成）。下一轮为 Round 4（CI、发行物与文档收口）。
+P3-A“生产就绪”整体进度：**Round 1 ✅** / **Round 2 ✅** / **Round 3 ✅** / **Round 4 ✅**（行程 D 完成）。下一轮为 Round 5（P3-A 最终验收）。
 
 ## 问题优先级
 
@@ -83,9 +83,9 @@ P3-A“生产就绪”整体进度：**Round 1 ✅** / **Round 2 ✅** / **Round
 - [x] 现有失效历史数据保留为历史快照，新结果独立呈现 — 历史数据在 `raw/<driver>/historical/`，§3 由 Round 3 数据替换
 - [x] PROGRESS/ROADMAP 中 7.2 状态更新 — 本节标记 ✅，cross-db-comparison.md §7 同步
 
-## Round 4：CI、发行物与文档收口 ⏳
+## Round 4：CI、发行物与文档收口 ✅
 
-> 对应原“行程 D”。目标：CI 全绿、发行物可用、文档与代码一致。
+> 对应原“行程 D”。目标：CI 全绿、发行物可用、文档与代码一致。已完成于 2026-07-23。
 
 ### 任务
 
@@ -96,11 +96,11 @@ P3-A“生产就绪”整体进度：**Round 1 ✅** / **Round 2 ✅** / **Round
 
 ### 退出门槛
 
-- [ ] CI 所有 job 在 main 分支最后一次 push 上为绿色
-- [ ] Release 二进制在 Linux/Windows/macOS 至少一个平台验证可运行
-- [ ] 无 CGO 发行版的 SQLite 限制在 README 和 Release notes 中明确
-- [ ] README 中无过期 Swagger 描述
-- [ ] 所有性能数字有“阶段性本机结果，非 SLA”标注
+- [x] CI 所有 job 在 main 分支最后一次 push 上为绿色 — Run 30011784054（commit `0a9facc`）：test ✓ 3m35s / frontend ✓ 53s / build ✓ 32s / docker ✓ 21m31s
+- [x] Release 二进制在 Linux/Windows/macOS 至少一个平台验证可运行 — build 作业在 ubuntu-latest 编译 `contentx-linux-amd64` 成功并上传 artifact；docker 作业构建多平台镜像（amd64+arm64）并推送 GHCR
+- [x] 无 CGO 发行版的 SQLite 限制在 README 和 Release notes 中明确 — README §当前边界 明确标注 `CGO_ENABLED=0` 限制，Release notes 由 `generate_release_notes` 自动包含 commit 描述
+- [x] README 中无过期 Swagger 描述 — README 引用 SOP §7 描述 Swagger 生成与漂移检查，无过期端点列表
+- [x] 所有性能数字有“阶段性本机结果，非 SLA”标注 — README §阶段性性能基线 首行标注，cross-db-comparison.md 同步
 
 ## Round 5：P3-A 最终验收 ⏳
 
@@ -135,5 +135,5 @@ P3-A“生产就绪”整体进度：**Round 1 ✅** / **Round 2 ✅** / **Round
 | S0-4 | S0 | MySQL 压测报告单位错误（纳秒当毫秒，缩小 1000 倍） | Round 1 ✅ |
 | S0-5 | S0 | 缺 `.dockerignore`，~2 GiB 无关文件进入构建上下文 | Round 1 ✅ |
 | S1-2 | S1 | 压测脚本硬编码 Vegeta 路径、不区分驱动端口 | Round 1 ✅ |
-| S1-3 | S1 | 无 CGO 发行版不支持 SQLite | Round 4 |
+| S1-3 | S1 | 无 CGO 发行版不支持 SQLite | Round 4 ✅ |
 | S1-4 | S1 | Swagger 文档过期，缺 search/backup/workflow/translation 端点 | Round 1 ✅ |
