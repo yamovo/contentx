@@ -31,14 +31,14 @@ export default defineConfig({
       provider: 'v8',
       reporter: ['text', 'html', 'json-summary'],
       reportsDirectory: './coverage',
-      // Baseline ratchets (Round 6 / F8): set just below current coverage to
-      // prevent regression. Raise as F7 adds view-component tests.
-      // Current: lines 10.86%, branches 70.07%, functions 38.19%, statements 10.86%
+      // Baseline ratchets (Round 6 / F8): set below current coverage to
+      // prevent regression. Raised after F7 added view-component tests.
+      // Current: lines 25.31%, branches 80.25%, functions 43.71%, statements 25.31%
       thresholds: {
-        lines: 10,
-        branches: 30,
-        functions: 30,
-        statements: 10,
+        lines: 20,
+        branches: 40,
+        functions: 35,
+        statements: 20,
       },
     },
     server: {

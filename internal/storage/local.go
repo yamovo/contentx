@@ -25,8 +25,13 @@ func NewLocalDriver(basePath, urlPrefix string) *LocalDriver {
 // safePath joins the key with basePath and verifies the resolved path stays
 // within basePath. This prevents path traversal attacks via keys containing
 // ".." segments or absolute paths (Round 6 / F6 security fix).
+//
+// Backslashes are normalized to forward slashes so the check works
+// consistently on both Windows and Linux — a Linux server must still reject
+// Windows-style "..\.." traversal attempts.
 func (d *LocalDriver) safePath(key string) (string, error) {
-	fullPath := filepath.Join(d.basePath, key)
+	normalized := strings.ReplaceAll(key, "\\", "/")
+	fullPath := filepath.Join(d.basePath, normalized)
 	rel, err := filepath.Rel(d.basePath, fullPath)
 	if err != nil {
 		return "", fmt.Errorf("invalid key %q: %w", key, err)
