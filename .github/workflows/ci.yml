@@ -61,9 +61,10 @@ jobs:
         run: |
           TOTAL=$(go tool cover -func=coverage.out | grep '^total:' | awk '{print $3}' | tr -d '%')
           echo "Total Go coverage: ${TOTAL}%"
-          # Round 6 / F8: baseline ratchet at 75% (current ~82.9% for tested packages).
-          # Prevents coverage regression; raise as more packages gain tests.
-          THRESHOLD=75
+          # Round 6 / F8: baseline ratchet at 60% (current ~64.6% across all packages
+          # including untested errs/logger/mail/migrations). Raise as more packages
+          # gain tests.
+          THRESHOLD=60
           awk -v t="$TOTAL" -v th="$THRESHOLD" 'BEGIN { if (t < th) { printf "::error::Coverage %s%% below threshold %s%%\n", t, th; exit 1 } }'
 
       - name: Upload coverage

@@ -1,4 +1,5 @@
 import { mount, type ComponentMountingOptions } from '@vue/test-utils'
+import { vi } from 'vitest'
 import {
   defineComponent,
   h,
