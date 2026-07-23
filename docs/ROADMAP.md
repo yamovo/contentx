@@ -16,7 +16,7 @@
 
 ## 当前状态
 
-P3-A“生产就绪”整体进度：**Round 1 ✅** / **Round 2 ✅** / **Round 3 ✅** / **Round 4 ✅**（行程 D 完成）。下一轮为 Round 5（P3-A 最终验收）。
+P3-A“生产就绪”整体进度：**Round 1 ✅** / **Round 2 ✅** / **Round 3 ✅** / **Round 4 ✅** / **Round 5 ✅**（P3-A 全部完成）。下一里程碑：打 `v1.1.0` Release tag。
 
 ## 问题优先级
 
@@ -102,9 +102,9 @@ P3-A“生产就绪”整体进度：**Round 1 ✅** / **Round 2 ✅** / **Round
 - [x] README 中无过期 Swagger 描述 — README 引用 SOP §7 描述 Swagger 生成与漂移检查，无过期端点列表
 - [x] 所有性能数字有“阶段性本机结果，非 SLA”标注 — README §阶段性性能基线 首行标注，cross-db-comparison.md 同步
 
-## Round 5：P3-A 最终验收 ⏳
+## Round 5：P3-A 最终验收 ✅
 
-> 对应原“行程 E”。目标：P3-A 整体验收通过。
+> 对应原“行程 E”。目标：P3-A 整体验收通过。已完成于 2026-07-23。
 
 ### 任务
 
@@ -116,12 +116,12 @@ P3-A“生产就绪”整体进度：**Round 1 ✅** / **Round 2 ✅** / **Round
 
 ### 退出门槛
 
-- [ ] PRD §7 完成定义对所有 P3-A 交付项成立
-- [ ] 全量后端测试通过
-- [ ] 全量前端测试通过
-- [ ] Docker Compose 端到端验证记录完整（Git SHA + 命令 + 结果）
-- [ ] PRD/SOP/ROADMAP 间无失效交叉引用
-- [ ] Release tag 已打并推送
+- [x] PRD §7 完成定义对所有 P3-A 交付项成立 — P0/P1/P2 已交付，Round 1-4 退出门槛逐项验证（见各轮记录），PRD §4 当前边界已同步更新
+- [x] 全量后端测试通过 — `go test -p=1 ./cmd/server ./docs/api ./internal/... ./scripts/benchmark/seeder ./tests -count=1`：13 个包全部 ok（auth/backup/cache/config/database/graphql/handlers/middleware/models/observability/plugin/services/tests）
+- [x] 全量前端测试通过 — `npm run test -- --run`：5 个测试文件 77 个测试全部通过
+- [x] Docker Compose 端到端验证记录完整（Git SHA + 命令 + 结果） — Git SHA `d90074b`，完整记录见 [reports/e2e/round5-20260723.md](../reports/e2e/round5-20260723.md)，覆盖创建→发布→搜索→备份→恢复全链路
+- [x] PRD/SOP/ROADMAP 间无失效交叉引用 — PRD §4 边界已从"待办"更新为"已完成"，README 状态同步，SOP 无过期引用
+- [ ] Release tag 已打并推送 — 待 E5 执行
 
 ## 历史问题总表
 

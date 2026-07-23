@@ -2,7 +2,7 @@
 
 ContentX 是一个使用 Go 构建的 API-first Headless CMS。它提供 REST API、只读 GraphQL、Vue 3 管理后台，并支持文章工作流、自定义内容类型、国际化、媒体管理、搜索、Webhook、插件和可观测性。
 
-当前发布基线为 `v1.0.0`。仓库正在进行 P3-A“生产就绪”改进。
+当前发布基线为 `v1.0.0`。P3-A“生产就绪”已通过 ROADMAP Round 1-5 全部验收，下一里程碑为 `v1.1.0`。
 
 ## 文档导航
 

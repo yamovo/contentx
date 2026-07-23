@@ -6,7 +6,7 @@
 
 ContentX 是一个 API-first 的 Headless CMS，使用 Go 构建，提供 REST API、只读 GraphQL 和 Vue 3 管理后台。核心价值：内容管理、发布工作流、多语言、可观测性和多数据库支持。
 
-当前发布基线：`v1.0.0`。正在推进 P3-A“生产就绪”。
+当前发布基线：`v1.0.0`。P3-A“生产就绪”已完成（ROADMAP Round 1-5 全部通过），下一里程碑为 `v1.1.0`。
 
 ## 2. 已交付能力
 
@@ -53,10 +53,10 @@ ContentX 是一个 API-first 的 Headless CMS，使用 Go 构建，提供 REST A
 以下是已知的未完成或受限能力，不构成 SLA 承诺：
 
 - **GraphQL**：当前只读，写操作走 REST。
-- **搜索**：内置索引不跨实例共享，外部 MeiliSearch 驱动尚未完成。
-- **备份与恢复**：默认 Docker 部署的 PostgreSQL 备份端到端演练尚未完成（见 ROADMAP Round 2）。
-- **压测基线**：现有 PostgreSQL/MySQL 横向对照已标记为失效历史数据，需统一条件重跑（见 ROADMAP Round 3）。
-- **Release 二进制**：无 CGO 发行版不支持 SQLite（见 ROADMAP Round 4 / S1-3）。
+- **搜索**：内置索引不跨实例共享，外部 MeiliSearch 驱动尚未完成。DB restore 后需重启应用重建索引。
+- **备份与恢复**：PostgreSQL/MySQL/SQLite 备份与恢复已在 ROADMAP Round 2 完成端到端演练；灾难恢复（数据库完全丢失）需绕过应用层直接用 psql 客户端（见 SOP §3.4）。
+- **压测基线**：PostgreSQL/MySQL/SQLite 三库对照基线已在 ROADMAP Round 3 统一条件下重跑，完整数据见 [reports/benchmarks/cross-db-comparison.md](../reports/benchmarks/cross-db-comparison.md)。
+- **Release 二进制**：无 CGO 发行版不支持 SQLite，需 SQLite 时使用 Docker 镜像或本地 `go build`（见 ROADMAP Round 4 / S1-3）。
 - **性能数字**：README 中引用的性能数字是阶段性本机结果，不是 SLA。
 
 ## 5. P3-B：商业化基础路线
