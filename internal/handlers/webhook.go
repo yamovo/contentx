@@ -4,6 +4,7 @@ import (
 	"strconv"
 
 	"github.com/gin-gonic/gin"
+	_ "github.com/yamovo/contentx/internal/models" // swag annotation resolution
 	"github.com/yamovo/contentx/internal/services"
 )
 

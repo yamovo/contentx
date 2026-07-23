@@ -56,7 +56,7 @@ export interface Article {
   id: number
   title: string
   slug: string
-  content: string
+  content?: string
   excerpt: string
   author: User
   author_id: number

@@ -5,6 +5,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/yamovo/contentx/internal/middleware"
+	_ "github.com/yamovo/contentx/internal/models" // swag annotation resolution
 	"github.com/yamovo/contentx/internal/services"
 )
 

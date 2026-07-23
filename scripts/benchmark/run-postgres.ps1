@@ -1,6 +1,6 @@
 param(
     [string]$BaseUrl = "http://127.0.0.1:18080",
-    [string]$Vegeta = "$env:USERPROFILE\.codex\visualizations\2026\07\22\019f898d-9f31-7920-b627-8e28e7f7c3d5\bin\vegeta.exe",
+    [string]$Vegeta = "",
     [int]$ReadRate = 1000,
     [int]$WriteRate = 100,
     [string]$ReadDuration = "15s",
@@ -13,9 +13,27 @@ $repoRoot = Resolve-Path (Join-Path $PSScriptRoot "..\..")
 $outputPath = Join-Path $repoRoot $OutputDir
 New-Item -ItemType Directory -Force -Path $outputPath | Out-Null
 
-if (-not (Test-Path $Vegeta)) {
-    throw "Vegeta not found at $Vegeta"
+# Resolve vegeta: explicit -Vegeta > PATH > project tools dirs. Do not depend on
+# a personal session directory (S1-2).
+function Resolve-VegetaPath {
+    param([string]$Explicit)
+    if ($Explicit) {
+        if (-not (Test-Path $Explicit)) { throw "Vegeta not found at: $Explicit" }
+        return (Resolve-Path $Explicit).Path
+    }
+    $cmd = Get-Command vegeta -ErrorAction SilentlyContinue
+    if ($cmd) { return $cmd.Source }
+    $candidates = @(
+        (Join-Path $PSScriptRoot "tools\vegeta.exe"),
+        (Join-Path $PSScriptRoot "..\..\tools\vegeta.exe"),
+        (Join-Path $PSScriptRoot "..\..\bin\vegeta.exe")
+    )
+    foreach ($c in $candidates) {
+        if (Test-Path $c) { return (Resolve-Path $c).Path }
+    }
+    throw "Vegeta not found. Install it on PATH, place vegeta.exe in scripts/benchmark/tools/ or repo tools/, or pass -Vegeta <path>."
 }
+$Vegeta = Resolve-VegetaPath -Explicit $Vegeta
 
 $envFile = Join-Path $repoRoot ".env"
 $passwordLine = Get-Content $envFile | Where-Object { $_ -like "ADMIN_PASSWORD=*" } | Select-Object -First 1

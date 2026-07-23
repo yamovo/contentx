@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/graphql-go/graphql"
+	"github.com/graphql-go/graphql/language/ast"
 	"github.com/yamovo/contentx/internal/models"
 	"github.com/yamovo/contentx/internal/services"
 	"gorm.io/gorm"
@@ -75,6 +76,11 @@ func (r *Resolver) articles(p graphql.ResolveParams) (interface{}, error) {
 	// 默认只返回已发布文章（公共查询面）。调用方显式传 status 时尊重其选择。
 	if filter.Status == "" {
 		filter.Status = string(models.StatusPublished)
+	}
+	// 仅当客户端在 items 子选择中请求 content 字段时才加载正文，
+	// 避免撤销列表精简优化（repository 在 Full=false 时 Omit Content）。
+	if fieldInSelection(p.Info, "items", "content") {
+		filter.Full = true
 	}
 	resp, err := r.Article.List(filter)
 	if err != nil {
@@ -356,4 +362,61 @@ func intArg(p graphql.ResolveParams, key string) int {
 		return v
 	}
 	return 0
+}
+
+// fieldInSelection reports whether `field` is selected within `subField`'s
+// selection set of the current resolver. It traverses field selections, inline
+// fragments, and fragment spreads (resolved via info.Fragments).
+//
+// Example: for the `articles` resolver (returning ArticleConnection), calling
+// fieldInSelection(info, "items", "content") reports whether the client wrote
+// `articles { items { content } }`, so the resolver can decide to fetch the
+// heavy Content column only when actually requested.
+func fieldInSelection(info graphql.ResolveInfo, subField, field string) bool {
+	for _, astField := range info.FieldASTs {
+		if astField.SelectionSet == nil {
+			continue
+		}
+		for _, sel := range astField.SelectionSet.Selections {
+			f, ok := sel.(*ast.Field)
+			if !ok || f.Name == nil || f.Name.Value != subField {
+				continue
+			}
+			if selectionContains(info, f.SelectionSet, field) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// selectionContains reports whether a field named `name` appears anywhere in
+// the given SelectionSet, recursing through inline fragments and fragment
+// spreads.
+func selectionContains(info graphql.ResolveInfo, set *ast.SelectionSet, name string) bool {
+	if set == nil {
+		return false
+	}
+	for _, sel := range set.Selections {
+		switch v := sel.(type) {
+		case *ast.Field:
+			if v.Name != nil && v.Name.Value == name {
+				return true
+			}
+		case *ast.InlineFragment:
+			if selectionContains(info, v.SelectionSet, name) {
+				return true
+			}
+		case *ast.FragmentSpread:
+			if v.Name == nil {
+				continue
+			}
+			if frag, ok := info.Fragments[v.Name.Value]; ok {
+				if selectionContains(info, frag.GetSelectionSet(), name) {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }

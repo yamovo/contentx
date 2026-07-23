@@ -7,3 +7,9 @@
 # Windows scripts use CRLF
 *.bat text eol=crlf
 *.cmd text eol=crlf
+
+# Swagger generated docs use LF (swag generates LF on Linux CI;
+# without this, Windows checkouts may get CRLF and break drift check)
+*.json text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf

@@ -110,7 +110,7 @@ type Article struct {
 	BaseModel
 	Title         string        `gorm:"size:512;not null;index" json:"title" validate:"required,max=512"`
 	Slug          string        `gorm:"uniqueIndex;size:512;not null" json:"slug"`
-	Content       string        `gorm:"type:text" json:"content"`
+	Content       string        `gorm:"type:text" json:"content,omitempty"`
 	Excerpt       string        `gorm:"type:text" json:"excerpt"`
 	Author        User          `gorm:"foreignKey:AuthorID" json:"author,omitempty"`
 	AuthorID      uint          `gorm:"index;not null" json:"author_id"`

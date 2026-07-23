@@ -16,7 +16,7 @@
               <span class="meta-date">{{ formatDate(article.created_at) }}</span>
             </div>
             <router-link :to="'/blog/article/' + (article.slug || article.id)" class="card-title">{{ article.title }}</router-link>
-            <p class="card-summary">{{ article.excerpt || truncate(article.content, 160) }}</p>
+            <p class="card-summary">{{ article.excerpt || truncate(article.content || '', 160) }}</p>
             <div class="card-footer">
               <div class="card-tags" v-if="article.tags && article.tags.length">
                 <router-link v-for="tag in article.tags.slice(0, 3)" :key="tag.id" :to="'/blog/tag/' + tag.slug" class="tag-chip">{{ tag.name }}</router-link>

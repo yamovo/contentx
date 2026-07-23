@@ -1,51 +1,6 @@
 basePath: /api/v1
 definitions:
-  auth.TokenPair:
-    properties:
-      access_token:
-        type: string
-      expires_at:
-        type: string
-      expires_in:
-        description: seconds
-        type: integer
-      refresh_token:
-        type: string
-      token_type:
-        type: string
-    type: object
-  gorm.DeletedAt:
-    properties:
-      time:
-        type: string
-      valid:
-        description: Valid is true if Time is not NULL
-        type: boolean
-    type: object
-  handlers.APIResponse:
-    properties:
-      code:
-        type: integer
-      data: {}
-      message:
-        type: string
-      meta:
-        $ref: '#/definitions/handlers.Meta'
-    type: object
-  handlers.Meta:
-    properties:
-      has_next:
-        type: boolean
-      has_prev:
-        type: boolean
-      page:
-        type: integer
-      page_size:
-        type: integer
-      total:
-        type: integer
-    type: object
-  models.APIToken:
+  github_com_yamovo_contentx_internal_models.APIToken:
     properties:
       created_at:
         type: string
@@ -68,7 +23,7 @@ definitions:
       use_count:
         type: integer
     type: object
-  models.ActivityLog:
+  github_com_yamovo_contentx_internal_models.ActivityLog:
     properties:
       action:
         description: create, update, delete, login, etc.
@@ -91,25 +46,25 @@ definitions:
       user_id:
         type: integer
     type: object
-  models.Article:
+  github_com_yamovo_contentx_internal_models.Article:
     properties:
       allow_comment:
         type: boolean
       author:
-        $ref: '#/definitions/models.User'
+        $ref: '#/definitions/github_com_yamovo_contentx_internal_models.User'
       author_id:
         type: integer
       canonical_url:
         type: string
       category:
-        $ref: '#/definitions/models.Category'
+        $ref: '#/definitions/github_com_yamovo_contentx_internal_models.Category'
       category_id:
         type: integer
       comment_count:
         type: integer
       comments:
         items:
-          $ref: '#/definitions/models.Comment'
+          $ref: '#/definitions/github_com_yamovo_contentx_internal_models.Comment'
         type: array
       content:
         type: string
@@ -117,7 +72,7 @@ definitions:
         type: string
       custom_fields:
         items:
-          $ref: '#/definitions/models.CustomField'
+          $ref: '#/definitions/github_com_yamovo_contentx_internal_models.CustomField'
         type: array
       deleted_at:
         $ref: '#/definitions/gorm.DeletedAt'
@@ -135,6 +90,12 @@ definitions:
         type: boolean
       like_count:
         type: integer
+      locale:
+        description: |-
+          i18n: Locale is the BCP-47 language tag (e.g. "en", "zh", "ja").
+          TranslationGroupID links translations of the same content; the first
+          article created in a group seeds its own group id (its own ID).
+        type: string
       meta_desc:
         type: string
       meta_keywords:
@@ -144,7 +105,7 @@ definitions:
       og_image:
         type: string
       post_type:
-        $ref: '#/definitions/models.PostType'
+        $ref: '#/definitions/github_com_yamovo_contentx_internal_models.PostType'
       published_at:
         type: string
       reading_time:
@@ -152,7 +113,7 @@ definitions:
         type: integer
       revisions:
         items:
-          $ref: '#/definitions/models.Revision'
+          $ref: '#/definitions/github_com_yamovo_contentx_internal_models.Revision'
         type: array
       robots_follow:
         type: boolean
@@ -165,16 +126,22 @@ definitions:
       sort_order:
         type: integer
       status:
-        $ref: '#/definitions/models.ArticleStatus'
+        $ref: '#/definitions/github_com_yamovo_contentx_internal_models.ArticleStatus'
       tags:
         items:
-          $ref: '#/definitions/models.Tag'
+          $ref: '#/definitions/github_com_yamovo_contentx_internal_models.Tag'
         type: array
       template:
         type: string
       title:
         maxLength: 512
         type: string
+      translation_group_id:
+        type: integer
+      translations:
+        items:
+          $ref: '#/definitions/github_com_yamovo_contentx_internal_models.Article'
+        type: array
       updated_at:
         type: string
       version:
@@ -182,13 +149,13 @@ definitions:
       view_count:
         type: integer
       visibility:
-        $ref: '#/definitions/models.Visibility'
+        $ref: '#/definitions/github_com_yamovo_contentx_internal_models.Visibility'
       word_count:
         type: integer
     required:
     - title
     type: object
-  models.ArticleStatus:
+  github_com_yamovo_contentx_internal_models.ArticleStatus:
     enum:
     - draft
     - published
@@ -204,15 +171,15 @@ definitions:
     - StatusScheduled
     - StatusTrash
     - StatusArchived
-  models.Category:
+  github_com_yamovo_contentx_internal_models.Category:
     properties:
       articles:
         items:
-          $ref: '#/definitions/models.Article'
+          $ref: '#/definitions/github_com_yamovo_contentx_internal_models.Article'
         type: array
       children:
         items:
-          $ref: '#/definitions/models.Category'
+          $ref: '#/definitions/github_com_yamovo_contentx_internal_models.Category'
         type: array
       color:
         type: string
@@ -236,7 +203,7 @@ definitions:
         maxLength: 128
         type: string
       parent:
-        $ref: '#/definitions/models.Category'
+        $ref: '#/definitions/github_com_yamovo_contentx_internal_models.Category'
       parent_id:
         type: integer
       post_count:
@@ -250,12 +217,12 @@ definitions:
     required:
     - name
     type: object
-  models.Comment:
+  github_com_yamovo_contentx_internal_models.Comment:
     properties:
       agent:
         type: string
       article:
-        $ref: '#/definitions/models.Article'
+        $ref: '#/definitions/github_com_yamovo_contentx_internal_models.Article'
       article_id:
         type: integer
       author_email:
@@ -268,7 +235,7 @@ definitions:
         type: string
       children:
         items:
-          $ref: '#/definitions/models.Comment'
+          $ref: '#/definitions/github_com_yamovo_contentx_internal_models.Comment'
         type: array
       content:
         type: string
@@ -285,7 +252,7 @@ definitions:
       like_count:
         type: integer
       parent:
-        $ref: '#/definitions/models.Comment'
+        $ref: '#/definitions/github_com_yamovo_contentx_internal_models.Comment'
       parent_id:
         type: integer
       status:
@@ -293,16 +260,16 @@ definitions:
       updated_at:
         type: string
       user:
-        $ref: '#/definitions/models.User'
+        $ref: '#/definitions/github_com_yamovo_contentx_internal_models.User'
       user_id:
         type: integer
     required:
     - content
     type: object
-  models.ContentEntry:
+  github_com_yamovo_contentx_internal_models.ContentEntry:
     properties:
       content_type:
-        $ref: '#/definitions/models.ContentType'
+        $ref: '#/definitions/github_com_yamovo_contentx_internal_models.ContentType'
       content_type_id:
         type: integer
       created_at:
@@ -311,24 +278,31 @@ definitions:
         type: integer
       data:
         allOf:
-        - $ref: '#/definitions/models.JSONMap'
+        - $ref: '#/definitions/github_com_yamovo_contentx_internal_models.JSONMap'
         description: field values as JSON
       document_id:
         description: UUID
         type: string
       id:
         type: integer
+      locale:
+        description: |-
+          i18n: Locale is the BCP-47 language tag. TranslationGroupID links
+          translations of the same logical entry across locales.
+        type: string
       published_at:
         type: string
       status:
         description: draft, published
         type: string
+      translation_group_id:
+        type: integer
       updated_at:
         type: string
       updated_by_id:
         type: integer
     type: object
-  models.ContentField:
+  github_com_yamovo_contentx_internal_models.ContentField:
     properties:
       content_type_id:
         type: integer
@@ -372,7 +346,7 @@ definitions:
       unique:
         type: boolean
     type: object
-  models.ContentType:
+  github_com_yamovo_contentx_internal_models.ContentType:
     properties:
       created_at:
         type: string
@@ -385,7 +359,7 @@ definitions:
         type: integer
       fields:
         items:
-          $ref: '#/definitions/models.ContentField'
+          $ref: '#/definitions/github_com_yamovo_contentx_internal_models.ContentField'
         type: array
       id:
         type: integer
@@ -401,7 +375,7 @@ definitions:
       updated_at:
         type: string
     type: object
-  models.CustomField:
+  github_com_yamovo_contentx_internal_models.CustomField:
     properties:
       article_id:
         type: integer
@@ -418,10 +392,10 @@ definitions:
       value:
         type: string
     type: object
-  models.JSONMap:
+  github_com_yamovo_contentx_internal_models.JSONMap:
     additionalProperties: true
     type: object
-  models.ListResponse:
+  github_com_yamovo_contentx_internal_models.ListResponse:
     properties:
       has_next:
         type: boolean
@@ -437,7 +411,124 @@ definitions:
       total_pages:
         type: integer
     type: object
-  models.Permission:
+  github_com_yamovo_contentx_internal_models.Media:
+    properties:
+      alt:
+        type: string
+      caption:
+        type: string
+      checksum:
+        type: string
+      created_at:
+        type: string
+      deleted_at:
+        $ref: '#/definitions/gorm.DeletedAt'
+      description:
+        type: string
+      downloads:
+        type: integer
+      duration:
+        description: seconds for video/audio
+        type: integer
+      file_path:
+        type: string
+      file_size:
+        type: integer
+      filename:
+        type: string
+      folder:
+        type: string
+      height:
+        type: integer
+      id:
+        type: integer
+      is_public:
+        type: boolean
+      meta:
+        additionalProperties: true
+        type: object
+      mime_type:
+        type: string
+      original_name:
+        type: string
+      thumbnail_url:
+        type: string
+      title:
+        type: string
+      updated_at:
+        type: string
+      uploader:
+        $ref: '#/definitions/github_com_yamovo_contentx_internal_models.User'
+      uploader_id:
+        type: integer
+      url:
+        type: string
+      width:
+        type: integer
+    type: object
+  github_com_yamovo_contentx_internal_models.Menu:
+    properties:
+      created_at:
+        type: string
+      deleted_at:
+        $ref: '#/definitions/gorm.DeletedAt'
+      id:
+        type: integer
+      items:
+        items:
+          $ref: '#/definitions/github_com_yamovo_contentx_internal_models.MenuItem'
+        type: array
+      locations:
+        description: 'comma-separated: header,footer,sidebar'
+        type: string
+      name:
+        type: string
+      slug:
+        type: string
+      updated_at:
+        type: string
+    type: object
+  github_com_yamovo_contentx_internal_models.MenuItem:
+    properties:
+      article_id:
+        description: Optional link types
+        type: integer
+      category_id:
+        type: integer
+      children:
+        items:
+          $ref: '#/definitions/github_com_yamovo_contentx_internal_models.MenuItem'
+        type: array
+      created_at:
+        type: string
+      css_class:
+        type: string
+      deleted_at:
+        $ref: '#/definitions/gorm.DeletedAt'
+      icon:
+        type: string
+      id:
+        type: integer
+      is_active:
+        type: boolean
+      menu_id:
+        type: integer
+      parent:
+        $ref: '#/definitions/github_com_yamovo_contentx_internal_models.MenuItem'
+      parent_id:
+        type: integer
+      sort_order:
+        type: integer
+      target:
+        type: string
+      title:
+        type: string
+      updated_at:
+        type: string
+      url:
+        type: string
+    type: object
+  github_com_yamovo_contentx_internal_models.Permission:
     properties:
       created_at:
         type: string
@@ -456,7 +547,43 @@ definitions:
       updated_at:
         type: string
     type: object
-  models.PostType:
+  github_com_yamovo_contentx_internal_models.Plugin:
+    properties:
+      author:
+        type: string
+      config:
+        additionalProperties: true
+        type: object
+      created_at:
+        type: string
+      deleted_at:
+        $ref: '#/definitions/gorm.DeletedAt'
+      dependencies:
+        description: comma-separated
+        type: string
+      description:
+        type: string
+      entry_point:
+        type: string
+      id:
+        type: integer
+      is_enabled:
+        type: boolean
+      min_version:
+        description: minimum CMS version
+        type: string
+      name:
+        type: string
+      slug:
+        type: string
+      updated_at:
+        type: string
+      version:
+        type: string
+      website:
+        type: string
+    type: object
+  github_com_yamovo_contentx_internal_models.PostType:
     enum:
     - post
     - page
@@ -464,7 +591,30 @@ definitions:
     x-enum-varnames:
     - PostTypePost
     - PostTypePage
-  models.Revision:
+  github_com_yamovo_contentx_internal_models.RedirectRule:
+    properties:
+      created_at:
+        type: string
+      deleted_at:
+        $ref: '#/definitions/gorm.DeletedAt'
+      from_path:
+        type: string
+      hit_count:
+        type: integer
+      id:
+        type: integer
+      is_active:
+        type: boolean
+      note:
+        type: string
+      status_code:
+        type: integer
+      to_path:
+        type: string
+      updated_at:
+        type: string
+    type: object
+  github_com_yamovo_contentx_internal_models.Revision:
     properties:
       article_id:
         type: integer
@@ -475,7 +625,7 @@ definitions:
       deleted_at:
         $ref: '#/definitions/gorm.DeletedAt'
       editor:
-        $ref: '#/definitions/models.User'
+        $ref: '#/definitions/github_com_yamovo_contentx_internal_models.User'
       editor_id:
         type: integer
       excerpt:
@@ -491,7 +641,7 @@ definitions:
       version:
         type: integer
     type: object
-  models.Role:
+  github_com_yamovo_contentx_internal_models.Role:
     properties:
       created_at:
         type: string
@@ -509,7 +659,7 @@ definitions:
         type: string
       permissions:
         items:
-          $ref: '#/definitions/models.Permission'
+          $ref: '#/definitions/github_com_yamovo_contentx_internal_models.Permission'
         type: array
       slug:
         type: string
@@ -520,11 +670,67 @@ definitions:
     required:
     - name
     type: object
-  models.Tag:
+  github_com_yamovo_contentx_internal_models.SEOSetting:
+    properties:
+      canonical:
+        type: string
+      created_at:
+        type: string
+      deleted_at:
+        $ref: '#/definitions/gorm.DeletedAt'
+      desc:
+        type: string
+      entity_id:
+        type: integer
+      entity_type:
+        description: article, category, tag, page
+        type: string
+      extra:
+        additionalProperties:
+          type: string
+        type: object
+      id:
+        type: integer
+      keywords:
+        type: string
+      og_image:
+        type: string
+      og_type:
+        type: string
+      robots:
+        type: string
+      title:
+        type: string
+      updated_at:
+        type: string
+    type: object
+  github_com_yamovo_contentx_internal_models.SiteSetting:
+    properties:
+      group:
+        type: string
+      help_text:
+        type: string
+      id:
+        type: integer
+      is_public:
+        type: boolean
+      key:
+        type: string
+      label:
+        type: string
+      sort_order:
+        type: integer
+      type:
+        description: string, int, bool, json, text
+        type: string
+      value:
+        type: string
+    type: object
+  github_com_yamovo_contentx_internal_models.Tag:
     properties:
       articles:
         items:
-          $ref: '#/definitions/models.Article'
+          $ref: '#/definitions/github_com_yamovo_contentx_internal_models.Article'
         type: array
       color:
         type: string
@@ -546,11 +752,41 @@ definitions:
     required:
     - name
     type: object
-  models.User:
+  github_com_yamovo_contentx_internal_models.ThemeConfig:
+    properties:
+      author:
+        type: string
+      config:
+        additionalProperties: true
+        type: object
+      created_at:
+        type: string
+      deleted_at:
+        $ref: '#/definitions/gorm.DeletedAt'
+      description:
+        type: string
+      id:
+        type: integer
+      is_active:
+        type: boolean
+      name:
+        type: string
+      screenshot:
+        type: string
+      slug:
+        type: string
+      template_dir:
+        type: string
+      updated_at:
+        type: string
+      version:
+        type: string
+    type: object
+  github_com_yamovo_contentx_internal_models.User:
     properties:
       articles:
         items:
-          $ref: '#/definitions/models.Article'
+          $ref: '#/definitions/github_com_yamovo_contentx_internal_models.Article'
         type: array
       avatar:
         type: string
@@ -558,7 +794,7 @@ definitions:
         type: string
       comments:
         items:
-          $ref: '#/definitions/models.Comment'
+          $ref: '#/definitions/github_com_yamovo_contentx_internal_models.Comment'
         type: array
       created_at:
         type: string
@@ -577,13 +813,13 @@ definitions:
       login_count:
         type: integer
       preferences:
-        $ref: '#/definitions/models.UserPreferences'
+        $ref: '#/definitions/github_com_yamovo_contentx_internal_models.UserPreferences'
       role:
-        $ref: '#/definitions/models.Role'
+        $ref: '#/definitions/github_com_yamovo_contentx_internal_models.Role'
       role_id:
         type: integer
       status:
-        $ref: '#/definitions/models.UserStatus'
+        $ref: '#/definitions/github_com_yamovo_contentx_internal_models.UserStatus'
       updated_at:
         type: string
       username:
@@ -596,7 +832,7 @@ definitions:
     - email
     - username
     type: object
-  models.UserPreferences:
+  github_com_yamovo_contentx_internal_models.UserPreferences:
     properties:
       default_post_status:
         type: string
@@ -611,7 +847,7 @@ definitions:
       theme:
         type: string
     type: object
-  models.UserStatus:
+  github_com_yamovo_contentx_internal_models.UserStatus:
     enum:
     - active
     - inactive
@@ -623,7 +859,7 @@ definitions:
     - UserStatusInactive
     - UserStatusBanned
     - UserStatusPending
-  models.Visibility:
+  github_com_yamovo_contentx_internal_models.Visibility:
     enum:
     - public
     - private
@@ -633,7 +869,7 @@ definitions:
     - VisibilityPublic
     - VisibilityPrivate
     - VisibilityPassword
-  models.Webhook:
+  github_com_yamovo_contentx_internal_models.Webhook:
     properties:
       created_at:
         type: string
@@ -656,7 +892,7 @@ definitions:
       url:
         type: string
     type: object
-  models.WebhookLog:
+  github_com_yamovo_contentx_internal_models.WebhookLog:
     properties:
       created_at:
         type: string
@@ -676,11 +912,78 @@ definitions:
       success:
         type: boolean
       webhook:
-        $ref: '#/definitions/models.Webhook'
+        $ref: '#/definitions/github_com_yamovo_contentx_internal_models.Webhook'
       webhook_id:
         type: integer
     type: object
-  services.ChangePasswordRequest:
+  github_com_yamovo_contentx_internal_services.AddMenuItemRequest:
+    properties:
+      article_id:
+        type: integer
+      category_id:
+        type: integer
+      css_class:
+        type: string
+      icon:
+        type: string
+      parent_id:
+        type: integer
+      target:
+        type: string
+      title:
+        type: string
+      url:
+        type: string
+    required:
+    - title
+    type: object
+  github_com_yamovo_contentx_internal_services.CategoryTree:
+    properties:
+      articles:
+        items:
+          $ref: '#/definitions/github_com_yamovo_contentx_internal_models.Article'
+        type: array
+      children:
+        items:
+          $ref: '#/definitions/github_com_yamovo_contentx_internal_services.CategoryTree'
+        type: array
+      color:
+        type: string
+      created_at:
+        type: string
+      deleted_at:
+        $ref: '#/definitions/gorm.DeletedAt'
+      description:
+        type: string
+      id:
+        type: integer
+      image:
+        type: string
+      is_active:
+        type: boolean
+      meta_desc:
+        type: string
+      meta_title:
+        type: string
+      name:
+        maxLength: 128
+        type: string
+      parent:
+        $ref: '#/definitions/github_com_yamovo_contentx_internal_models.Category'
+      parent_id:
+        type: integer
+      post_count:
+        type: integer
+      slug:
+        type: string
+      sort_order:
+        type: integer
+      updated_at:
+        type: string
+    required:
+    - name
+    type: object
+  github_com_yamovo_contentx_internal_services.ChangePasswordRequest:
     properties:
       new_password:
         minLength: 8
@@ -691,7 +994,7 @@ definitions:
     - new_password
     - old_password
     type: object
-  services.CreateArticleRequest:
+  github_com_yamovo_contentx_internal_services.CreateArticleRequest:
     properties:
       allow_comment:
         type: boolean
@@ -711,6 +1014,9 @@ definitions:
         type: boolean
       is_pinned:
         type: boolean
+      locale:
+        description: 'i18n: BCP-47 tag, defaults to "en"'
+        type: string
       meta_desc:
         type: string
       meta_keywords:
@@ -751,7 +1057,51 @@ definitions:
     required:
     - title
     type: object
-  services.CreateContentTypeRequest:
+  github_com_yamovo_contentx_internal_services.CreateCategoryRequest:
+    properties:
+      color:
+        type: string
+      description:
+        type: string
+      image:
+        type: string
+      is_active:
+        type: boolean
+      meta_desc:
+        type: string
+      meta_title:
+        type: string
+      name:
+        maxLength: 128
+        type: string
+      parent_id:
+        type: integer
+      slug:
+        type: string
+      sort_order:
+        type: integer
+    required:
+    - name
+    type: object
+  github_com_yamovo_contentx_internal_services.CreateCommentRequest:
+    properties:
+      article_id:
+        type: integer
+      author_email:
+        type: string
+      author_name:
+        type: string
+      author_url:
+        type: string
+      content:
+        type: string
+      parent_id:
+        type: integer
+    required:
+    - article_id
+    - content
+    type: object
+  github_com_yamovo_contentx_internal_services.CreateContentTypeRequest:
     properties:
       description:
         type: string
@@ -759,7 +1109,7 @@ definitions:
         type: boolean
       fields:
         items:
-          $ref: '#/definitions/services.CreateFieldRequest'
+          $ref: '#/definitions/github_com_yamovo_contentx_internal_services.CreateFieldRequest'
         minItems: 1
         type: array
       is_single:
@@ -775,18 +1125,21 @@ definitions:
     - name
     - uid
     type: object
-  services.CreateEntryRequest:
+  github_com_yamovo_contentx_internal_services.CreateEntryRequest:
     properties:
       data:
         additionalProperties: true
         type: object
+      locale:
+        description: 'i18n: BCP-47 tag, defaults to "en"'
+        type: string
       status:
         description: draft (default) or published
         type: string
     required:
     - data
     type: object
-  services.CreateFieldRequest:
+  github_com_yamovo_contentx_internal_services.CreateFieldRequest:
     properties:
       default_value:
         type: string
@@ -824,7 +1177,61 @@ definitions:
     - label
     - name
     type: object
-  services.CreateTokenRequest:
+  github_com_yamovo_contentx_internal_services.CreateMenuRequest:
+    properties:
+      locations:
+        type: string
+      name:
+        type: string
+      slug:
+        type: string
+    required:
+    - name
+    - slug
+    type: object
+  github_com_yamovo_contentx_internal_services.CreateRedirectRequest:
+    properties:
+      from_path:
+        type: string
+      note:
+        type: string
+      status_code:
+        type: integer
+      to_path:
+        type: string
+    required:
+    - from_path
+    - to_path
+    type: object
+  github_com_yamovo_contentx_internal_services.CreateRoleRequest:
+    properties:
+      description:
+        type: string
+      name:
+        type: string
+      permission_ids:
+        items:
+          type: integer
+        type: array
+      slug:
+        type: string
+    required:
+    - name
+    - slug
+    type: object
+  github_com_yamovo_contentx_internal_services.CreateTagRequest:
+    properties:
+      color:
+        type: string
+      name:
+        maxLength: 64
+        type: string
+      slug:
+        type: string
+    required:
+    - name
+    type: object
+  github_com_yamovo_contentx_internal_services.CreateTokenRequest:
     properties:
       expires_at:
         description: RFC3339 or empty for no expiry
@@ -839,7 +1246,30 @@ definitions:
     required:
     - name
     type: object
-  services.CreateWebhookRequest:
+  github_com_yamovo_contentx_internal_services.CreateUserRequest:
+    properties:
+      display_name:
+        type: string
+      email:
+        type: string
+      password:
+        minLength: 8
+        type: string
+      role_id:
+        type: integer
+      status:
+        type: string
+      username:
+        maxLength: 64
+        minLength: 3
+        type: string
+    required:
+    - email
+    - password
+    - role_id
+    - username
+    type: object
+  github_com_yamovo_contentx_internal_services.CreateWebhookRequest:
     properties:
       events:
         items:
@@ -862,7 +1292,7 @@ definitions:
     - name
     - url
     type: object
-  services.LoginRequest:
+  github_com_yamovo_contentx_internal_services.LoginRequest:
     properties:
       password:
         type: string
@@ -872,14 +1302,25 @@ definitions:
     - password
     - username
     type: object
-  services.RefreshRequest:
+  github_com_yamovo_contentx_internal_services.RecordViewRequest:
+    properties:
+      article_id:
+        type: integer
+      duration:
+        type: integer
+      path:
+        type: string
+    required:
+    - path
+    type: object
+  github_com_yamovo_contentx_internal_services.RefreshRequest:
     properties:
       refresh_token:
         type: string
     required:
     - refresh_token
     type: object
-  services.RegisterRequest:
+  github_com_yamovo_contentx_internal_services.RegisterRequest:
     properties:
       display_name:
         type: string
@@ -897,7 +1338,28 @@ definitions:
     - password
     - username
     type: object
-  services.SafeUser:
+  github_com_yamovo_contentx_internal_services.SEOSettingRequest:
+    properties:
+      canonical:
+        type: string
+      desc:
+        type: string
+      extra:
+        additionalProperties:
+          type: string
+        type: object
+      keywords:
+        type: string
+      og_image:
+        type: string
+      og_type:
+        type: string
+      robots:
+        type: string
+      title:
+        type: string
+    type: object
+  github_com_yamovo_contentx_internal_services.SafeUser:
     properties:
       avatar:
         type: string
@@ -916,17 +1378,17 @@ definitions:
       login_count:
         type: integer
       preferences:
-        $ref: '#/definitions/models.UserPreferences'
+        $ref: '#/definitions/github_com_yamovo_contentx_internal_models.UserPreferences'
       role:
-        $ref: '#/definitions/models.Role'
+        $ref: '#/definitions/github_com_yamovo_contentx_internal_models.Role'
       status:
-        $ref: '#/definitions/models.UserStatus'
+        $ref: '#/definitions/github_com_yamovo_contentx_internal_models.UserStatus'
       username:
         type: string
       website:
         type: string
     type: object
-  services.TokenCreatedResponse:
+  github_com_yamovo_contentx_internal_services.TokenCreatedResponse:
     properties:
       created_at:
         type: string
@@ -944,7 +1406,7 @@ definitions:
         description: only shown once
         type: string
     type: object
-  services.UpdateArticleRequest:
+  github_com_yamovo_contentx_internal_services.UpdateArticleRequest:
     properties:
       allow_comment:
         type: boolean
@@ -1001,13 +1463,130 @@ definitions:
       visibility:
         type: string
     type: object
-  services.UpdateEntryRequest:
+  github_com_yamovo_contentx_internal_services.UpdateEntryRequest:
     properties:
       data:
         additionalProperties: true
         type: object
       status:
         type: string
+    type: object
+  github_com_yamovo_contentx_internal_services.UpdateMediaRequest:
+    properties:
+      alt:
+        type: string
+      caption:
+        type: string
+      description:
+        type: string
+      folder:
+        type: string
+      title:
+        type: string
+    type: object
+  github_com_yamovo_contentx_internal_services.UpdateMenuItemRequest:
+    properties:
+      css_class:
+        type: string
+      icon:
+        type: string
+      is_active:
+        type: boolean
+      parent_id:
+        type: integer
+      sort_order:
+        type: integer
+      target:
+        type: string
+      title:
+        type: string
+      url:
+        type: string
+    type: object
+  github_com_yamovo_contentx_internal_services.UpdateMenuRequest:
+    properties:
+      locations:
+        type: string
+      name:
+        type: string
+    type: object
+  github_com_yamovo_contentx_internal_services.UpdateRoleRequest:
+    properties:
+      description:
+        type: string
+      name:
+        type: string
+      permission_ids:
+        items:
+          type: integer
+        type: array
+    type: object
+  github_com_yamovo_contentx_internal_services.UpdateTagRequest:
+    properties:
+      color:
+        type: string
+      name:
+        type: string
+      slug:
+        type: string
+    type: object
+  github_com_yamovo_contentx_internal_services.UpdateUserRequest:
+    properties:
+      avatar:
+        type: string
+      bio:
+        type: string
+      display_name:
+        type: string
+      email:
+        type: string
+      role_id:
+        type: integer
+      status:
+        type: string
+      website:
+        type: string
+    type: object
+  gorm.DeletedAt:
+    properties:
+      time:
+        type: string
+      valid:
+        description: Valid is true if Time is not NULL
+        type: boolean
+    type: object
+  internal_handlers.APIResponse:
+    properties:
+      code:
+        type: integer
+      data: {}
+      err_code:
+        type: string
+      message:
+        type: string
+      meta:
+        $ref: '#/definitions/internal_handlers.Meta'
+    type: object
+  internal_handlers.Meta:
+    properties:
+      has_next:
+        type: boolean
+      has_prev:
+        type: boolean
+      page:
+        type: integer
+      page_size:
+        type: integer
+      total:
+        type: integer
+    type: object
+  internal_handlers.ScheduleRequest:
+    properties:
+      scheduled_at:
+        description: RFC3339
+        type: string
+    required:
+    - scheduled_at
     type: object
 host: localhost:8080
 info:
@@ -1016,6 +1595,233 @@ info:
   title: ContentX API
   version: "1.0"
 paths:
+  /admin/backup:
+    get:
+      description: Lists available backup files. Admin only.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: List backups
+      tags:
+      - Backup
+    post:
+      description: Creates a database and/or media backup. Admin only.
+      parameters:
+      - default: all
+        description: Backup type
+        enum:
+        - db
+        - media
+        - all
+        in: query
+        name: type
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Create backup
+      tags:
+      - Backup
+  /admin/backup/{file}:
+    delete:
+      description: Deletes a backup file. Admin only.
+      parameters:
+      - description: Backup filename
+        in: path
+        name: file
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Delete backup
+      tags:
+      - Backup
+  /admin/backup/{file}/restore:
+    post:
+      description: Restores database or media from a backup file. Admin only. For
+        SQLite the service must be restarted afterwards.
+      parameters:
+      - description: Backup filename
+        in: path
+        name: file
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Restore backup
+      tags:
+      - Backup
+  /analytics/dashboard:
+    get:
+      description: Returns dashboard statistics (requires analytics.view permission)
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/internal_handlers.APIResponse'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Analytics dashboard
+      tags:
+      - Analytics
+  /analytics/devices:
+    get:
+      description: Returns device/browser/OS breakdown (requires analytics.view permission)
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/internal_handlers.APIResponse'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Device breakdown
+      tags:
+      - Analytics
+  /analytics/record:
+    post:
+      consumes:
+      - application/json
+      description: Records a page view (public, no auth required)
+      parameters:
+      - description: View data
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/github_com_yamovo_contentx_internal_services.RecordViewRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+      summary: Record page view
+      tags:
+      - Analytics
+  /analytics/referrers:
+    get:
+      description: Returns top referrers (requires analytics.view permission)
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/internal_handlers.APIResponse'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Top referrers
+      tags:
+      - Analytics
+  /analytics/views:
+    get:
+      description: Returns view data over time for charts (requires analytics.view
+        permission)
+      parameters:
+      - default: 30
+        description: Number of days
+        in: query
+        name: days
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/internal_handlers.APIResponse'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Views over time
+      tags:
+      - Analytics
   /articles:
     get:
       description: Returns a paginated, filtered list of articles
@@ -1074,6 +1880,11 @@ paths:
         in: query
         name: author_id
         type: string
+      - description: 'Include full article body (content). Default false: list omits
+          content for smaller payloads.'
+        in: query
+        name: full
+        type: boolean
       produces:
       - application/json
       responses:
@@ -1081,7 +1892,7 @@ paths:
           description: OK
           schema:
             allOf:
-            - $ref: '#/definitions/handlers.APIResponse'
+            - $ref: '#/definitions/internal_handlers.APIResponse'
             - properties:
                 data:
                   type: object
@@ -1089,7 +1900,7 @@ paths:
         "401":
           description: Unauthorized
           schema:
-            $ref: '#/definitions/handlers.APIResponse'
+            $ref: '#/definitions/internal_handlers.APIResponse'
       security:
       - BearerAuth: []
       summary: List articles
@@ -1105,7 +1916,7 @@ paths:
         name: body
         required: true
         schema:
-          $ref: '#/definitions/services.CreateArticleRequest'
+          $ref: '#/definitions/github_com_yamovo_contentx_internal_services.CreateArticleRequest'
       produces:
       - application/json
       responses:
@@ -1113,23 +1924,23 @@ paths:
           description: Created
           schema:
             allOf:
-            - $ref: '#/definitions/handlers.APIResponse'
+            - $ref: '#/definitions/internal_handlers.APIResponse'
             - properties:
                 data:
-                  $ref: '#/definitions/models.Article'
+                  $ref: '#/definitions/github_com_yamovo_contentx_internal_models.Article'
               type: object
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/handlers.APIResponse'
+            $ref: '#/definitions/internal_handlers.APIResponse'
         "401":
           description: Unauthorized
           schema:
-            $ref: '#/definitions/handlers.APIResponse'
+            $ref: '#/definitions/internal_handlers.APIResponse'
         "403":
           description: Forbidden
           schema:
-            $ref: '#/definitions/handlers.APIResponse'
+            $ref: '#/definitions/internal_handlers.APIResponse'
       security:
       - BearerAuth: []
       summary: Create article
@@ -1150,23 +1961,23 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/handlers.APIResponse'
+            $ref: '#/definitions/internal_handlers.APIResponse'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/handlers.APIResponse'
+            $ref: '#/definitions/internal_handlers.APIResponse'
         "401":
           description: Unauthorized
           schema:
-            $ref: '#/definitions/handlers.APIResponse'
+            $ref: '#/definitions/internal_handlers.APIResponse'
         "403":
           description: Forbidden
           schema:
-            $ref: '#/definitions/handlers.APIResponse'
+            $ref: '#/definitions/internal_handlers.APIResponse'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/handlers.APIResponse'
+            $ref: '#/definitions/internal_handlers.APIResponse'
       security:
       - BearerAuth: []
       summary: Delete article
@@ -1187,19 +1998,19 @@ paths:
           description: OK
           schema:
             allOf:
-            - $ref: '#/definitions/handlers.APIResponse'
+            - $ref: '#/definitions/internal_handlers.APIResponse'
             - properties:
                 data:
-                  $ref: '#/definitions/models.Article'
+                  $ref: '#/definitions/github_com_yamovo_contentx_internal_models.Article'
               type: object
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/handlers.APIResponse'
+            $ref: '#/definitions/internal_handlers.APIResponse'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/handlers.APIResponse'
+            $ref: '#/definitions/internal_handlers.APIResponse'
       security:
       - BearerAuth: []
       summary: Get article by ID
@@ -1220,7 +2031,7 @@ paths:
         name: body
         required: true
         schema:
-          $ref: '#/definitions/services.UpdateArticleRequest'
+          $ref: '#/definitions/github_com_yamovo_contentx_internal_services.UpdateArticleRequest'
       produces:
       - application/json
       responses:
@@ -1228,30 +2039,477 @@ paths:
           description: OK
           schema:
             allOf:
-            - $ref: '#/definitions/handlers.APIResponse'
+            - $ref: '#/definitions/internal_handlers.APIResponse'
             - properties:
                 data:
-                  $ref: '#/definitions/models.Article'
+                  $ref: '#/definitions/github_com_yamovo_contentx_internal_models.Article'
               type: object
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/handlers.APIResponse'
+            $ref: '#/definitions/internal_handlers.APIResponse'
         "401":
           description: Unauthorized
           schema:
-            $ref: '#/definitions/handlers.APIResponse'
+            $ref: '#/definitions/internal_handlers.APIResponse'
         "403":
           description: Forbidden
           schema:
-            $ref: '#/definitions/handlers.APIResponse'
+            $ref: '#/definitions/internal_handlers.APIResponse'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/handlers.APIResponse'
+            $ref: '#/definitions/internal_handlers.APIResponse'
       security:
       - BearerAuth: []
       summary: Update article
+      tags:
+      - Articles
+  /articles/{id}/approve:
+    post:
+      description: Approves a pending article, transitioning it to published. Requires
+        editor role.
+      parameters:
+      - description: Article ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/internal_handlers.APIResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/github_com_yamovo_contentx_internal_models.Article'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Approve article
+      tags:
+      - Articles
+  /articles/{id}/comments:
+    get:
+      description: Returns approved comments for a specific article (public)
+      parameters:
+      - description: Article ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/internal_handlers.APIResponse'
+            - properties:
+                data:
+                  items:
+                    $ref: '#/definitions/github_com_yamovo_contentx_internal_models.Comment'
+                  type: array
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+      summary: Article comments
+      tags:
+      - Comments
+  /articles/{id}/publish:
+    post:
+      description: Publishes an article (status transition to published). Requires
+        articles.edit permission.
+      parameters:
+      - description: Article ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/internal_handlers.APIResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/github_com_yamovo_contentx_internal_models.Article'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Publish article
+      tags:
+      - Articles
+  /articles/{id}/revisions:
+    get:
+      description: Returns the revision history for an article
+      parameters:
+      - description: Article ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/internal_handlers.APIResponse'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: List article revisions
+      tags:
+      - Articles
+  /articles/{id}/revisions/{revision_id}/restore:
+    post:
+      description: Restores an article to a specific revision
+      parameters:
+      - description: Article ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Revision ID
+        in: path
+        name: revision_id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Restore article revision
+      tags:
+      - Articles
+  /articles/{id}/schedule:
+    post:
+      consumes:
+      - application/json
+      description: Marks an article for automatic publication at the given time. Requires
+        articles.edit permission.
+      parameters:
+      - description: Article ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Schedule payload
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_handlers.ScheduleRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/internal_handlers.APIResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/github_com_yamovo_contentx_internal_models.Article'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Schedule article publication
+      tags:
+      - Articles
+  /articles/{id}/submit-review:
+    post:
+      description: Moves a draft article into the pending (review) queue. Requires
+        articles.edit permission.
+      parameters:
+      - description: Article ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/internal_handlers.APIResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/github_com_yamovo_contentx_internal_models.Article'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Submit article for review
+      tags:
+      - Articles
+  /articles/{id}/translations:
+    get:
+      description: Returns all sibling translations of an article (same translation
+        group)
+      parameters:
+      - description: Article ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/internal_handlers.APIResponse'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: List article translations
+      tags:
+      - Articles
+    post:
+      consumes:
+      - application/json
+      description: Creates a new article as a translation of an existing one. Requires
+        articles.create permission.
+      parameters:
+      - description: Article ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Target locale (BCP-47 tag, e.g. en, zh)
+        in: query
+        name: locale
+        required: true
+        type: string
+      - description: Article translation payload
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/github_com_yamovo_contentx_internal_services.CreateArticleRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            allOf:
+            - $ref: '#/definitions/internal_handlers.APIResponse'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Create article translation
+      tags:
+      - Articles
+  /articles/{id}/unpublish:
+    post:
+      description: Reverts a published/scheduled article back to draft. Requires articles.edit
+        permission.
+      parameters:
+      - description: Article ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/internal_handlers.APIResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/github_com_yamovo_contentx_internal_models.Article'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Unpublish article
       tags:
       - Articles
   /articles/slug/{slug}:
@@ -1270,15 +2528,15 @@ paths:
           description: OK
           schema:
             allOf:
-            - $ref: '#/definitions/handlers.APIResponse'
+            - $ref: '#/definitions/internal_handlers.APIResponse'
             - properties:
                 data:
-                  $ref: '#/definitions/models.Article'
+                  $ref: '#/definitions/github_com_yamovo_contentx_internal_models.Article'
               type: object
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/handlers.APIResponse'
+            $ref: '#/definitions/internal_handlers.APIResponse'
       summary: Get article by slug
       tags:
       - Articles
@@ -1294,7 +2552,7 @@ paths:
         name: body
         required: true
         schema:
-          $ref: '#/definitions/services.LoginRequest'
+          $ref: '#/definitions/github_com_yamovo_contentx_internal_services.LoginRequest'
       produces:
       - application/json
       responses:
@@ -1302,24 +2560,19 @@ paths:
           description: OK
           schema:
             allOf:
-            - $ref: '#/definitions/handlers.APIResponse'
+            - $ref: '#/definitions/internal_handlers.APIResponse'
             - properties:
                 data:
-                  properties:
-                    token:
-                      $ref: '#/definitions/auth.TokenPair'
-                    user:
-                      $ref: '#/definitions/services.SafeUser'
                   type: object
               type: object
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/handlers.APIResponse'
+            $ref: '#/definitions/internal_handlers.APIResponse'
         "401":
           description: Unauthorized
           schema:
-            $ref: '#/definitions/handlers.APIResponse'
+            $ref: '#/definitions/internal_handlers.APIResponse'
       summary: User login
       tags:
       - Auth
@@ -1332,11 +2585,11 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/handlers.APIResponse'
+            $ref: '#/definitions/internal_handlers.APIResponse'
         "401":
           description: Unauthorized
           schema:
-            $ref: '#/definitions/handlers.APIResponse'
+            $ref: '#/definitions/internal_handlers.APIResponse'
       security:
       - BearerAuth: []
       summary: Logout
@@ -1352,7 +2605,7 @@ paths:
           description: OK
           schema:
             allOf:
-            - $ref: '#/definitions/handlers.APIResponse'
+            - $ref: '#/definitions/internal_handlers.APIResponse'
             - properties:
                 data:
                   properties:
@@ -1361,13 +2614,13 @@ paths:
                         type: string
                       type: array
                     user:
-                      $ref: '#/definitions/services.SafeUser'
+                      $ref: '#/definitions/github_com_yamovo_contentx_internal_services.SafeUser'
                   type: object
               type: object
         "401":
           description: Unauthorized
           schema:
-            $ref: '#/definitions/handlers.APIResponse'
+            $ref: '#/definitions/internal_handlers.APIResponse'
       security:
       - BearerAuth: []
       summary: Get current user
@@ -1384,22 +2637,22 @@ paths:
         name: body
         required: true
         schema:
-          $ref: '#/definitions/services.ChangePasswordRequest'
+          $ref: '#/definitions/github_com_yamovo_contentx_internal_services.ChangePasswordRequest'
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/handlers.APIResponse'
+            $ref: '#/definitions/internal_handlers.APIResponse'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/handlers.APIResponse'
+            $ref: '#/definitions/internal_handlers.APIResponse'
         "401":
           description: Unauthorized
           schema:
-            $ref: '#/definitions/handlers.APIResponse'
+            $ref: '#/definitions/internal_handlers.APIResponse'
       security:
       - BearerAuth: []
       summary: Change password
@@ -1424,19 +2677,19 @@ paths:
           description: OK
           schema:
             allOf:
-            - $ref: '#/definitions/handlers.APIResponse'
+            - $ref: '#/definitions/internal_handlers.APIResponse'
             - properties:
                 data:
-                  $ref: '#/definitions/services.SafeUser'
+                  $ref: '#/definitions/github_com_yamovo_contentx_internal_services.SafeUser'
               type: object
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/handlers.APIResponse'
+            $ref: '#/definitions/internal_handlers.APIResponse'
         "401":
           description: Unauthorized
           schema:
-            $ref: '#/definitions/handlers.APIResponse'
+            $ref: '#/definitions/internal_handlers.APIResponse'
       security:
       - BearerAuth: []
       summary: Update profile
@@ -1453,7 +2706,7 @@ paths:
         name: body
         required: true
         schema:
-          $ref: '#/definitions/services.RefreshRequest'
+          $ref: '#/definitions/github_com_yamovo_contentx_internal_services.RefreshRequest'
       produces:
       - application/json
       responses:
@@ -1461,19 +2714,19 @@ paths:
           description: OK
           schema:
             allOf:
-            - $ref: '#/definitions/handlers.APIResponse'
+            - $ref: '#/definitions/internal_handlers.APIResponse'
             - properties:
                 data:
-                  $ref: '#/definitions/auth.TokenPair'
+                  type: object
               type: object
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/handlers.APIResponse'
+            $ref: '#/definitions/internal_handlers.APIResponse'
         "401":
           description: Unauthorized
           schema:
-            $ref: '#/definitions/handlers.APIResponse'
+            $ref: '#/definitions/internal_handlers.APIResponse'
       summary: Refresh access token
       tags:
       - Auth
@@ -1488,7 +2741,7 @@ paths:
         name: body
         required: true
         schema:
-          $ref: '#/definitions/services.RegisterRequest'
+          $ref: '#/definitions/github_com_yamovo_contentx_internal_services.RegisterRequest'
       produces:
       - application/json
       responses:
@@ -1496,23 +2749,568 @@ paths:
           description: Created
           schema:
             allOf:
-            - $ref: '#/definitions/handlers.APIResponse'
+            - $ref: '#/definitions/internal_handlers.APIResponse'
             - properties:
                 data:
-                  properties:
-                    token:
-                      $ref: '#/definitions/auth.TokenPair'
-                    user:
-                      $ref: '#/definitions/services.SafeUser'
                   type: object
               type: object
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/handlers.APIResponse'
+            $ref: '#/definitions/internal_handlers.APIResponse'
       summary: User registration
       tags:
       - Auth
+  /categories:
+    get:
+      description: Returns all categories as a tree structure
+      parameters:
+      - default: "false"
+        description: Show all categories including empty
+        in: query
+        name: all
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/internal_handlers.APIResponse'
+            - properties:
+                data:
+                  items:
+                    $ref: '#/definitions/github_com_yamovo_contentx_internal_services.CategoryTree'
+                  type: array
+              type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: List categories
+      tags:
+      - Categories
+    post:
+      consumes:
+      - application/json
+      description: Creates a new category (requires categories.manage permission)
+      parameters:
+      - description: Category data
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/github_com_yamovo_contentx_internal_services.CreateCategoryRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            allOf:
+            - $ref: '#/definitions/internal_handlers.APIResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/github_com_yamovo_contentx_internal_models.Category'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Create category
+      tags:
+      - Categories
+  /categories/{id}:
+    delete:
+      description: Removes a category (requires categories.manage permission)
+      parameters:
+      - description: Category ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Delete category
+      tags:
+      - Categories
+    get:
+      description: Returns a single category by ID
+      parameters:
+      - description: Category ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/internal_handlers.APIResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/github_com_yamovo_contentx_internal_models.Category'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Get category
+      tags:
+      - Categories
+    put:
+      consumes:
+      - application/json
+      description: Updates an existing category (requires categories.manage permission)
+      parameters:
+      - description: Category ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Category data
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/github_com_yamovo_contentx_internal_services.CreateCategoryRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Update category
+      tags:
+      - Categories
+  /categories/reorder:
+    put:
+      consumes:
+      - application/json
+      description: Updates sort order for multiple categories (requires categories.manage
+        permission)
+      parameters:
+      - description: Reorder payload
+        in: body
+        name: body
+        required: true
+        schema:
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Reorder categories
+      tags:
+      - Categories
+  /comments:
+    get:
+      description: Returns comments with pagination and filters
+      parameters:
+      - default: 1
+        description: Page number
+        in: query
+        name: page
+        type: integer
+      - default: 20
+        description: Items per page
+        in: query
+        name: page_size
+        type: integer
+      - description: Filter by status (pending|approved|spam|trash)
+        in: query
+        name: status
+        type: string
+      - description: Filter by article ID
+        in: query
+        name: article_id
+        type: string
+      - description: Search content
+        in: query
+        name: search
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/internal_handlers.APIResponse'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: List comments
+      tags:
+      - Comments
+    post:
+      consumes:
+      - application/json
+      description: Creates a new comment (public or authenticated; rate-limited)
+      parameters:
+      - description: Comment data
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/github_com_yamovo_contentx_internal_services.CreateCommentRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            allOf:
+            - $ref: '#/definitions/internal_handlers.APIResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/github_com_yamovo_contentx_internal_models.Comment'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "429":
+          description: Too Many Requests
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+      summary: Create comment
+      tags:
+      - Comments
+  /comments/{id}:
+    get:
+      description: Returns a single comment by ID
+      parameters:
+      - description: Comment ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/internal_handlers.APIResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/github_com_yamovo_contentx_internal_models.Comment'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Get comment
+      tags:
+      - Comments
+    put:
+      consumes:
+      - application/json
+      description: Updates a comment's content
+      parameters:
+      - description: Comment ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Comment payload {content}
+        in: body
+        name: body
+        required: true
+        schema:
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Update comment
+      tags:
+      - Comments
+  /comments/{id}/approve:
+    post:
+      description: Approves a pending comment (requires comments.moderate permission)
+      parameters:
+      - description: Comment ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Approve comment
+      tags:
+      - Comments
+  /comments/{id}/spam:
+    post:
+      description: Marks a comment as spam (requires comments.moderate permission)
+      parameters:
+      - description: Comment ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Mark comment as spam
+      tags:
+      - Comments
+  /comments/{id}/trash:
+    post:
+      description: Moves a comment to trash (requires comments.moderate permission)
+      parameters:
+      - description: Comment ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Trash comment
+      tags:
+      - Comments
+  /comments/bulk:
+    post:
+      consumes:
+      - application/json
+      description: Performs a bulk action on multiple comments (requires comments.moderate
+        permission)
+      parameters:
+      - description: Bulk payload {comment_ids, action}
+        in: body
+        name: body
+        required: true
+        schema:
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Bulk comment action
+      tags:
+      - Comments
+  /comments/stats:
+    get:
+      description: Returns comment statistics (requires comments.view permission)
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/internal_handlers.APIResponse'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Comment stats
+      tags:
+      - Comments
   /content-types:
     get:
       description: Returns all user-defined content types with field definitions
@@ -1523,17 +3321,17 @@ paths:
           description: OK
           schema:
             allOf:
-            - $ref: '#/definitions/handlers.APIResponse'
+            - $ref: '#/definitions/internal_handlers.APIResponse'
             - properties:
                 data:
                   items:
-                    $ref: '#/definitions/models.ContentType'
+                    $ref: '#/definitions/github_com_yamovo_contentx_internal_models.ContentType'
                   type: array
               type: object
         "401":
           description: Unauthorized
           schema:
-            $ref: '#/definitions/handlers.APIResponse'
+            $ref: '#/definitions/internal_handlers.APIResponse'
       security:
       - BearerAuth: []
       summary: List content types
@@ -1549,7 +3347,7 @@ paths:
         name: body
         required: true
         schema:
-          $ref: '#/definitions/services.CreateContentTypeRequest'
+          $ref: '#/definitions/github_com_yamovo_contentx_internal_services.CreateContentTypeRequest'
       produces:
       - application/json
       responses:
@@ -1557,23 +3355,23 @@ paths:
           description: Created
           schema:
             allOf:
-            - $ref: '#/definitions/handlers.APIResponse'
+            - $ref: '#/definitions/internal_handlers.APIResponse'
             - properties:
                 data:
-                  $ref: '#/definitions/models.ContentType'
+                  $ref: '#/definitions/github_com_yamovo_contentx_internal_models.ContentType'
               type: object
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/handlers.APIResponse'
+            $ref: '#/definitions/internal_handlers.APIResponse'
         "401":
           description: Unauthorized
           schema:
-            $ref: '#/definitions/handlers.APIResponse'
+            $ref: '#/definitions/internal_handlers.APIResponse'
         "403":
           description: Forbidden
           schema:
-            $ref: '#/definitions/handlers.APIResponse'
+            $ref: '#/definitions/internal_handlers.APIResponse'
       security:
       - BearerAuth: []
       summary: Create content type
@@ -1594,19 +3392,19 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/handlers.APIResponse'
+            $ref: '#/definitions/internal_handlers.APIResponse'
         "401":
           description: Unauthorized
           schema:
-            $ref: '#/definitions/handlers.APIResponse'
+            $ref: '#/definitions/internal_handlers.APIResponse'
         "403":
           description: Forbidden
           schema:
-            $ref: '#/definitions/handlers.APIResponse'
+            $ref: '#/definitions/internal_handlers.APIResponse'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/handlers.APIResponse'
+            $ref: '#/definitions/internal_handlers.APIResponse'
       security:
       - BearerAuth: []
       summary: Delete content type
@@ -1627,15 +3425,15 @@ paths:
           description: OK
           schema:
             allOf:
-            - $ref: '#/definitions/handlers.APIResponse'
+            - $ref: '#/definitions/internal_handlers.APIResponse'
             - properties:
                 data:
-                  $ref: '#/definitions/models.ContentType'
+                  $ref: '#/definitions/github_com_yamovo_contentx_internal_models.ContentType'
               type: object
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/handlers.APIResponse'
+            $ref: '#/definitions/internal_handlers.APIResponse'
       security:
       - BearerAuth: []
       summary: Get content type
@@ -1687,19 +3485,19 @@ paths:
           description: OK
           schema:
             allOf:
-            - $ref: '#/definitions/handlers.APIResponse'
+            - $ref: '#/definitions/internal_handlers.APIResponse'
             - properties:
                 data:
-                  $ref: '#/definitions/models.ListResponse'
+                  $ref: '#/definitions/github_com_yamovo_contentx_internal_models.ListResponse'
               type: object
         "401":
           description: Unauthorized
           schema:
-            $ref: '#/definitions/handlers.APIResponse'
+            $ref: '#/definitions/internal_handlers.APIResponse'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/handlers.APIResponse'
+            $ref: '#/definitions/internal_handlers.APIResponse'
       security:
       - BearerAuth: []
       summary: List entries
@@ -1720,7 +3518,7 @@ paths:
         name: body
         required: true
         schema:
-          $ref: '#/definitions/services.CreateEntryRequest'
+          $ref: '#/definitions/github_com_yamovo_contentx_internal_services.CreateEntryRequest'
       produces:
       - application/json
       responses:
@@ -1728,23 +3526,23 @@ paths:
           description: Created
           schema:
             allOf:
-            - $ref: '#/definitions/handlers.APIResponse'
+            - $ref: '#/definitions/internal_handlers.APIResponse'
             - properties:
                 data:
-                  $ref: '#/definitions/models.ContentEntry'
+                  $ref: '#/definitions/github_com_yamovo_contentx_internal_models.ContentEntry'
               type: object
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/handlers.APIResponse'
+            $ref: '#/definitions/internal_handlers.APIResponse'
         "401":
           description: Unauthorized
           schema:
-            $ref: '#/definitions/handlers.APIResponse'
+            $ref: '#/definitions/internal_handlers.APIResponse'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/handlers.APIResponse'
+            $ref: '#/definitions/internal_handlers.APIResponse'
       security:
       - BearerAuth: []
       summary: Create entry
@@ -1770,11 +3568,11 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/handlers.APIResponse'
+            $ref: '#/definitions/internal_handlers.APIResponse'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/handlers.APIResponse'
+            $ref: '#/definitions/internal_handlers.APIResponse'
       security:
       - BearerAuth: []
       summary: Delete entry
@@ -1800,15 +3598,15 @@ paths:
           description: OK
           schema:
             allOf:
-            - $ref: '#/definitions/handlers.APIResponse'
+            - $ref: '#/definitions/internal_handlers.APIResponse'
             - properties:
                 data:
-                  $ref: '#/definitions/models.ContentEntry'
+                  $ref: '#/definitions/github_com_yamovo_contentx_internal_models.ContentEntry'
               type: object
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/handlers.APIResponse'
+            $ref: '#/definitions/internal_handlers.APIResponse'
       security:
       - BearerAuth: []
       summary: Get entry
@@ -1834,7 +3632,7 @@ paths:
         name: body
         required: true
         schema:
-          $ref: '#/definitions/services.UpdateEntryRequest'
+          $ref: '#/definitions/github_com_yamovo_contentx_internal_services.UpdateEntryRequest'
       produces:
       - application/json
       responses:
@@ -1842,19 +3640,19 @@ paths:
           description: OK
           schema:
             allOf:
-            - $ref: '#/definitions/handlers.APIResponse'
+            - $ref: '#/definitions/internal_handlers.APIResponse'
             - properties:
                 data:
-                  $ref: '#/definitions/models.ContentEntry'
+                  $ref: '#/definitions/github_com_yamovo_contentx_internal_models.ContentEntry'
               type: object
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/handlers.APIResponse'
+            $ref: '#/definitions/internal_handlers.APIResponse'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/handlers.APIResponse'
+            $ref: '#/definitions/internal_handlers.APIResponse'
       security:
       - BearerAuth: []
       summary: Update entry
@@ -1881,18 +3679,113 @@ paths:
           description: OK
           schema:
             allOf:
-            - $ref: '#/definitions/handlers.APIResponse'
+            - $ref: '#/definitions/internal_handlers.APIResponse'
             - properties:
                 data:
-                  $ref: '#/definitions/models.ContentEntry'
+                  $ref: '#/definitions/github_com_yamovo_contentx_internal_models.ContentEntry'
               type: object
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/handlers.APIResponse'
+            $ref: '#/definitions/internal_handlers.APIResponse'
       security:
       - BearerAuth: []
       summary: Publish entry
+      tags:
+      - Content Entries
+  /content/{uid}/{documentId}/translations:
+    get:
+      description: Returns sibling translations of an entry (same translation group)
+      parameters:
+      - description: Content Type UID
+        in: path
+        name: uid
+        required: true
+        type: string
+      - description: Document ID
+        in: path
+        name: documentId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/internal_handlers.APIResponse'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: List entry translations
+      tags:
+      - Content Entries
+    post:
+      consumes:
+      - application/json
+      description: Creates a new entry as a translation of an existing one. Requires
+        content.create permission.
+      parameters:
+      - description: Content Type UID
+        in: path
+        name: uid
+        required: true
+        type: string
+      - description: Document ID
+        in: path
+        name: documentId
+        required: true
+        type: string
+      - description: Target locale (BCP-47 tag, e.g. en, zh)
+        in: query
+        name: locale
+        required: true
+        type: string
+      - description: Entry translation payload
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/github_com_yamovo_contentx_internal_services.CreateEntryRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            allOf:
+            - $ref: '#/definitions/internal_handlers.APIResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/github_com_yamovo_contentx_internal_models.ContentEntry'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Create entry translation
       tags:
       - Content Entries
   /content/{uid}/{documentId}/unpublish:
@@ -1916,15 +3809,15 @@ paths:
           description: OK
           schema:
             allOf:
-            - $ref: '#/definitions/handlers.APIResponse'
+            - $ref: '#/definitions/internal_handlers.APIResponse'
             - properties:
                 data:
-                  $ref: '#/definitions/models.ContentEntry'
+                  $ref: '#/definitions/github_com_yamovo_contentx_internal_models.ContentEntry'
               type: object
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/handlers.APIResponse'
+            $ref: '#/definitions/internal_handlers.APIResponse'
       security:
       - BearerAuth: []
       summary: Unpublish entry
@@ -1946,7 +3839,7 @@ paths:
           description: OK
           schema:
             allOf:
-            - $ref: '#/definitions/handlers.APIResponse'
+            - $ref: '#/definitions/internal_handlers.APIResponse'
             - properties:
                 data:
                   type: string
@@ -1954,7 +3847,7 @@ paths:
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/handlers.APIResponse'
+            $ref: '#/definitions/internal_handlers.APIResponse'
       security:
       - BearerAuth: []
       summary: Export entries
@@ -1984,7 +3877,7 @@ paths:
           description: OK
           schema:
             allOf:
-            - $ref: '#/definitions/handlers.APIResponse'
+            - $ref: '#/definitions/internal_handlers.APIResponse'
             - properties:
                 data:
                   properties:
@@ -1995,16 +3888,1464 @@ paths:
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/handlers.APIResponse'
+            $ref: '#/definitions/internal_handlers.APIResponse'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/handlers.APIResponse'
+            $ref: '#/definitions/internal_handlers.APIResponse'
       security:
       - BearerAuth: []
       summary: Import entries
       tags:
       - Content Entries
+  /media:
+    get:
+      description: Returns media files with pagination and filters
+      parameters:
+      - default: 1
+        description: Page number
+        in: query
+        name: page
+        type: integer
+      - default: 20
+        description: Items per page
+        in: query
+        name: page_size
+        type: integer
+      - description: Filter by MIME type
+        in: query
+        name: type
+        type: string
+      - description: Filter by folder
+        in: query
+        name: folder
+        type: string
+      - description: Search by filename
+        in: query
+        name: search
+        type: string
+      - default: newest
+        description: Sort order (newest|oldest|name)
+        in: query
+        name: sort
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/internal_handlers.APIResponse'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: List media
+      tags:
+      - Media
+  /media/{id}:
+    delete:
+      description: Removes a media file (requires media.delete permission)
+      parameters:
+      - description: Media ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Delete media
+      tags:
+      - Media
+    get:
+      description: Returns a single media item by ID
+      parameters:
+      - description: Media ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/internal_handlers.APIResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/github_com_yamovo_contentx_internal_models.Media'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Get media
+      tags:
+      - Media
+    put:
+      consumes:
+      - application/json
+      description: Updates media metadata (alt, title, caption, etc.)
+      parameters:
+      - description: Media ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Media metadata
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/github_com_yamovo_contentx_internal_services.UpdateMediaRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Update media
+      tags:
+      - Media
+  /media/bulk-delete:
+    post:
+      consumes:
+      - application/json
+      description: Removes multiple media files (requires media.delete permission)
+      parameters:
+      - description: Bulk payload {ids}
+        in: body
+        name: body
+        required: true
+        schema:
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Bulk delete media
+      tags:
+      - Media
+  /media/folders:
+    get:
+      description: Returns all unique media folders
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/internal_handlers.APIResponse'
+            - properties:
+                data:
+                  items:
+                    type: string
+                  type: array
+              type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: List media folders
+      tags:
+      - Media
+  /media/stats:
+    get:
+      description: Returns media library statistics
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/internal_handlers.APIResponse'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Media stats
+      tags:
+      - Media
+  /media/upload:
+    post:
+      consumes:
+      - multipart/form-data
+      description: Uploads a file (requires media.upload permission)
+      parameters:
+      - description: File to upload
+        in: formData
+        name: file
+        required: true
+        type: file
+      - description: Destination folder
+        in: formData
+        name: folder
+        type: string
+      - description: Alt text
+        in: formData
+        name: alt
+        type: string
+      - description: Title
+        in: formData
+        name: title
+        type: string
+      - description: Caption
+        in: formData
+        name: caption
+        type: string
+      - description: Description
+        in: formData
+        name: description
+        type: string
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            allOf:
+            - $ref: '#/definitions/internal_handlers.APIResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/github_com_yamovo_contentx_internal_models.Media'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Upload media
+      tags:
+      - Media
+  /menus:
+    get:
+      description: Returns all navigation menus
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/internal_handlers.APIResponse'
+            - properties:
+                data:
+                  items:
+                    $ref: '#/definitions/github_com_yamovo_contentx_internal_models.Menu'
+                  type: array
+              type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: List menus
+      tags:
+      - Menus
+    post:
+      consumes:
+      - application/json
+      description: Creates a new menu (requires menus.manage permission)
+      parameters:
+      - description: Menu data
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/github_com_yamovo_contentx_internal_services.CreateMenuRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            allOf:
+            - $ref: '#/definitions/internal_handlers.APIResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/github_com_yamovo_contentx_internal_models.Menu'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Create menu
+      tags:
+      - Menus
+  /menus/{id}:
+    delete:
+      description: Deletes a menu and its items (requires menus.manage permission)
+      parameters:
+      - description: Menu ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Delete menu
+      tags:
+      - Menus
+    get:
+      description: Returns a single menu with its items
+      parameters:
+      - description: Menu ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/internal_handlers.APIResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/github_com_yamovo_contentx_internal_models.Menu'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Get menu
+      tags:
+      - Menus
+    put:
+      consumes:
+      - application/json
+      description: Updates a menu (requires menus.manage permission)
+      parameters:
+      - description: Menu ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Menu data
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/github_com_yamovo_contentx_internal_services.UpdateMenuRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Update menu
+      tags:
+      - Menus
+  /menus/{id}/items:
+    post:
+      consumes:
+      - application/json
+      description: Adds an item to a menu (requires menus.manage permission)
+      parameters:
+      - description: Menu ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Menu item data
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/github_com_yamovo_contentx_internal_services.AddMenuItemRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            allOf:
+            - $ref: '#/definitions/internal_handlers.APIResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/github_com_yamovo_contentx_internal_models.MenuItem'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Add menu item
+      tags:
+      - Menus
+  /menus/{id}/items/{item_id}:
+    delete:
+      description: Removes a menu item (requires menus.manage permission)
+      parameters:
+      - description: Menu ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Item ID
+        in: path
+        name: item_id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Delete menu item
+      tags:
+      - Menus
+    put:
+      consumes:
+      - application/json
+      description: Updates a menu item (requires menus.manage permission)
+      parameters:
+      - description: Menu ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Item ID
+        in: path
+        name: item_id
+        required: true
+        type: integer
+      - description: Item data
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/github_com_yamovo_contentx_internal_services.UpdateMenuItemRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Update menu item
+      tags:
+      - Menus
+  /menus/{id}/items/reorder:
+    put:
+      consumes:
+      - application/json
+      description: Updates sort order for menu items (requires menus.manage permission)
+      parameters:
+      - description: Menu ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Reorder payload {items}
+        in: body
+        name: body
+        required: true
+        schema:
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Reorder menu items
+      tags:
+      - Menus
+  /plugins:
+    get:
+      description: Returns all installed plugins
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/internal_handlers.APIResponse'
+            - properties:
+                data:
+                  items:
+                    $ref: '#/definitions/github_com_yamovo_contentx_internal_models.Plugin'
+                  type: array
+              type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: List plugins
+      tags:
+      - Plugins
+  /plugins/{id}/config:
+    put:
+      consumes:
+      - application/json
+      description: Updates a plugin's configuration (requires plugins.manage permission)
+      parameters:
+      - description: Plugin ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Plugin configuration
+        in: body
+        name: body
+        required: true
+        schema:
+          additionalProperties: true
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Update plugin config
+      tags:
+      - Plugins
+  /plugins/{id}/disable:
+    post:
+      description: Disables a plugin (requires plugins.manage permission)
+      parameters:
+      - description: Plugin ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Disable plugin
+      tags:
+      - Plugins
+  /plugins/{id}/enable:
+    post:
+      description: Enables a plugin (requires plugins.manage permission)
+      parameters:
+      - description: Plugin ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Enable plugin
+      tags:
+      - Plugins
+  /roles:
+    get:
+      description: Returns all roles (requires roles.view permission)
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/internal_handlers.APIResponse'
+            - properties:
+                data:
+                  items:
+                    $ref: '#/definitions/github_com_yamovo_contentx_internal_models.Role'
+                  type: array
+              type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: List roles
+      tags:
+      - Roles
+    post:
+      consumes:
+      - application/json
+      description: Creates a new role (requires roles.manage permission)
+      parameters:
+      - description: Role data
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/github_com_yamovo_contentx_internal_services.CreateRoleRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            allOf:
+            - $ref: '#/definitions/internal_handlers.APIResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/github_com_yamovo_contentx_internal_models.Role'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Create role
+      tags:
+      - Roles
+  /roles/{id}:
+    delete:
+      description: Removes a role (requires roles.manage permission)
+      parameters:
+      - description: Role ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Delete role
+      tags:
+      - Roles
+    put:
+      consumes:
+      - application/json
+      description: Updates a role (requires roles.manage permission)
+      parameters:
+      - description: Role ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Role data
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/github_com_yamovo_contentx_internal_services.UpdateRoleRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/internal_handlers.APIResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/github_com_yamovo_contentx_internal_models.Role'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Update role
+      tags:
+      - Roles
+  /roles/permissions:
+    get:
+      description: Returns all available permissions grouped by module
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/internal_handlers.APIResponse'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: List permissions
+      tags:
+      - Roles
+  /search:
+    get:
+      description: Full-text search across articles and pages. Public endpoint returns
+        only published content.
+      parameters:
+      - description: Search query
+        in: query
+        name: q
+        required: true
+        type: string
+      - description: Filter by type
+        enum:
+        - article
+        - page
+        in: query
+        name: type
+        type: string
+      - description: Filter by status (admin only; public callers are forced to 'published')
+        enum:
+        - draft
+        - published
+        - pending
+        - scheduled
+        - trash
+        - archived
+        in: query
+        name: status
+        type: string
+      - description: Filter by locale (BCP-47 tag, e.g. en, zh)
+        in: query
+        name: locale
+        type: string
+      - default: 1
+        description: Page number
+        in: query
+        name: page
+        type: integer
+      - default: 20
+        description: Items per page
+        in: query
+        name: page_size
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/internal_handlers.APIResponse'
+            - properties:
+                data:
+                  type: object
+              type: object
+      summary: Search content
+      tags:
+      - Search
+  /search/admin:
+    get:
+      description: Full-text search across all statuses. Requires authentication.
+      parameters:
+      - description: Search query
+        in: query
+        name: q
+        required: true
+        type: string
+      - description: Filter by type
+        enum:
+        - article
+        - page
+        in: query
+        name: type
+        type: string
+      - description: Filter by status (empty = any)
+        in: query
+        name: status
+        type: string
+      - description: Filter by locale
+        in: query
+        name: locale
+        type: string
+      - default: 1
+        description: Page number
+        in: query
+        name: page
+        type: integer
+      - default: 20
+        description: Items per page
+        in: query
+        name: page_size
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/internal_handlers.APIResponse'
+            - properties:
+                data:
+                  type: object
+              type: object
+      security:
+      - BearerAuth: []
+      summary: Search content (admin)
+      tags:
+      - Search
+  /search/reindex:
+    post:
+      description: Rebuilds the full-text search index from the database. Admin only.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/internal_handlers.APIResponse'
+            - properties:
+                data:
+                  type: object
+              type: object
+      security:
+      - BearerAuth: []
+      summary: Rebuild search index
+      tags:
+      - Search
+  /seo/{type}/{id}:
+    get:
+      description: Returns SEO settings for a specific entity
+      parameters:
+      - description: Entity type (article|category|page)
+        in: path
+        name: type
+        required: true
+        type: string
+      - description: Entity ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/internal_handlers.APIResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/github_com_yamovo_contentx_internal_models.SEOSetting'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Get SEO setting
+      tags:
+      - SEO
+    put:
+      consumes:
+      - application/json
+      description: Updates SEO settings for a specific entity (requires seo.manage
+        permission)
+      parameters:
+      - description: Entity type (article|category|page)
+        in: path
+        name: type
+        required: true
+        type: string
+      - description: Entity ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: SEO setting data
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/github_com_yamovo_contentx_internal_services.SEOSettingRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Update SEO setting
+      tags:
+      - SEO
+  /seo/redirects:
+    get:
+      description: Returns all redirect rules
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/internal_handlers.APIResponse'
+            - properties:
+                data:
+                  items:
+                    $ref: '#/definitions/github_com_yamovo_contentx_internal_models.RedirectRule'
+                  type: array
+              type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: List redirects
+      tags:
+      - SEO
+    post:
+      consumes:
+      - application/json
+      description: Creates a redirect rule (requires seo.manage permission)
+      parameters:
+      - description: Redirect data
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/github_com_yamovo_contentx_internal_services.CreateRedirectRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            allOf:
+            - $ref: '#/definitions/internal_handlers.APIResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/github_com_yamovo_contentx_internal_models.RedirectRule'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Create redirect
+      tags:
+      - SEO
+  /seo/redirects/{id}:
+    delete:
+      description: Deletes a redirect rule (requires seo.manage permission)
+      parameters:
+      - description: Redirect ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Delete redirect
+      tags:
+      - SEO
+  /seo/robots.txt:
+    get:
+      description: Generates the robots.txt file (public, no auth required)
+      produces:
+      - text/plain
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: string
+      summary: Robots.txt
+      tags:
+      - SEO
+  /seo/sitemap:
+    get:
+      description: Generates the XML sitemap (public, no auth required)
+      produces:
+      - text/xml
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: string
+      summary: Sitemap
+      tags:
+      - SEO
+  /settings:
+    get:
+      description: Returns all settings, optionally filtered by group (requires settings.view
+        permission)
+      parameters:
+      - description: Filter by group
+        in: query
+        name: group
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/internal_handlers.APIResponse'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: List settings
+      tags:
+      - Settings
+    put:
+      consumes:
+      - application/json
+      description: Updates multiple settings at once (requires settings.manage permission)
+      parameters:
+      - description: Settings key-value map
+        in: body
+        name: body
+        required: true
+        schema:
+          additionalProperties: true
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Update settings
+      tags:
+      - Settings
+  /settings/{key}:
+    get:
+      description: Returns a single setting by key
+      parameters:
+      - description: Setting key
+        in: path
+        name: key
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/internal_handlers.APIResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/github_com_yamovo_contentx_internal_models.SiteSetting'
+              type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Get setting
+      tags:
+      - Settings
+  /settings/public:
+    get:
+      description: Returns settings safe for public consumption (no auth required)
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/internal_handlers.APIResponse'
+            - properties:
+                data:
+                  type: object
+              type: object
+      summary: Public settings
+      tags:
+      - Settings
   /system/activity:
     get:
       description: Returns paginated activity audit trail
@@ -2038,21 +5379,21 @@ paths:
           description: OK
           schema:
             allOf:
-            - $ref: '#/definitions/handlers.APIResponse'
+            - $ref: '#/definitions/internal_handlers.APIResponse'
             - properties:
                 data:
                   items:
-                    $ref: '#/definitions/models.ActivityLog'
+                    $ref: '#/definitions/github_com_yamovo_contentx_internal_models.ActivityLog'
                   type: array
               type: object
         "401":
           description: Unauthorized
           schema:
-            $ref: '#/definitions/handlers.APIResponse'
+            $ref: '#/definitions/internal_handlers.APIResponse'
         "403":
           description: Forbidden
           schema:
-            $ref: '#/definitions/handlers.APIResponse'
+            $ref: '#/definitions/internal_handlers.APIResponse'
       security:
       - BearerAuth: []
       summary: Activity log
@@ -2095,7 +5436,7 @@ paths:
           description: OK
           schema:
             allOf:
-            - $ref: '#/definitions/handlers.APIResponse'
+            - $ref: '#/definitions/internal_handlers.APIResponse'
             - properties:
                 data:
                   type: object
@@ -2103,7 +5444,7 @@ paths:
         "401":
           description: Unauthorized
           schema:
-            $ref: '#/definitions/handlers.APIResponse'
+            $ref: '#/definitions/internal_handlers.APIResponse'
       security:
       - BearerAuth: []
       summary: System info
@@ -2119,21 +5460,21 @@ paths:
           description: OK
           schema:
             allOf:
-            - $ref: '#/definitions/handlers.APIResponse'
+            - $ref: '#/definitions/internal_handlers.APIResponse'
             - properties:
                 data:
                   items:
-                    $ref: '#/definitions/models.APIToken'
+                    $ref: '#/definitions/github_com_yamovo_contentx_internal_models.APIToken'
                   type: array
               type: object
         "401":
           description: Unauthorized
           schema:
-            $ref: '#/definitions/handlers.APIResponse'
+            $ref: '#/definitions/internal_handlers.APIResponse'
         "403":
           description: Forbidden
           schema:
-            $ref: '#/definitions/handlers.APIResponse'
+            $ref: '#/definitions/internal_handlers.APIResponse'
       security:
       - BearerAuth: []
       summary: List API tokens
@@ -2149,7 +5490,7 @@ paths:
         name: body
         required: true
         schema:
-          $ref: '#/definitions/services.CreateTokenRequest'
+          $ref: '#/definitions/github_com_yamovo_contentx_internal_services.CreateTokenRequest'
       produces:
       - application/json
       responses:
@@ -2157,23 +5498,23 @@ paths:
           description: Created
           schema:
             allOf:
-            - $ref: '#/definitions/handlers.APIResponse'
+            - $ref: '#/definitions/internal_handlers.APIResponse'
             - properties:
                 data:
-                  $ref: '#/definitions/services.TokenCreatedResponse'
+                  $ref: '#/definitions/github_com_yamovo_contentx_internal_services.TokenCreatedResponse'
               type: object
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/handlers.APIResponse'
+            $ref: '#/definitions/internal_handlers.APIResponse'
         "401":
           description: Unauthorized
           schema:
-            $ref: '#/definitions/handlers.APIResponse'
+            $ref: '#/definitions/internal_handlers.APIResponse'
         "403":
           description: Forbidden
           schema:
-            $ref: '#/definitions/handlers.APIResponse'
+            $ref: '#/definitions/internal_handlers.APIResponse'
       security:
       - BearerAuth: []
       summary: Create API token
@@ -2194,28 +5535,627 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/handlers.APIResponse'
+            $ref: '#/definitions/internal_handlers.APIResponse'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/handlers.APIResponse'
+            $ref: '#/definitions/internal_handlers.APIResponse'
         "401":
           description: Unauthorized
           schema:
-            $ref: '#/definitions/handlers.APIResponse'
+            $ref: '#/definitions/internal_handlers.APIResponse'
         "403":
           description: Forbidden
           schema:
-            $ref: '#/definitions/handlers.APIResponse'
+            $ref: '#/definitions/internal_handlers.APIResponse'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/handlers.APIResponse'
+            $ref: '#/definitions/internal_handlers.APIResponse'
       security:
       - BearerAuth: []
       summary: Delete API token
       tags:
       - System
+  /tags:
+    get:
+      description: Returns all tags with optional sorting and limit
+      parameters:
+      - default: name
+        description: Sort field (name|count)
+        in: query
+        name: sort
+        type: string
+      - default: 0
+        description: Max items (0 = all)
+        in: query
+        name: limit
+        type: integer
+      - description: Search by name
+        in: query
+        name: search
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/internal_handlers.APIResponse'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: List tags
+      tags:
+      - Tags
+    post:
+      consumes:
+      - application/json
+      description: Creates a new tag (requires tags.manage permission)
+      parameters:
+      - description: Tag data
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/github_com_yamovo_contentx_internal_services.CreateTagRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            allOf:
+            - $ref: '#/definitions/internal_handlers.APIResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/github_com_yamovo_contentx_internal_models.Tag'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Create tag
+      tags:
+      - Tags
+  /tags/{id}:
+    delete:
+      description: Removes a tag (requires tags.manage permission)
+      parameters:
+      - description: Tag ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Delete tag
+      tags:
+      - Tags
+    get:
+      description: Returns a single tag by ID
+      parameters:
+      - description: Tag ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/internal_handlers.APIResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/github_com_yamovo_contentx_internal_models.Tag'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Get tag
+      tags:
+      - Tags
+    put:
+      consumes:
+      - application/json
+      description: Updates a tag (requires tags.manage permission)
+      parameters:
+      - description: Tag ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Tag data
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/github_com_yamovo_contentx_internal_services.UpdateTagRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Update tag
+      tags:
+      - Tags
+  /tags/merge:
+    post:
+      consumes:
+      - application/json
+      description: Merges multiple source tags into one target tag (requires tags.manage
+        permission)
+      parameters:
+      - description: Merge payload {source_ids, target_id, delete_old}
+        in: body
+        name: body
+        required: true
+        schema:
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Merge tags
+      tags:
+      - Tags
+  /themes:
+    get:
+      description: Returns all installed themes
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/internal_handlers.APIResponse'
+            - properties:
+                data:
+                  items:
+                    $ref: '#/definitions/github_com_yamovo_contentx_internal_models.ThemeConfig'
+                  type: array
+              type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: List themes
+      tags:
+      - Themes
+  /themes/{id}/activate:
+    post:
+      description: Activates a theme (requires themes.manage permission)
+      parameters:
+      - description: Theme ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Activate theme
+      tags:
+      - Themes
+  /themes/{id}/config:
+    put:
+      consumes:
+      - application/json
+      description: Updates theme configuration (requires themes.manage permission)
+      parameters:
+      - description: Theme ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Theme configuration
+        in: body
+        name: body
+        required: true
+        schema:
+          additionalProperties: true
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Update theme config
+      tags:
+      - Themes
+  /users:
+    get:
+      description: Returns users with pagination and filters (requires users.view
+        permission)
+      parameters:
+      - default: 1
+        description: Page number
+        in: query
+        name: page
+        type: integer
+      - default: 20
+        description: Items per page
+        in: query
+        name: page_size
+        type: integer
+      - description: Filter by role
+        in: query
+        name: role
+        type: string
+      - description: Filter by status
+        in: query
+        name: status
+        type: string
+      - description: Search by name/email
+        in: query
+        name: search
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/internal_handlers.APIResponse'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: List users
+      tags:
+      - Users
+    post:
+      consumes:
+      - application/json
+      description: Creates a new user (requires users.create permission)
+      parameters:
+      - description: User data
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/github_com_yamovo_contentx_internal_services.CreateUserRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            allOf:
+            - $ref: '#/definitions/internal_handlers.APIResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/github_com_yamovo_contentx_internal_services.SafeUser'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Create user
+      tags:
+      - Users
+  /users/{id}:
+    delete:
+      description: Soft-deletes a user (requires users.delete permission)
+      parameters:
+      - description: User ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Delete user
+      tags:
+      - Users
+    get:
+      description: Returns a single user by ID (requires users.view permission)
+      parameters:
+      - description: User ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/internal_handlers.APIResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/github_com_yamovo_contentx_internal_services.SafeUser'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Get user
+      tags:
+      - Users
+    put:
+      consumes:
+      - application/json
+      description: Updates a user (requires users.edit permission)
+      parameters:
+      - description: User ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: User data
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/github_com_yamovo_contentx_internal_services.UpdateUserRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/internal_handlers.APIResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/github_com_yamovo_contentx_internal_services.SafeUser'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Update user
+      tags:
+      - Users
+  /users/{id}/reset-password:
+    post:
+      consumes:
+      - application/json
+      description: Resets a user's password (requires users.edit permission)
+      parameters:
+      - description: User ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Payload {new_password}
+        in: body
+        name: body
+        required: true
+        schema:
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Reset user password
+      tags:
+      - Users
   /webhooks:
     get:
       description: Returns all configured webhooks
@@ -2226,21 +6166,21 @@ paths:
           description: OK
           schema:
             allOf:
-            - $ref: '#/definitions/handlers.APIResponse'
+            - $ref: '#/definitions/internal_handlers.APIResponse'
             - properties:
                 data:
                   items:
-                    $ref: '#/definitions/models.Webhook'
+                    $ref: '#/definitions/github_com_yamovo_contentx_internal_models.Webhook'
                   type: array
               type: object
         "401":
           description: Unauthorized
           schema:
-            $ref: '#/definitions/handlers.APIResponse'
+            $ref: '#/definitions/internal_handlers.APIResponse'
         "403":
           description: Forbidden
           schema:
-            $ref: '#/definitions/handlers.APIResponse'
+            $ref: '#/definitions/internal_handlers.APIResponse'
       security:
       - BearerAuth: []
       summary: List webhooks
@@ -2256,7 +6196,7 @@ paths:
         name: body
         required: true
         schema:
-          $ref: '#/definitions/services.CreateWebhookRequest'
+          $ref: '#/definitions/github_com_yamovo_contentx_internal_services.CreateWebhookRequest'
       produces:
       - application/json
       responses:
@@ -2264,23 +6204,23 @@ paths:
           description: Created
           schema:
             allOf:
-            - $ref: '#/definitions/handlers.APIResponse'
+            - $ref: '#/definitions/internal_handlers.APIResponse'
             - properties:
                 data:
-                  $ref: '#/definitions/models.Webhook'
+                  $ref: '#/definitions/github_com_yamovo_contentx_internal_models.Webhook'
               type: object
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/handlers.APIResponse'
+            $ref: '#/definitions/internal_handlers.APIResponse'
         "401":
           description: Unauthorized
           schema:
-            $ref: '#/definitions/handlers.APIResponse'
+            $ref: '#/definitions/internal_handlers.APIResponse'
         "403":
           description: Forbidden
           schema:
-            $ref: '#/definitions/handlers.APIResponse'
+            $ref: '#/definitions/internal_handlers.APIResponse'
       security:
       - BearerAuth: []
       summary: Create webhook
@@ -2301,19 +6241,19 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/handlers.APIResponse'
+            $ref: '#/definitions/internal_handlers.APIResponse'
         "401":
           description: Unauthorized
           schema:
-            $ref: '#/definitions/handlers.APIResponse'
+            $ref: '#/definitions/internal_handlers.APIResponse'
         "403":
           description: Forbidden
           schema:
-            $ref: '#/definitions/handlers.APIResponse'
+            $ref: '#/definitions/internal_handlers.APIResponse'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/handlers.APIResponse'
+            $ref: '#/definitions/internal_handlers.APIResponse'
       security:
       - BearerAuth: []
       summary: Delete webhook
@@ -2339,21 +6279,21 @@ paths:
           description: OK
           schema:
             allOf:
-            - $ref: '#/definitions/handlers.APIResponse'
+            - $ref: '#/definitions/internal_handlers.APIResponse'
             - properties:
                 data:
                   items:
-                    $ref: '#/definitions/models.WebhookLog'
+                    $ref: '#/definitions/github_com_yamovo_contentx_internal_models.WebhookLog'
                   type: array
               type: object
         "401":
           description: Unauthorized
           schema:
-            $ref: '#/definitions/handlers.APIResponse'
+            $ref: '#/definitions/internal_handlers.APIResponse'
         "403":
           description: Forbidden
           schema:
-            $ref: '#/definitions/handlers.APIResponse'
+            $ref: '#/definitions/internal_handlers.APIResponse'
       security:
       - BearerAuth: []
       summary: Webhook logs

@@ -1,0 +1,72 @@
+# Version control
+.git/
+.gitignore
+.gitattributes
+
+# Environment & secrets
+# Only exclude root-level runtime secret/config files; keep all .env.example
+# templates (including deploy/docker/.env.example, which the Dockerfile COPYs
+# into the image as the default .env).
+.env
+.env.docker
+
+# Go build artifacts & local binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+/contentx
+/vortexcms
+contentx-verify.exe
+
+# Frontend build dependencies & artifacts (rebuilt inside the image)
+web/node_modules/
+web/dist/
+web/.env.local
+
+# IDE / editor
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Runtime data (mounted as volumes in production)
+uploads/
+backups/
+logs/
+*.db
+*.db-journal
+*.db-wal
+*-shm
+*-wal
+*.log
+
+# Benchmark raw artifacts (large Vegeta .bin files)
+reports/benchmarks/raw/**/*.bin
+
+# Security backups
+.security-backup-*/
+
+# Coverage & test artifacts
+coverage.html
+coverage.txt
+coverage.out
+coverage*
+cover_*.txt
+cover_func.txt
+
+# Codegraph cache
+.codegraph/
+
+# Project metadata not needed at build time
+PROGRESS.md
+CHANGELOG.md
+.github/
+docs/screenshots/

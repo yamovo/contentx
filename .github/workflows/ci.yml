@@ -38,6 +38,12 @@ jobs:
       - name: Run go vet
         run: go vet ./...
 
+      - name: Swagger drift check
+        run: |
+          go install github.com/swaggo/swag/cmd/swag@latest
+          swag init -g cmd/server/main.go --parseDependency --parseInternal -o docs/api
+          git diff --exit-code docs/api/
+
       - name: Run linter
         uses: golangci/golangci-lint-action@v7
         with:

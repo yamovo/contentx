@@ -4,6 +4,7 @@ import (
 	"strconv"
 
 	"github.com/gin-gonic/gin"
+	_ "github.com/yamovo/contentx/internal/models" // swag annotation resolution
 	"github.com/yamovo/contentx/internal/services"
 )
 
@@ -408,6 +409,17 @@ func isReservedParam(key string) bool {
 
 // ListEntryTranslations returns sibling translations of an entry.
 // GET /api/v1/content/:uid/:documentId/translations
+//
+//	@Summary      List entry translations
+//	@Description  Returns sibling translations of an entry (same translation group)
+//	@Tags         Content Entries
+//	@Produce      json
+//	@Param        uid         path  string  true  "Content Type UID"
+//	@Param        documentId  path  string  true  "Document ID"
+//	@Security     BearerAuth
+//	@Success      200  {object}  APIResponse{data=object}
+//	@Failure      404  {object}  APIResponse
+//	@Router       /content/{uid}/{documentId}/translations [get]
 func (h *ContentTypeHandler) ListEntryTranslations(c *gin.Context) {
 	translations, err := h.svc.ListEntryTranslations(c.Param("uid"), c.Param("documentId"))
 	if err != nil {
@@ -419,6 +431,23 @@ func (h *ContentTypeHandler) ListEntryTranslations(c *gin.Context) {
 
 // CreateEntryTranslation creates a new entry as a translation.
 // POST /api/v1/content/:uid/:documentId/translations?locale=zh
+//
+//	@Summary      Create entry translation
+//	@Description  Creates a new entry as a translation of an existing one. Requires content.create permission.
+//	@Tags         Content Entries
+//	@Accept       json
+//	@Produce      json
+//	@Param        uid         path  string                     true  "Content Type UID"
+//	@Param        documentId  path  string                     true  "Document ID"
+//	@Param        locale      query string                     true  "Target locale (BCP-47 tag, e.g. en, zh)"
+//	@Param        body        body  services.CreateEntryRequest  true  "Entry translation payload"
+//	@Security     BearerAuth
+//	@Success      201  {object}  APIResponse{data=models.ContentEntry}
+//	@Failure      400  {object}  APIResponse
+//	@Failure      401  {object}  APIResponse
+//	@Failure      403  {object}  APIResponse
+//	@Failure      404  {object}  APIResponse
+//	@Router       /content/{uid}/{documentId}/translations [post]
 func (h *ContentTypeHandler) CreateEntryTranslation(c *gin.Context) {
 	locale := c.Query("locale")
 	if locale == "" {

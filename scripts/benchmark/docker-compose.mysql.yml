@@ -4,13 +4,16 @@
 #
 # Usage (from repo root):
 #   docker compose -f scripts/benchmark/docker-compose.mysql.yml up -d --build
-#   # wait until healthy, then seed:
-#   mysql -h127.0.0.1 -P13306 -ucontentx -pbenchpass contentx < scripts/benchmark/seed_mysql_10000.sql
-#   # run the load test:
+#   # wait until healthy, then seed. PowerShell does not support `<` redirection,
+#   # so pipe Get-Content instead (Bash users can use `mysql ... < file.sql`):
+#   Get-Content scripts/benchmark/seed_mysql_10000.sql | mysql -h127.0.0.1 -P13306 -ucontentx -pbenchpass contentx
+#   # run the load test. run-benchmark.ps1 now derives the default BaseUrl from
+#   # -Driver (mysql -> http://127.0.0.1:18090), so -BaseUrl is optional (S1-2):
 #   pwsh scripts/benchmark/run-benchmark.ps1 -Driver mysql -AdminPassword 'BenchAdmin123!'
 #   docker compose -f scripts/benchmark/docker-compose.mysql.yml down -v
 #
-# App is published on 18080 (same as the PostgreSQL baseline) and MySQL on 13306.
+# App is published on 18090 (differs from the PostgreSQL baseline's 18080 to
+# allow both stacks to run side by side) and MySQL on 13306.
 
 services:
   app:

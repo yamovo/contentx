@@ -158,6 +158,97 @@ func TestArticle_List_WithData(t *testing.T) {
 	}
 }
 
+// TestArticle_List_OmitsContentByDefault 验证不带 full=true 的列表响应中
+// content 字段被省略（而非返回空字符串），避免客户端误判（S0-2）。
+func TestArticle_List_OmitsContentByDefault(t *testing.T) {
+	r, db, jwtMgr := setupArticleTestRouter(t)
+	user := createTestUserDB(t, db, "author", "admin")
+	createTestArticleDB(t, db, user.ID, "Content Omission Test")
+	token := generateTestJWT(t, jwtMgr, *user)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/articles", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp APIResponse
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	data := resp.Data.(map[string]interface{})
+	items := data["items"].([]interface{})
+	if len(items) != 1 {
+		t.Fatalf("expected 1 article, got %d", len(items))
+	}
+	first := items[0].(map[string]interface{})
+	if _, ok := first["content"]; ok {
+		t.Errorf("list response should omit 'content' field by default, got %v", first["content"])
+	}
+}
+
+// TestArticle_List_IncludesContentWithFull 验证 full=true 时列表响应包含真实 content。
+func TestArticle_List_IncludesContentWithFull(t *testing.T) {
+	r, db, jwtMgr := setupArticleTestRouter(t)
+	user := createTestUserDB(t, db, "author", "admin")
+	createTestArticleDB(t, db, user.ID, "Full Content Test")
+	token := generateTestJWT(t, jwtMgr, *user)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/articles?full=true", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp APIResponse
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	data := resp.Data.(map[string]interface{})
+	items := data["items"].([]interface{})
+	if len(items) != 1 {
+		t.Fatalf("expected 1 article, got %d", len(items))
+	}
+	first := items[0].(map[string]interface{})
+	content, ok := first["content"].(string)
+	if !ok {
+		t.Fatalf("list with full=true should include 'content' field, got %v", first["content"])
+	}
+	if content != "<p>Test content for Full Content Test</p>" {
+		t.Errorf("content = %q, want %q", content, "<p>Test content for Full Content Test</p>")
+	}
+}
+
+// TestArticle_Get_IncludesContent 验证详情端点返回真实 content。
+func TestArticle_Get_IncludesContent(t *testing.T) {
+	r, db, jwtMgr := setupArticleTestRouter(t)
+	user := createTestUserDB(t, db, "author", "admin")
+	article := createTestArticleDB(t, db, user.ID, "Detail Content Test")
+	token := generateTestJWT(t, jwtMgr, *user)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/articles/"+formatUint(article.ID), nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp APIResponse
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	data := resp.Data.(map[string]interface{})
+	content, ok := data["content"].(string)
+	if !ok {
+		t.Fatalf("detail response should include 'content' field, got %v", data["content"])
+	}
+	if content != "<p>Test content for Detail Content Test</p>" {
+		t.Errorf("content = %q, want %q", content, "<p>Test content for Detail Content Test</p>")
+	}
+}
+
 // ─── Article Get Tests ───────────────────────────────────────────────────────
 
 func TestArticle_Get_NotFound(t *testing.T) {

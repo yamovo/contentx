@@ -267,6 +267,18 @@ func (h *ArticleHandler) BulkAction(c *gin.Context) {
 
 // Revisions returns the revision history for an article.
 // GET /api/v1/articles/:id/revisions
+//
+//	@Summary      List article revisions
+//	@Description  Returns the revision history for an article
+//	@Tags         Articles
+//	@Produce      json
+//	@Param        id  path  int  true  "Article ID"
+//	@Security     BearerAuth
+//	@Success      200  {object}  APIResponse{data=object}
+//	@Failure      400  {object}  APIResponse
+//	@Failure      401  {object}  APIResponse
+//	@Failure      404  {object}  APIResponse
+//	@Router       /articles/{id}/revisions [get]
 func (h *ArticleHandler) Revisions(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -285,6 +297,19 @@ func (h *ArticleHandler) Revisions(c *gin.Context) {
 
 // RestoreRevision restores an article to a specific revision.
 // POST /api/v1/articles/:id/revisions/:revision_id/restore
+//
+//	@Summary      Restore article revision
+//	@Description  Restores an article to a specific revision
+//	@Tags         Articles
+//	@Produce      json
+//	@Param        id            path  int  true  "Article ID"
+//	@Param        revision_id   path  int  true  "Revision ID"
+//	@Security     BearerAuth
+//	@Success      200  {object}  APIResponse
+//	@Failure      400  {object}  APIResponse
+//	@Failure      401  {object}  APIResponse
+//	@Failure      404  {object}  APIResponse
+//	@Router       /articles/{id}/revisions/{revision_id}/restore [post]
 func (h *ArticleHandler) RestoreRevision(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -338,6 +363,20 @@ type ScheduleRequest struct {
 
 // Publish flips an article to published status.
 // POST /api/v1/articles/:id/publish
+//
+//	@Summary      Publish article
+//	@Description  Publishes an article (status transition to published). Requires articles.edit permission.
+//	@Tags         Articles
+//	@Produce      json
+//	@Param        id  path  int  true  "Article ID"
+//	@Security     BearerAuth
+//	@Success      200  {object}  APIResponse{data=models.Article}
+//	@Failure      400  {object}  APIResponse
+//	@Failure      401  {object}  APIResponse
+//	@Failure      403  {object}  APIResponse
+//	@Failure      404  {object}  APIResponse
+//	@Failure      409  {object}  APIResponse
+//	@Router       /articles/{id}/publish [post]
 func (h *ArticleHandler) Publish(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -354,6 +393,20 @@ func (h *ArticleHandler) Publish(c *gin.Context) {
 
 // Unpublish reverts a published/scheduled article back to draft.
 // POST /api/v1/articles/:id/unpublish
+//
+//	@Summary      Unpublish article
+//	@Description  Reverts a published/scheduled article back to draft. Requires articles.edit permission.
+//	@Tags         Articles
+//	@Produce      json
+//	@Param        id  path  int  true  "Article ID"
+//	@Security     BearerAuth
+//	@Success      200  {object}  APIResponse{data=models.Article}
+//	@Failure      400  {object}  APIResponse
+//	@Failure      401  {object}  APIResponse
+//	@Failure      403  {object}  APIResponse
+//	@Failure      404  {object}  APIResponse
+//	@Failure      409  {object}  APIResponse
+//	@Router       /articles/{id}/unpublish [post]
 func (h *ArticleHandler) Unpublish(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -370,6 +423,20 @@ func (h *ArticleHandler) Unpublish(c *gin.Context) {
 
 // SubmitForReview moves a draft into the pending (review) queue.
 // POST /api/v1/articles/:id/submit-review
+//
+//	@Summary      Submit article for review
+//	@Description  Moves a draft article into the pending (review) queue. Requires articles.edit permission.
+//	@Tags         Articles
+//	@Produce      json
+//	@Param        id  path  int  true  "Article ID"
+//	@Security     BearerAuth
+//	@Success      200  {object}  APIResponse{data=models.Article}
+//	@Failure      400  {object}  APIResponse
+//	@Failure      401  {object}  APIResponse
+//	@Failure      403  {object}  APIResponse
+//	@Failure      404  {object}  APIResponse
+//	@Failure      409  {object}  APIResponse
+//	@Router       /articles/{id}/submit-review [post]
 func (h *ArticleHandler) SubmitForReview(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -386,6 +453,20 @@ func (h *ArticleHandler) SubmitForReview(c *gin.Context) {
 
 // Approve marks a pending article as published.
 // POST /api/v1/articles/:id/approve
+//
+//	@Summary      Approve article
+//	@Description  Approves a pending article, transitioning it to published. Requires editor role.
+//	@Tags         Articles
+//	@Produce      json
+//	@Param        id  path  int  true  "Article ID"
+//	@Security     BearerAuth
+//	@Success      200  {object}  APIResponse{data=models.Article}
+//	@Failure      400  {object}  APIResponse
+//	@Failure      401  {object}  APIResponse
+//	@Failure      403  {object}  APIResponse
+//	@Failure      404  {object}  APIResponse
+//	@Failure      409  {object}  APIResponse
+//	@Router       /articles/{id}/approve [post]
 func (h *ArticleHandler) Approve(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -402,6 +483,22 @@ func (h *ArticleHandler) Approve(c *gin.Context) {
 
 // Schedule marks an article for automatic publication at the given time.
 // POST /api/v1/articles/:id/schedule
+//
+//	@Summary      Schedule article publication
+//	@Description  Marks an article for automatic publication at the given time. Requires articles.edit permission.
+//	@Tags         Articles
+//	@Accept       json
+//	@Produce      json
+//	@Param        id    path  int              true  "Article ID"
+//	@Param        body  body  ScheduleRequest  true  "Schedule payload"
+//	@Security     BearerAuth
+//	@Success      200  {object}  APIResponse{data=models.Article}
+//	@Failure      400  {object}  APIResponse
+//	@Failure      401  {object}  APIResponse
+//	@Failure      403  {object}  APIResponse
+//	@Failure      404  {object}  APIResponse
+//	@Failure      409  {object}  APIResponse
+//	@Router       /articles/{id}/schedule [post]
 func (h *ArticleHandler) Schedule(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -473,6 +570,18 @@ func (h *ArticleHandler) Feed(c *gin.Context) {
 
 // ListTranslations returns all sibling translations of an article.
 // GET /api/v1/articles/:id/translations
+//
+//	@Summary      List article translations
+//	@Description  Returns all sibling translations of an article (same translation group)
+//	@Tags         Articles
+//	@Produce      json
+//	@Param        id  path  int  true  "Article ID"
+//	@Security     BearerAuth
+//	@Success      200  {object}  APIResponse{data=object}
+//	@Failure      400  {object}  APIResponse
+//	@Failure      401  {object}  APIResponse
+//	@Failure      404  {object}  APIResponse
+//	@Router       /articles/{id}/translations [get]
 func (h *ArticleHandler) ListTranslations(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -489,6 +598,22 @@ func (h *ArticleHandler) ListTranslations(c *gin.Context) {
 
 // CreateTranslation creates a new article as a translation of an existing one.
 // POST /api/v1/articles/:id/translations?locale=zh
+//
+//	@Summary      Create article translation
+//	@Description  Creates a new article as a translation of an existing one. Requires articles.create permission.
+//	@Tags         Articles
+//	@Accept       json
+//	@Produce      json
+//	@Param        id      path  int                          true  "Article ID"
+//	@Param        locale  query string                       true  "Target locale (BCP-47 tag, e.g. en, zh)"
+//	@Param        body    body  services.CreateArticleRequest  true  "Article translation payload"
+//	@Security     BearerAuth
+//	@Success      201  {object}  APIResponse{data=object}
+//	@Failure      400  {object}  APIResponse
+//	@Failure      401  {object}  APIResponse
+//	@Failure      403  {object}  APIResponse
+//	@Failure      404  {object}  APIResponse
+//	@Router       /articles/{id}/translations [post]
 func (h *ArticleHandler) CreateTranslation(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {

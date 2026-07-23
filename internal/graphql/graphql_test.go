@@ -243,6 +243,72 @@ func TestQuery_Articles_PaginationFields(t *testing.T) {
 	}
 }
 
+// TestQuery_Articles_ContentReturned 验证当客户端在 items 中请求 content 字段时，
+// 返回的是真实正文而非空字符串（回归 S0-1：列表精简优化导致 GraphQL content 回归）。
+func TestQuery_Articles_ContentReturned(t *testing.T) {
+	schema, _ := setupTestSchema(t)
+	q := `query { articles { items { id title content } } }`
+	res := graphql.Do(graphql.Params{Schema: schema, RequestString: q})
+	if res.HasErrors() {
+		t.Fatalf("unexpected errors: %v", res.Errors)
+	}
+	conn := res.Data.(map[string]interface{})["articles"].(map[string]interface{})
+	items := conn["items"].([]interface{})
+	if len(items) != 1 {
+		t.Fatalf("expected 1 published article, got %d", len(items))
+	}
+	first := items[0].(map[string]interface{})
+	if first["content"] != "First post content" {
+		t.Errorf("content = %q, want %q", first["content"], "First post content")
+	}
+	if first["title"] != "Hello World" {
+		t.Errorf("title = %v, want Hello World", first["title"])
+	}
+}
+
+// TestQuery_Articles_ContentViaFragment 验证通过 fragment spread 请求 content 时，
+// 仍然返回真实正文（覆盖 fieldInSelection 对 FragmentSpread 的解析）。
+func TestQuery_Articles_ContentViaFragment(t *testing.T) {
+	schema, _ := setupTestSchema(t)
+	q := `query { articles { items { ...ArticleFields } } } fragment ArticleFields on Article { id title content }`
+	res := graphql.Do(graphql.Params{Schema: schema, RequestString: q})
+	if res.HasErrors() {
+		t.Fatalf("unexpected errors: %v", res.Errors)
+	}
+	conn := res.Data.(map[string]interface{})["articles"].(map[string]interface{})
+	items := conn["items"].([]interface{})
+	if len(items) != 1 {
+		t.Fatalf("expected 1 published article, got %d", len(items))
+	}
+	first := items[0].(map[string]interface{})
+	if first["content"] != "First post content" {
+		t.Errorf("content = %q, want %q", first["content"], "First post content")
+	}
+}
+
+// TestQuery_Articles_SlimQueryOmitsContent 验证不请求 content 时查询仍然正常，
+// 且 content 字段为空字符串（精简优化生效，未加载正文列）。
+func TestQuery_Articles_SlimQueryOmitsContent(t *testing.T) {
+	schema, _ := setupTestSchema(t)
+	q := `query { articles { items { id title slug } } }`
+	res := graphql.Do(graphql.Params{Schema: schema, RequestString: q})
+	if res.HasErrors() {
+		t.Fatalf("unexpected errors: %v", res.Errors)
+	}
+	conn := res.Data.(map[string]interface{})["articles"].(map[string]interface{})
+	items := conn["items"].([]interface{})
+	if len(items) != 1 {
+		t.Fatalf("expected 1 published article, got %d", len(items))
+	}
+	first := items[0].(map[string]interface{})
+	if first["title"] != "Hello World" {
+		t.Errorf("title = %v, want Hello World", first["title"])
+	}
+	if first["slug"] != "hello-world" {
+		t.Errorf("slug = %v, want hello-world", first["slug"])
+	}
+}
+
 // toInt 把 graphql 响应中的数值字段统一转成 int（兼容 int/float64/int64）。
 func toInt(v interface{}) int {
 	switch n := v.(type) {
