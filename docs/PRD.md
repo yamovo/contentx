@@ -50,13 +50,15 @@ ContentX 是一个 API-first 的 Headless CMS，使用 Go 构建，提供 REST A
 
 ## 4. 当前边界
 
-以下是已知的未完成或受限能力，不构成 SLA 承诺：
+以下是已知的未完成或受限能力，不构成 SLA 承诺。标记 `[R6]` 的项计划在 ROADMAP Round 6 整改。
 
-- **GraphQL**：当前只读，写操作走 REST。
-- **搜索**：内置索引不跨实例共享，外部 MeiliSearch 驱动尚未完成。DB restore 后需重启应用重建索引。
-- **备份与恢复**：PostgreSQL/MySQL/SQLite 备份与恢复已在 ROADMAP Round 2 完成端到端演练；灾难恢复（数据库完全丢失）需绕过应用层直接用 psql 客户端（见 SOP §3.4）。
-- **压测基线**：PostgreSQL/MySQL/SQLite 三库对照基线已在 ROADMAP Round 3 统一条件下重跑，完整数据见 [reports/benchmarks/cross-db-comparison.md](../reports/benchmarks/cross-db-comparison.md)。
-- **Release 二进制**：无 CGO 发行版不支持 SQLite，需 SQLite 时使用 Docker 镜像或本地 `go build`（见 ROADMAP Round 4 / S1-3）。
+- **GraphQL**：当前只读，写操作走 REST。Mutation 支持归入 P3-C 路线 `[R6-F13]`。
+- **搜索**：内置索引不跨实例共享，外部 MeiliSearch 驱动尚未完成。DB restore 后当前需手动重启或调 `/api/v1/search/reindex` 重建索引；Round 6 将改为 restore 后自动重建 `[R6-F2]`。
+- **备份与恢复**：PostgreSQL/MySQL/SQLite 备份与恢复已在 ROADMAP Round 2 完成端到端演练。灾难恢复（数据库完全丢失）存在 auth-DB 循环依赖——restore 端点需认证查 users 表，DB 丢失时返回 401，当前需绕过应用层用 psql 客户端（见 SOP §3.4）。Round 6 将增加 `--restore` CLI 子命令消除该依赖 `[R6-F3]`。
+- **CI 卫生**：当前无本地 pre-commit 钩子，格式化与 Swagger 漂移 100% 依赖远端 CI 拦截。Round 6 将增加本地防线 `[R6-F1]`。
+- **测试覆盖**：repository/storage 等 6 个包无测试，前端仅 5 个 spec 无 coverage 配置。Round 6 将补齐 `[R6-F5~F8]`。
+- **压测基线**：PostgreSQL/MySQL/SQLite 三库对照基线已在 ROADMAP Round 3 统一条件下重跑，完整数据见 [reports/benchmarks/cross-db-comparison.md](../reports/benchmarks/cross-db-comparison.md)。MySQL historical/ 缺 metadata 将在 Round 6 补齐 `[R6-F4]`。
+- **Release 二进制**：无 CGO 发版不支持 SQLite，需 SQLite 时使用 Docker 镜像或本地 `go build`（见 ROADMAP Round 4 / S1-3）。CGO 构建变体归入 P3-C 路线 `[R6-F14]`。
 - **性能数字**：README 中引用的性能数字是阶段性本机结果，不是 SLA。
 
 ## 5. P3-B：商业化基础路线

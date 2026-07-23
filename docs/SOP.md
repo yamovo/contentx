@@ -51,6 +51,36 @@ $env:GOCACHE = Join-Path $env:TEMP 'contentx-verify-cache'
 & 'D:\tool\Go\bin\go.exe' build -o (Join-Path $env:TEMP 'contentx-verify.exe') ./cmd/server
 ```
 
+### 提交前检查
+
+> 对应 ROADMAP Round 6 / F1。目标：本地拦截格式化与 Swagger 漂移，不依赖远端 CI。
+
+**一键本地检查**（Makefile）：
+
+```bash
+make check    # fmt + vet + swagger drift + lint + test
+make install-hooks  # 安装 pre-commit 钩子到 .git/hooks/
+```
+
+**Pre-commit 钩子内容**（`scripts/git/hooks/pre-commit`，`make install-hooks` 安装）：
+
+- `go fmt ./...` + `git diff --exit-code`：拦截未格式化代码
+- `go vet ./...`：静态检查
+- `swag init -g cmd/server/main.go --parseDependency --parseInternal -o docs/api` + `git diff --exit-code docs/api/`：Swagger 漂移检查
+
+**前端钩子**（husky + lint-staged，`web/package.json` 配置）：
+
+- 对暂存的 `.ts`/`.vue` 文件运行 `vue-tsc --noEmit`
+
+> 钩子安装后每次 `git commit` 自动执行。如需跳过（不推荐），使用 `git commit --no-verify`。
+
+### 覆盖率门槛
+
+> 对应 ROADMAP Round 6 / F8。
+
+- 后端：CI 在 `go test` 后运行 `go tool cover -func=coverage.out | grep total`，低于阈值失败。
+- 前端：`web/vite.config.ts` 配置 `coverage.thresholds`，vitest 以 `--coverage` 运行并检查门槛。
+
 ## 2. Docker Compose 部署
 
 要求：Docker Desktop 或 Docker Engine 已启动。
@@ -165,8 +195,21 @@ BACKUP_RETENTION_DAYS=30       # 或按天数保留 30 天
 ### 3.4 灾难恢复（数据库完全丢失）
 
 > **重要约束**：恢复端点 `/api/v1/admin/backup/:file/restore` 需要 superadmin 认证，而认证中间件每次请求都会查询 `users` 表。如果整个数据库被删除（`DROP SCHEMA`），`users` 表不存在，端点会返回 `401 User not found` —— 恢复端点**不能**用于数据库完全丢失的场景。
+>
+> **Round 6 整改**（`[R6-F3]`）：将增加 `--restore` CLI 子命令，绕过 HTTP/认证层直接恢复，消除 auth-DB 循环依赖。以下恢复路径将在 F3 完成后更新为 CLI 方式。
 
-数据库完全丢失时的恢复路径（绕过应用层，直接用容器内的 psql 客户端）：
+#### 方式一：`--restore` CLI 子命令（Round 6 完成后推荐）
+
+```bash
+# 从 app 容器执行 CLI 恢复（绕过 HTTP 认证，直接调用 backup.Restore）
+docker exec contentx /app/contentx --restore /app/backups/<filename>.sql --driver postgres
+
+# 验证恢复结果
+docker exec contentx-db psql -U contentx -d contentx -c 'SELECT count(*) FROM articles;'
+docker exec contentx-db psql -U contentx -d contentx -c 'SELECT count(*) FROM users;'
+```
+
+#### 方式二：直接 psql 客户端（当前可用，PostgreSQL 专用）
 
 ```bash
 # 1. 确认备份文件存在于 app 容器内
@@ -181,6 +224,22 @@ docker exec contentx-db psql -U contentx -d contentx -c 'SELECT count(*) FROM us
 ```
 
 备份文件使用 `pg_dump --clean --if-exists` 生成，包含 `DROP TABLE IF EXISTS` 语句，因此恢复会自动替换已有表。
+
+#### 恢复后：重建搜索索引
+
+> **重要**：数据库恢复后，内置搜索索引（保存在应用进程内存中）不会自动同步。必须执行以下任一操作重建索引：
+>
+> - **Round 6 完成后**（`[R6-F2]`）：Restore API 和 CLI 将自动触发 `ReindexAll`，无需手动操作。
+> - **当前**：重启应用（启动时自动 warm-up 重建索引），或调用 `POST /api/v1/search/reindex`（需 superadmin 认证）。
+
+```bash
+# 方式 A：重启应用（启动时自动重建索引）
+docker compose restart contentx
+
+# 方式 B：手动触发重建（需 admin token）
+curl -X POST http://localhost:8080/api/v1/search/reindex \
+  -H "Authorization: Bearer <admin_token>"
+```
 
 ### 3.5 端到端演练
 
