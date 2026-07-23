@@ -121,7 +121,7 @@ P3-A“生产就绪”整体进度：**Round 1 ✅** / **Round 2 ✅** / **Round
 - [x] 全量前端测试通过 — `npm run test -- --run`：5 个测试文件 77 个测试全部通过
 - [x] Docker Compose 端到端验证记录完整（Git SHA + 命令 + 结果） — Git SHA `d90074b`，完整记录见 [reports/e2e/round5-20260723.md](../reports/e2e/round5-20260723.md)，覆盖创建→发布→搜索→备份→恢复全链路
 - [x] PRD/SOP/ROADMAP 间无失效交叉引用 — PRD §4 边界已从"待办"更新为"已完成"，README 状态同步，SOP 无过期引用
-- [ ] Release tag 已打并推送 — 待 E5 执行
+- [x] Release tag 已打并推送 — `v1.1.0` tag 已推送，触发 Release 作业构建多平台二进制
 
 ## 历史问题总表
 
