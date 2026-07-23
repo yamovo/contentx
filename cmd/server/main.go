@@ -14,6 +14,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
 	"github.com/yamovo/contentx/internal/auth"
+	"github.com/yamovo/contentx/internal/backup"
 	"github.com/yamovo/contentx/internal/cache"
 	"github.com/yamovo/contentx/internal/config"
 	"github.com/yamovo/contentx/internal/database"
@@ -231,8 +232,12 @@ func main() {
 	// Rate limiting (skip for non-API routes in dev).
 	r.Use(middleware.RateLimitMiddleware(cfg.Limits.APIRateLimit))
 
+	// Create the backup manager (shared between HTTP handler and scheduler so
+	// that the TryLock serializes concurrent backup/restore requests).
+	backupMgr := backup.NewManager(cfg.Backup, cfg.Database, cfg.Upload.StoragePath, db)
+
 	// Register all routes.
-	rateLimiter := handlers.RegisterRoutes(r, db, cfg, jwtMgr, tokenStore, guard, cacheDriver)
+	rateLimiter := handlers.RegisterRoutes(r, db, cfg, jwtMgr, tokenStore, guard, cacheDriver, backupMgr)
 
 	// Prometheus /metrics 端点（无需认证）。
 	if cfg.Metrics.Enabled {
@@ -264,6 +269,25 @@ func main() {
 
 	publishScheduler.Start()
 	defer publishScheduler.Stop()
+
+	// Start the scheduled-backup worker. It runs BackupAll on the cron
+	// schedule from cfg.Backup.Schedule (default "0 3 * * *" = 3am daily).
+	// Retention is handled by the Manager's cleanup (MaxBackups). Like the
+	// publish scheduler, it uses a distributed lock in multi-instance
+	// deployments to prevent duplicate backups.
+	backupScheduler := backup.NewBackupScheduler(backupMgr, cfg.Backup.Schedule, slog.Default())
+	if redisDrv, ok := baseCacheDriver.(*cache.RedisDriver); ok {
+		backupScheduler.SetDistributedLock(cache.NewRedisLock(redisDrv.Client(), cfg.Redis.Prefix))
+		slog.Info("backup scheduler: using redis distributed lock")
+	} else {
+		backupScheduler.SetDistributedLock(cache.NewMemoryLock())
+		slog.Info("backup scheduler: using in-memory lock (single instance)")
+	}
+	if err := backupScheduler.Start(); err != nil {
+		slog.Error("failed to start backup scheduler", "error", err)
+	} else {
+		defer backupScheduler.Stop()
+	}
 
 	// Swagger API docs (only in non-release mode).
 	if cfg.Server.Mode != "release" {

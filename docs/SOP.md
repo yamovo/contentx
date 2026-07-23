@@ -110,7 +110,92 @@ Invoke-RestMethod http://127.0.0.1:18080/api/v1/system/health
 
 生产模式不会自动接受弱密钥：必须提供有效的 `JWT_SECRET`、`ADMIN_PASSWORD`，使用 PostgreSQL/MySQL 时还必须提供数据库密码。
 
-## 3. 可观测性
+## 3. 备份与恢复
+
+ContentX 提供基于 `pg_dump`/`mysqldump`（SQLite 用 `VACUUM INTO`）的数据库备份与恢复，所有端点限 superadmin 调用并通过 `RequireAdmin` 中间件保护。
+
+### 3.1 端点
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| `POST` | `/api/v1/admin/backup?type=db` | 触发数据库备份，返回文件名 |
+| `POST` | `/api/v1/admin/backup?type=media` | 触发媒体目录备份 |
+| `POST` | `/api/v1/admin/backup?type=all` | 同时备份数据库与媒体 |
+| `GET`  | `/api/v1/admin/backup` | 列出已有备份 |
+| `GET`  | `/api/v1/admin/backup/:file/download` | 下载备份文件 |
+| `POST` | `/api/v1/admin/backup/:file/restore` | 从备份恢复数据库或媒体 |
+| `DELETE` | `/api/v1/admin/backup/:file` | 删除备份文件 |
+
+### 3.2 手动备份与恢复
+
+```powershell
+# 1. 登录获取 token
+$resp = Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:18080/api/v1/auth/login' `
+  -ContentType 'application/json' -Body '{"username":"admin","password":"<ADMIN_PASSWORD>"}'
+$token = $resp.data.token.access_token
+
+# 2. 触发数据库备份
+$bk = Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:18080/api/v1/admin/backup?type=db' `
+  -Headers @{ Authorization = 'Bearer ' + $token }
+$bkFile = $bk.data.path
+
+# 3. 下载备份到本地
+Invoke-WebRequest -Uri "http://127.0.0.1:18080/api/v1/admin/backup/$bkFile/download" `
+  -Headers @{ Authorization = 'Bearer ' + $token } -OutFile $bkFile
+
+# 4. 从备份恢复（恢复前会校验 schema 版本与表完整性，恢复后返回行数对比）
+Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:18080/api/v1/admin/backup/$bkFile/restore" `
+  -Headers @{ Authorization = 'Bearer ' + $token }
+```
+
+备份文件存放在容器内 `/app/backups`（对应 docker volume `backups`），文件名形如 `db-YYYYMMDD-HHMMSS.sql`（pg/mysql）或 `db-YYYYMMDD-HHMMSS.db`（sqlite）。
+
+### 3.3 定时备份
+
+通过环境变量配置定时备份与保留策略：
+
+```env
+BACKUP_SCHEDULE=0 3 * * *      # 每天 03:00 执行（cron 表达式）
+BACKUP_RETENTION_COUNT=10      # 最多保留 10 份
+BACKUP_RETENTION_DAYS=30       # 或按天数保留 30 天
+```
+
+定时备份由 `BackupScheduler` 在应用启动时注册，使用分布式锁（Redis，单机回退内存）防止多实例重复执行。备份失败会记录结构化日志（`slog.Error`）。
+
+### 3.4 灾难恢复（数据库完全丢失）
+
+> **重要约束**：恢复端点 `/api/v1/admin/backup/:file/restore` 需要 superadmin 认证，而认证中间件每次请求都会查询 `users` 表。如果整个数据库被删除（`DROP SCHEMA`），`users` 表不存在，端点会返回 `401 User not found` —— 恢复端点**不能**用于数据库完全丢失的场景。
+
+数据库完全丢失时的恢复路径（绕过应用层，直接用容器内的 psql 客户端）：
+
+```bash
+# 1. 确认备份文件存在于 app 容器内
+docker exec contentx ls /app/backups/
+
+# 2. 从 app 容器执行 psql 恢复（app 镜像已安装 postgresql-client）
+docker exec contentx sh -c 'PGPASSWORD=$DB_PASSWORD psql -h $DB_HOST -p $DB_PORT -U $DB_USER -d $DB_NAME -f /app/backups/<filename>.sql'
+
+# 3. 验证恢复结果
+docker exec contentx-db psql -U contentx -d contentx -c 'SELECT count(*) FROM articles;'
+docker exec contentx-db psql -U contentx -d contentx -c 'SELECT count(*) FROM users;'
+```
+
+备份文件使用 `pg_dump --clean --if-exists` 生成，包含 `DROP TABLE IF EXISTS` 语句，因此恢复会自动替换已有表。
+
+### 3.5 端到端演练
+
+定期执行真实容器演练以验证备份可恢复：
+
+```powershell
+# 演练脚本覆盖两个场景：
+#   Scenario A: API 恢复（保留 auth 表，验证恢复端点可用）
+#   Scenario B: 完全丢失恢复（DROP SCHEMA，直接 psql 恢复）
+powershell -ExecutionPolicy Bypass -File scripts/backup/e2e-drill.ps1
+```
+
+演练报告输出到 `reports/backup/e2e-drill-<timestamp>.md`，包含 Git SHA、命令、行数对比和结论。最新一次演练结果见 `reports/backup/` 目录。
+
+## 4. 可观测性
 
 ContentX 提供 Prometheus 指标、Grafana 仪表盘和 OpenTelemetry 分布式追踪。追踪通过 OTLP/HTTP 发送至 Tempo，默认关闭；Prometheus 指标默认在 `/metrics` 开启。
 
@@ -169,7 +254,7 @@ OTEL_TRACE_SAMPLE_RATIO=1.0
 
 2026-07-22 已使用 PostgreSQL、Redis、Prometheus、Grafana、Tempo 完成真实容器验收：应用健康检查返回 200，Prometheus target 为 `up`，Grafana 自动加载两个数据源和 ContentX 仪表盘，真实 HTTP 请求的 `X-Trace-ID` 可从 Tempo API 查询。
 
-## 4. 压测流程
+## 5. 压测流程
 
 ### 4.1 对照原则
 
@@ -244,7 +329,7 @@ pwsh scripts/benchmark/sample-memory.ps1 -ProcessName cxbench
 
 多实例部署时，各实例拥有独立内存索引；在外部搜索驱动完成前，不应把它描述为共享搜索集群。
 
-## 5. 证据要求
+## 6. 证据要求
 
 每项验收证据最少包含：
 
@@ -256,7 +341,7 @@ pwsh scripts/benchmark/sample-memory.ps1 -ProcessName cxbench
 - 原始结果路径
 - 已知限制
 
-## 6. API 文档生成
+## 7. API 文档生成
 
 Swagger 文档由源码注解自动生成：
 

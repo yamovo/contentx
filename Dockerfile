@@ -2,6 +2,10 @@
 FROM golang:1.25-alpine AS backend-builder
 RUN apk add --no-cache gcc musl-dev
 WORKDIR /app
+# Allow contributors behind restricted networks to override the Go module proxy
+# via: docker compose build --build-arg GOPROXY=https://goproxy.cn,direct
+ARG GOPROXY=https://proxy.golang.org,direct
+ENV GOPROXY=${GOPROXY}
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
@@ -17,7 +21,11 @@ RUN npm run build
 
 # Production stage
 FROM alpine:3.20
-RUN apk --no-cache add ca-certificates tzdata
+# ca-certificates/tzdata: TLS + timezones. postgresql-client: the backup &
+# restore endpoints (internal/backup) shell out to pg_dump/psql, so the client
+# tools must exist inside the app container. MySQL deployments should also add
+# mariadb-client (mysqldump/mysql).
+RUN apk --no-cache add ca-certificates tzdata postgresql-client
 
 # Run as non-root user
 RUN adduser -D -h /app contentx

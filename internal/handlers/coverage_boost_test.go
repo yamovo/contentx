@@ -15,6 +15,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/yamovo/contentx/internal/auth"
+	"github.com/yamovo/contentx/internal/backup"
 	"github.com/yamovo/contentx/internal/cache"
 	"github.com/yamovo/contentx/internal/config"
 	"github.com/yamovo/contentx/internal/database"
@@ -1012,9 +1013,10 @@ func TestCoverage_RegisterRoutes(t *testing.T) {
 	blacklist := auth.NewBlacklist()
 	guard := auth.NewLoginGuard()
 	cacheDriver := cache.NewMemoryDriver(100)
+	backupMgr := backup.NewManager(cfg.Backup, cfg.Database, cfg.Upload.StoragePath, db)
 
 	r := gin.New()
-	rl := RegisterRoutes(r, db, cfg, jwtMgr, blacklist, guard, cacheDriver)
+	rl := RegisterRoutes(r, db, cfg, jwtMgr, blacklist, guard, cacheDriver, backupMgr)
 	if rl == nil {
 		t.Fatal("RegisterRoutes returned nil rate limiter")
 	}

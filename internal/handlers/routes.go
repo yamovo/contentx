@@ -17,7 +17,9 @@ import (
 	"gorm.io/gorm"
 )
 
-// RegisterRoutes sets up all API routes.
+// RegisterRoutes sets up all API routes. The backupMgr is created by the caller
+// (cmd/server/main.go) so that the backup scheduler and the HTTP handler share
+// the same Manager instance (and thus the same TryLock for concurrency control).
 func RegisterRoutes(
 	r *gin.Engine,
 	db *gorm.DB,
@@ -26,6 +28,7 @@ func RegisterRoutes(
 	blacklist auth.TokenStore,
 	guard *auth.LoginGuard,
 	cacheDriver cache.Driver,
+	backupMgr *backup.Manager,
 ) *middleware.IPRateLimit {
 	// Create services.
 	articleSvc := services.NewArticleService(db, cfg.Server.BaseURL)
@@ -107,7 +110,6 @@ func RegisterRoutes(
 	contentTypeH := NewContentTypeHandler(contentTypeSvc)
 	webhookH := NewWebhookHandler(webhookSvc)
 	searchH := NewSearchHandler(articleSvc)
-	backupMgr := backup.NewManager(cfg.Backup, cfg.Database, cfg.Upload.StoragePath, db)
 	backupH := NewBackupHandler(backupMgr)
 
 	// Rate limiter for specific groups.
@@ -389,6 +391,7 @@ func RegisterRoutes(
 		{
 			backupGroup.GET("", middleware.RequireAdmin(), backupH.List)
 			backupGroup.POST("", middleware.RequireAdmin(), backupH.Create)
+			backupGroup.GET("/:file/download", middleware.RequireAdmin(), backupH.Download)
 			backupGroup.POST("/:file/restore", middleware.RequireAdmin(), backupH.Restore)
 			backupGroup.DELETE("/:file", middleware.RequireAdmin(), backupH.Delete)
 		}

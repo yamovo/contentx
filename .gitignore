@@ -39,6 +39,11 @@ logs/
 # Benchmark binary artifacts (vegeta .bin files exceed GitHub 100MB limit)
 reports/benchmarks/raw/**/*.bin
 
+# Backup drill artifacts (raw .sql backups are 25MB+, keep only the .md reports)
+reports/backup/raw-*/
+reports/backup/*-db-*.sql
+reports/backup/*-db-*.db
+
 # Backups
 .security-backup-*/
 

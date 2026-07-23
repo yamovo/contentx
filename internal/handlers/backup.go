@@ -1,6 +1,9 @@
 package handlers
 
 import (
+	"errors"
+	"net/http"
+	"os"
 	"path/filepath"
 
 	"github.com/gin-gonic/gin"
@@ -35,21 +38,21 @@ func (h *BackupHandler) Create(c *gin.Context) {
 	case "db":
 		path, err := h.mgr.Backup()
 		if err != nil {
-			Error(c, 500, "BACKUP_FAILED", err.Error())
+			handleBackupErr(c, err)
 			return
 		}
 		Success(c, gin.H{"type": "db", "path": filepath.Base(path)})
 	case "media":
 		path, err := h.mgr.BackupMedia()
 		if err != nil {
-			Error(c, 500, "BACKUP_FAILED", err.Error())
+			handleBackupErr(c, err)
 			return
 		}
 		Success(c, gin.H{"type": "media", "path": filepath.Base(path)})
 	case "all":
 		dbPath, mediaPath, err := h.mgr.BackupAll()
 		if err != nil {
-			Error(c, 500, "BACKUP_FAILED", err.Error())
+			handleBackupErr(c, err)
 			return
 		}
 		resp := gin.H{"type": "all", "db": filepath.Base(dbPath)}
@@ -60,6 +63,23 @@ func (h *BackupHandler) Create(c *gin.Context) {
 	default:
 		BadRequest(c, "type must be db, media, or all")
 	}
+}
+
+// handleBackupErr maps backup.Manager errors to appropriate HTTP status codes.
+func handleBackupErr(c *gin.Context, err error) {
+	if errors.Is(err, backup.ErrBackupInProgress) {
+		c.JSON(http.StatusConflict, gin.H{"success": false, "error": gin.H{"code": "BACKUP_IN_PROGRESS", "message": err.Error()}})
+		return
+	}
+	if errors.Is(err, backup.ErrSchemaMismatch) {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": gin.H{"code": "SCHEMA_MISMATCH", "message": err.Error()}})
+		return
+	}
+	if errors.Is(err, backup.ErrIncompleteBackup) {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": gin.H{"code": "INCOMPLETE_BACKUP", "message": err.Error()}})
+		return
+	}
+	Error(c, 500, "BACKUP_FAILED", err.Error())
 }
 
 // List returns available backups, newest first.
@@ -104,19 +124,67 @@ func (h *BackupHandler) Restore(c *gin.Context) {
 	// Detect backup type by prefix.
 	if len(name) >= 6 && name[:6] == "media-" {
 		if err := h.mgr.RestoreMedia(path); err != nil {
-			Error(c, 500, "RESTORE_FAILED", err.Error())
+			handleBackupErr(c, err)
 			return
 		}
 		Success(c, gin.H{"type": "media", "restored": name})
 		return
 	}
 
-	// Default: database restore.
+	// Database restore. Capture row counts before restore so we can verify
+	// consistency afterwards (pg/mysql only — SQLite closes the connection
+	// during restore, so post-restore verification requires a restart).
+	var before map[string]int
+	if h.mgr.Driver() != "sqlite" {
+		if counts, err := h.mgr.RowCounts(); err == nil {
+			before = counts
+		}
+	}
+
 	if err := h.mgr.Restore(path); err != nil {
-		Error(c, 500, "RESTORE_FAILED", err.Error())
+		handleBackupErr(c, err)
 		return
 	}
-	Success(c, gin.H{"type": "db", "restored": name})
+
+	resp := gin.H{"type": "db", "restored": name}
+	// Post-restore row-count verification for pg/mysql.
+	if before != nil {
+		if after, err := h.mgr.VerifyRowCounts(before); err != nil {
+			resp["warning"] = "row count regression detected after restore"
+			resp["details"] = err.Error()
+		} else {
+			resp["row_counts"] = after
+		}
+	} else if h.mgr.Driver() == "sqlite" {
+		resp["warning"] = "sqlite restore completed; restart required to verify row counts"
+	}
+	Success(c, resp)
+}
+
+// Download streams a backup file to the client.
+// GET /api/v1/admin/backup/:file/download
+//
+//	@Summary      Download backup
+//	@Description  Downloads a backup file. Admin only.
+//	@Tags         Backup
+//	@Security     BearerAuth
+//	@Param        file  path  string  true  "Backup filename"
+//	@Success      200  {file}  binary
+//	@Failure      400  {object}  APIResponse
+//	@Failure      404  {object}  APIResponse
+//	@Router       /admin/backup/{file}/download [get]
+func (h *BackupHandler) Download(c *gin.Context) {
+	name := c.Param("file")
+	if filepath.Base(name) != name {
+		BadRequest(c, "invalid backup filename")
+		return
+	}
+	path := filepath.Join(h.mgr.Dir(), name)
+	if _, err := os.Stat(path); err != nil {
+		Error(c, 404, "NOT_FOUND", "backup file not found")
+		return
+	}
+	c.FileAttachment(path, name)
 }
 
 // Delete removes a backup file by name.
