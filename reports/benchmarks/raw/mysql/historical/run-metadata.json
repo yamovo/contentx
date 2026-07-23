@@ -1,0 +1,16 @@
+{
+    "invalid": true,
+    "invalid_reason": "Pre-Round 3 historical data: unit error (nanoseconds reported as milliseconds, 1000x understatement) and inconsistent dataset/conditions vs PostgreSQL. Marked as失效 in Round 1, replaced by Round 3 re-run.",
+    "invalid_round": "Round 1 marked失效, Round 3 re-run replaced",
+    "note": "This metadata is reconstructed retroactively (Round 6 / F4) because the original run did not capture run-metadata.json. The Git SHA, article count, and conditions are approximate, derived from the original run period. Do NOT use this data for comparison — use the Round 3 data in raw/mysql/ (parent directory) instead.",
+    "timestamp_approximate": "2026-07-22",
+    "git_sha_approximate": "pre-0f5d624",
+    "article_count_approximate": "unknown (not recorded at run time)",
+    "driver": "mysql",
+    "known_issues": [
+        "Latency unit error: nanoseconds reported as milliseconds (S0-4)",
+        "Dataset inconsistency vs PostgreSQL run (S0-3)",
+        "No run-metadata.json captured at original run time",
+        "No memory metrics (.metrics.txt) captured"
+    ]
+}

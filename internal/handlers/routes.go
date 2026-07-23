@@ -110,7 +110,7 @@ func RegisterRoutes(
 	contentTypeH := NewContentTypeHandler(contentTypeSvc)
 	webhookH := NewWebhookHandler(webhookSvc)
 	searchH := NewSearchHandler(articleSvc)
-	backupH := NewBackupHandler(backupMgr)
+	backupH := NewBackupHandler(backupMgr, articleSvc)
 
 	// Rate limiter for specific groups.
 	rl := middleware.NewIPRateLimit()

@@ -1,4 +1,4 @@
-.PHONY: build test lint clean dev migrate migrate-down migrate-status seed backup restore-backup
+.PHONY: build test lint clean dev migrate migrate-down migrate-status seed backup restore-backup check install-hooks
 
 # Build variables
 BINARY=contentx
@@ -57,6 +57,15 @@ vet:
 # Generate swagger docs
 swagger:
 	swag init -g cmd/server/main.go --parseDependency --parseInternal -o docs/api
+
+# Install git pre-commit hook (Round 6 / F1)
+install-hooks:
+	@scripts/git/hooks/install.sh
+	@echo "Installed pre-commit hook to .git/hooks/pre-commit"
+
+# Run all local checks before committing (Round 6 / F1)
+check: fmt vet swagger lint test
+	@echo "All checks passed."
 
 # Build Docker image
 docker:

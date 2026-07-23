@@ -1,0 +1,32 @@
+#!/bin/sh
+# Pre-commit hook:拦截未格式化代码、vet 错误和 Swagger 漂移
+# 对应 ROADMAP Round 6 / F1
+# 安装:make install-hooks
+
+set -e
+
+echo "[pre-commit] Running go fmt drift check..."
+go fmt ./...
+if ! git diff --exit-code -- '*.go'; then
+    echo "[pre-commit] FAIL: go fmt 修改了文件。请重新 stage 后再提交。"
+    exit 1
+fi
+
+echo "[pre-commit] Running go vet..."
+if ! go vet ./...; then
+    echo "[pre-commit] FAIL: go vet 发现问题。"
+    exit 1
+fi
+
+echo "[pre-commit] Running Swagger drift check..."
+if command -v swag >/dev/null 2>&1; then
+    swag init -g cmd/server/main.go --parseDependency --parseInternal -o docs/api >/dev/null 2>&1
+    if ! git diff --exit-code -- docs/api/; then
+        echo "[pre-commit] FAIL: docs/api/ 与代码注解不一致。运行 'make swagger' 后重新 stage。"
+        exit 1
+    fi
+else
+    echo "[pre-commit] WARN: swag 未安装，跳过 Swagger 漂移检查。"
+fi
+
+echo "[pre-commit] OK: 所有检查通过。"

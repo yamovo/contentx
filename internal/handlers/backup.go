@@ -1,24 +1,29 @@
 package handlers
 
 import (
+	"context"
 	"errors"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
 
 	"github.com/gin-gonic/gin"
 	"github.com/yamovo/contentx/internal/backup"
+	"github.com/yamovo/contentx/internal/services"
 )
 
 // BackupHandler exposes backup/restore operations over HTTP. All routes are
 // admin-only and registered under /api/v1/admin/backup.
 type BackupHandler struct {
-	mgr *backup.Manager
+	mgr        *backup.Manager
+	articleSvc *services.ArticleService
 }
 
 // NewBackupHandler creates a BackupHandler backed by the given Manager.
-func NewBackupHandler(mgr *backup.Manager) *BackupHandler {
-	return &BackupHandler{mgr: mgr}
+// articleSvc is used to rebuild the search index after a DB restore (Round 6 / F2).
+func NewBackupHandler(mgr *backup.Manager, articleSvc *services.ArticleService) *BackupHandler {
+	return &BackupHandler{mgr: mgr, articleSvc: articleSvc}
 }
 
 // Create triggers a backup.
@@ -156,8 +161,25 @@ func (h *BackupHandler) Restore(c *gin.Context) {
 			resp["row_counts"] = after
 		}
 	} else if h.mgr.Driver() == "sqlite" {
-		resp["warning"] = "sqlite restore completed; restart required to verify row counts"
+		resp["warning"] = "sqlite restore completed; restart required to verify row counts; search index will rebuild on restart"
 	}
+
+	// Rebuild search index after DB restore (Round 6 / F2).
+	// Best-effort: runs in a goroutine so the response is not blocked.
+	// For SQLite, the connection is closed during restore so reindex would
+	// fail; the index will be rebuilt on restart via the warm-up goroutine.
+	if h.articleSvc != nil && h.mgr.Driver() != "sqlite" {
+		go func() {
+			n, err := h.articleSvc.ReindexAll(context.Background())
+			if err != nil {
+				slog.Warn("post-restore search reindex failed", "error", err, "backup", name)
+				return
+			}
+			slog.Info("post-restore search index rebuilt", "indexed", n, "backup", name)
+		}()
+		resp["search_index"] = "rebuilding"
+	}
+
 	Success(c, resp)
 }
 

@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -52,6 +53,7 @@ func main() {
 	migrateDownFlag := flag.Int("migrate-down", 0, "roll back the last N database migrations and exit")
 	migrateStatusFlag := flag.Bool("migrate-status", false, "show database migration status and exit")
 	seedFlag := flag.Bool("seed", false, "seed the database and exit")
+	restoreFlag := flag.String("restore", "", "restore database from a backup file (bypasses HTTP/auth; for disaster recovery)")
 	flag.Parse()
 
 	// Load .env file (ignore error if not found).
@@ -142,6 +144,34 @@ func main() {
 			os.Exit(1)
 		}
 		slog.Info("seeding completed")
+		return
+
+	case *restoreFlag != "":
+		// Disaster recovery: restore database from a backup file via CLI,
+		// bypassing HTTP/auth (Round 6 / F3). This eliminates the auth-DB
+		// circular dependency that makes the HTTP restore endpoint unusable
+		// when the database is completely lost.
+		mgr := backup.NewManager(cfg.Backup, cfg.Database, "", db)
+		path := *restoreFlag
+		if _, err := os.Stat(path); os.IsNotExist(err) {
+			// Try relative to the backup directory.
+			path = filepath.Join(mgr.Dir(), *restoreFlag)
+		}
+		slog.Info("starting CLI restore", "file", path, "driver", cfg.Database.Driver)
+		if err := mgr.Restore(path); err != nil {
+			slog.Error("restore failed", "error", err)
+			os.Exit(1)
+		}
+		// Verify row counts (pg/mysql only; SQLite requires restart).
+		if cfg.Database.Driver != "sqlite" {
+			if counts, err := mgr.RowCounts(); err == nil {
+				slog.Info("restore completed", "row_counts", counts)
+			} else {
+				slog.Warn("restore completed but row count check failed", "error", err)
+			}
+		} else {
+			slog.Info("sqlite restore completed; restart the application to verify and rebuild search index")
+		}
 		return
 	}
 

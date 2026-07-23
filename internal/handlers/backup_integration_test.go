@@ -51,7 +51,7 @@ func setupBackupRouter(t *testing.T) (*gin.Engine, *gorm.DB, string, string, *ba
 	authorToken := generateTestJWT(t, jwtMgr, *authorUser)
 
 	mgr := backup.NewManager(cfg.Backup, cfg.Database, "", db)
-	backupH := NewBackupHandler(mgr)
+	backupH := NewBackupHandler(mgr, nil) // nil articleSvc: reindex skipped in tests
 
 	r := gin.New()
 	api := r.Group("/api/v1")
