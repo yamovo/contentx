@@ -258,10 +258,11 @@ OTEL_TRACE_SAMPLE_RATIO=1.0
 
 ### 4.1 对照原则
 
-- **同一数据集**：三种驱动都用等价的 1,000 / 10,000 篇文章 seed（正文均为 `ContentX benchmark content for realistic payload size. ` 重复 40 次，2,200 字符）。
+- **同一数据集**：三种驱动都用等价的 10,000 篇文章 seed（正文均为 `ContentX benchmark content for realistic payload size. ` 重复 40 次，2,200 字符）。
 - **同一场景**：文章列表、文章详情、GraphQL 查询、并发写入四个场景。
 - **同一采样规模**：读 1,000 req/s × 15s；写 100 req/s × 10s。
-- **同一压测脚本**：`scripts/benchmark/run-benchmark.ps1 -Driver <驱动>`，只有原始结果输出目录随驱动变化。
+- **同一压测路径**：三库均从 Docker 网络内的 Linux 容器运行 `scripts/benchmark/run-benchmark-linux.sh`，消除 Windows 客户端端口耗尽。三库均使用 Redis 缓存/队列，唯一变量为数据库驱动。
+- **同一元数据**：每次运行保存 `run-metadata.json`（Git SHA、文章数、响应体大小、应用配置），由 `generate-report.ps1` 读入报告头部。
 - **同一空闲内存口径**：`scripts/benchmark/sample-memory.ps1`，无负载下采样 12 次取 min/mean/max。
 
 ### 4.2 PostgreSQL
@@ -274,9 +275,18 @@ docker compose up -d --build
 # Bash 用户可改用：docker exec -i contentx-db psql -U contentx contentx < scripts/benchmark/seed_postgres_10000.sql
 Get-Content scripts/benchmark/seed_postgres_10000.sql | docker exec -i contentx-db psql -U contentx contentx
 
-# -BaseUrl 现为可选：-Driver postgres 默认 http://127.0.0.1:18080
-pwsh scripts/benchmark/run-benchmark.ps1 -Driver postgres
-pwsh scripts/benchmark/sample-memory.ps1 -Container contentx
+# 从 Linux 容器内运行压测（消除 Windows 客户端端口耗尽）：
+# 1) 构建 bench-runner 镜像
+docker build -t contentx-bench-runner -f scripts/benchmark/Dockerfile.bench --build-arg GOPROXY=https://goproxy.cn,direct .
+# 2) 在主栈网络上运行 bench-runner
+$sha = (git rev-parse --short HEAD).Trim()
+docker run --rm --network contentx-main_contentx-net `
+    -e BASE_URL=http://contentx:8080 -e ADMIN_PASSWORD=<你的 admin 密码> `
+    -e OUTPUT_DIR=/out -e DRIVER=postgres -e GIT_SHA=$sha -e GIT_BRANCH=main `
+    -v "$PWD\reports\benchmarks\raw\postgres:/out" contentx-bench-runner
+
+# 生成报告
+powershell -ExecutionPolicy Bypass -File scripts\benchmark\generate-report.ps1 -Driver postgres
 ```
 
 ### 4.3 MySQL
@@ -287,37 +297,49 @@ docker compose -f scripts/benchmark/docker-compose.mysql.yml up -d --build
 # Bash 用户可改用：mysql -h127.0.0.1 -P13306 -ucontentx -pbenchpass contentx < scripts/benchmark/seed_mysql_10000.sql
 Get-Content scripts/benchmark/seed_mysql_10000.sql | mysql -h127.0.0.1 -P13306 -ucontentx -pbenchpass contentx
 
-# -BaseUrl 现为可选：-Driver mysql 默认 http://127.0.0.1:18090。
-# 应用端口 18090 与 PostgreSQL 的 18080 不同，两栈可并行运行。
-pwsh scripts/benchmark/run-benchmark.ps1 -Driver mysql -AdminPassword 'BenchAdmin123!'
-pwsh scripts/benchmark/sample-memory.ps1 -Container contentx-bench-app
+# 构建 bench-runner 镜像（如尚未构建，见 §4.2）
+# 从 Linux 容器内运行压测
+$sha = (git rev-parse --short HEAD).Trim()
+docker run --rm --network benchmark_bench-net `
+    -e BASE_URL=http://app:8080 -e ADMIN_PASSWORD=BenchAdmin123! `
+    -e OUTPUT_DIR=/out -e DRIVER=mysql -e GIT_SHA=$sha -e GIT_BRANCH=main `
+    -v "$PWD\reports\benchmarks\raw\mysql:/out" contentx-bench-runner
+
+# 生成报告
+powershell -ExecutionPolicy Bypass -File scripts\benchmark\generate-report.ps1 -Driver mysql
+
 docker compose -f scripts/benchmark/docker-compose.mysql.yml down -v
 ```
 
 ### 4.4 SQLite
 
-前提：Go 1.21+ 与一个 C 编译器（SQLite 驱动需 CGO，如 MinGW gcc）。内置 `scripts/benchmark/seeder` 用与应用相同的 GORM SQLite 驱动播种，免 `sqlite3` CLI 依赖。
+SQLite 为嵌入式数据库，CGO 构建在 Docker 多阶段构建中完成，无需宿主机安装 C 编译器。
+缓存与队列使用 Redis（与 PostgreSQL/MySQL 一致），唯一变量为数据库驱动。
 
 ```powershell
-$env:DB_DRIVER="sqlite"; $env:DB_NAME="bench_sqlite.db"; $env:SERVER_MODE="release"
-$env:SERVER_PORT="18081"; $env:CACHE_DRIVER="memory"; $env:QUEUE_DRIVER="memory"
-$env:JWT_SECRET="bench-jwt-secret-please-use-32-chars-x"; $env:ADMIN_PASSWORD="BenchAdmin123"
+# 构建并启动 SQLite benchmark 栈（app + redis + seeder）
+docker compose -f scripts/benchmark/docker-compose.sqlite.yml up -d --build
 
-# 1) 构建二进制（CGO）
-go build -o cxbench.exe ./cmd/server
-go build -o cxseed.exe ./scripts/benchmark/seeder
+# seeder 会在 app healthy 后自动播种 10,000 篇并退出
+docker logs contentx-bench-sqlite-seeder
 
-# 2) 建表 + 建 admin，再播 10k
-.\cxbench.exe -migrate; .\cxbench.exe -seed
-.\cxseed.exe -db bench_sqlite.db -sql scripts/benchmark/seed_sqlite_10000.sql
+# 构建 bench-runner 镜像（见 §4.2/4.3）
+# 从 Linux 容器内运行压测
+$sha = (git rev-parse --short HEAD).Trim()
+docker run --rm --network benchmark_sqlite-net `
+    -e BASE_URL=http://app:8080 -e ADMIN_PASSWORD=BenchAdmin123! `
+    -e OUTPUT_DIR=/out -e DRIVER=sqlite -e GIT_SHA=$sha -e GIT_BRANCH=main `
+    -v "$PWD\reports\benchmarks\raw\sqlite:/out" contentx-bench-runner
 
-# 3) 启动应用（启动时从 DB 全量建搜索索引）
-.\cxbench.exe
+# 生成报告
+powershell -ExecutionPolicy Bypass -File scripts\benchmark\generate-report.ps1 -Driver sqlite
 
-# —— 另开一个终端 ——
-pwsh scripts/benchmark/run-benchmark.ps1 -Driver sqlite -BaseUrl http://127.0.0.1:18081 -AdminPassword 'BenchAdmin123'
-pwsh scripts/benchmark/sample-memory.ps1 -ProcessName cxbench
+# 清理
+docker compose -f scripts/benchmark/docker-compose.sqlite.yml down -v
 ```
+
+> Windows MinGW gcc 8.1.0 与 Go 1.26 CGO 不兼容（生成的 PE 无法加载）。
+> 如需本地原生构建，请使用 Docker 或升级到 gcc 11+。
 
 ### 4.5 搜索引擎配置
 

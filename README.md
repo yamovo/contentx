@@ -90,16 +90,22 @@ npm run dev
 
 ## 阶段性性能基线
 
-以下数据来自 2026-07-22 的本机 Docker/PostgreSQL 16 测试，**只用于记录当前仓库状态，不代表其他硬件、网络或数据库后端，不是 SLA**。
+> ⚠️ 所有性能数字为**阶段性本机结果，非 SLA**。来自开发机 Docker 环境，仅供相对比较。
+
+跨数据库（PostgreSQL / MySQL / SQLite）对照基线已由 ROADMAP Round 3 在统一条件下重跑
+（同一 Git SHA、10,000 篇数据集、同一 Linux 容器内压测）。完整数据与根因归因见
+[reports/benchmarks/cross-db-comparison.md](./reports/benchmarks/cross-db-comparison.md)。
+
+PostgreSQL（主推驱动）摘要（读 1,000 req/s × 15s，10,000 篇）：
 
 | 场景 | 成功率 | P50 | P95 | P99 |
 |---|---:|---:|---:|---:|
-| 文章列表（20 条） | 100% | 5.74 ms | 351.12 ms | 1.07 s |
-| 文章详情 | 100% | 2.66 ms | 3.79 ms | 4.82 ms |
-| GraphQL 查询 | 100% | 3.13 ms | 4.30 ms | 5.22 ms |
-| 并发更新 | 100% | 9.04 ms | 12.04 ms | 17.57 ms |
+| 文章列表（20 条） | 100% | 8.29 ms | 13.35 ms | 21.75 ms |
+| 文章详情 | 100% | 1.52 ms | 1.98 ms | 2.59 ms |
+| GraphQL 查询 | 100% | 8.24 ms | 11.22 ms | 18.70 ms |
+| 并发写入（100 req/s） | 100% | 7.48 ms | 9.70 ms | 12.49 ms |
 
-> ⚠️ 上述数据集实际为 1,000 篇文章（原始版本误记为 10,000 篇）、正文精简前版本。跨数据库对照已标记为失效历史数据，需统一条件重跑（见 [ROADMAP.md](./docs/ROADMAP.md) Round 3）。原始 Vegeta JSON 位于 `reports/benchmarks/raw/postgres/`。
+原始 Vegeta JSON 位于 `reports/benchmarks/raw/`。
 
 ## 项目结构
 
@@ -125,7 +131,9 @@ reports/benchmarks/     压测原始结果与后续报告
 
 - GraphQL 当前只读，写操作走 REST。
 - 内置搜索索引不跨实例共享，外部 MeiliSearch 驱动尚未完成。
-- 备份与恢复尚未完成端到端演练（见 [ROADMAP.md](./docs/ROADMAP.md) Round 2）。
+- **Release 二进制不支持 SQLite**：CI Release 作业以 `CGO_ENABLED=0` 构建跨平台二进制，
+  SQLite 驱动需要 CGO，因此预编译 Release 包仅支持 PostgreSQL / MySQL。需要 SQLite 时
+  请使用 Docker 镜像（内置 CGO 构建）或本地 `go build`（需 C 编译器）。
 - README 中的性能数字是阶段性本机结果，不是 SLA。
 
 完整的当前边界和完成定义见 [PRD.md](./docs/PRD.md)。

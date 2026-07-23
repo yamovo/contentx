@@ -1655,6 +1655,33 @@ paths:
       summary: Delete backup
       tags:
       - Backup
+  /admin/backup/{file}/download:
+    get:
+      description: Downloads a backup file. Admin only.
+      parameters:
+      - description: Backup filename
+        in: path
+        name: file
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: file
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Download backup
+      tags:
+      - Backup
   /admin/backup/{file}/restore:
     post:
       description: Restores database or media from a backup file. Admin only. For
