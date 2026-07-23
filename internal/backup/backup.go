@@ -302,7 +302,7 @@ func schemaVersionFromSQLDump(path string) (int, error) {
 	max := 0
 	scanner := bufio.NewScanner(f)
 	scanner.Buffer(make([]byte, 0, 1024*1024), 1024*1024) // allow long COPY/INSERT lines
-	inCopyBlock := false // true while reading COPY schema_migrations data rows
+	inCopyBlock := false                                  // true while reading COPY schema_migrations data rows
 	for scanner.Scan() {
 		line := scanner.Text()
 		if inCopyBlock {
