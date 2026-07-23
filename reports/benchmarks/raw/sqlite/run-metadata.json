@@ -1,0 +1,54 @@
+{
+  "timestamp": "2026-07-23T13:12:48+0000",
+  "git_sha": "0f5d624",
+  "git_branch": "main",
+  "git_dirty": false,
+  "runner": "linux-container",
+  "driver": "sqlite",
+  "base_url": "http://app:8080",
+  "article_count": 10000,
+  "article_id": 1,
+  "read_rate": 1000,
+  "write_rate": 100,
+  "read_duration": "15s",
+  "write_duration": "10s",
+  "cooldown_seconds": 5,
+  "scenarios": [
+    {
+      "name": "article-list",
+      "method": "GET",
+      "url": "/api/v1/articles?page=1&page_size=20",
+      "rate": 1000,
+      "duration": "15s",
+      "response_bytes": 28142
+    },
+    {
+      "name": "article-detail",
+      "method": "GET",
+      "url": "/api/v1/articles/1",
+      "rate": 1000,
+      "duration": "15s",
+      "response_bytes": 3648
+    },
+    {
+      "name": "graphql",
+      "method": "POST",
+      "url": "/api/v1/graphql",
+      "rate": 1000,
+      "duration": "15s",
+      "response_bytes": 2320
+    },
+    {
+      "name": "concurrent-write",
+      "method": "PUT",
+      "url": "/api/v1/articles/1",
+      "rate": 100,
+      "duration": "10s",
+      "response_bytes": 0
+    }
+  ],
+  "app_config": {
+    "driver": "sqlite",
+    "goroutines": "12"
+  }
+}

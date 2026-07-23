@@ -1,0 +1,2 @@
+[2026-07-23T12:42:00Z] article-detail pre base=http://app:8080 goroutines=17 open_fds=n/a
+[2026-07-23T12:42:17Z] article-detail post base=http://app:8080 goroutines=17 open_fds=n/a

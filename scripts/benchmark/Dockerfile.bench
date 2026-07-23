@@ -1,0 +1,28 @@
+# C3: Linux benchmark runner image.
+#
+# Small Alpine image with vegeta + curl + jq so the benchmark runs from inside
+# the Docker network (Linux containers), eliminating Windows client-side port
+# exhaustion. The host captures the git SHA and passes it via env; this image
+# only needs to run scripts/benchmark/run-benchmark-linux.sh.
+#
+# Build context is the repo root so the script can be COPYed in:
+#   docker build -t contentx-bench-runner -f scripts/benchmark/Dockerfile.bench .
+
+# --- Stage 1: build vegeta from source (releases use inconsistent naming) ---
+FROM golang:1.25-alpine AS vegeta-builder
+# Allow contributors behind restricted networks to override the Go module proxy.
+ARG GOPROXY=https://proxy.golang.org,direct
+ENV GOPROXY=${GOPROXY}
+RUN go install github.com/tsenart/vegeta@latest
+
+# --- Stage 2: runtime image with vegeta + curl + jq + bash ---
+FROM alpine:3.20
+RUN apk add --no-cache curl jq bash coreutils
+COPY --from=vegeta-builder /go/bin/vegeta /usr/local/bin/vegeta
+RUN vegeta -version
+
+COPY scripts/benchmark/run-benchmark-linux.sh /usr/local/bin/run-benchmark-linux.sh
+RUN chmod +x /usr/local/bin/run-benchmark-linux.sh
+
+# Default: run the benchmark script. Caller mounts OUTPUT_DIR and sets env.
+ENTRYPOINT ["/usr/local/bin/run-benchmark-linux.sh"]

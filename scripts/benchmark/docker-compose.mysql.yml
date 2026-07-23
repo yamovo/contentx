@@ -14,6 +14,14 @@
 #
 # App is published on 18090 (differs from the PostgreSQL baseline's 18080 to
 # allow both stacks to run side by side) and MySQL on 13306.
+#
+# C3: a `bench-runner` service runs vegeta from inside a Linux container on the
+# same Docker network as `app`. This eliminates the Windows client-side port
+# exhaustion ("Only one usage of each socket address") that invalidated the
+# historical MySQL run. Bring it up with the `bench` profile so the runner only
+# starts when explicitly requested:
+#   docker compose -f scripts/benchmark/docker-compose.mysql.yml --profile bench up -d --build
+# The runner writes JSON to ./reports/benchmarks/raw/mysql (mounted) then exits.
 
 services:
   app:
@@ -78,6 +86,36 @@ services:
     container_name: contentx-bench-redis
     restart: "no"
     command: ["redis-server", "--requirepass", "${REDIS_PASSWORD:-benchredis}"]
+    networks:
+      - bench-net
+
+  bench-runner:
+    profiles: ["bench"]
+    build:
+      context: ../..
+      dockerfile: scripts/benchmark/Dockerfile.bench
+    container_name: contentx-bench-runner
+    restart: "no"
+    # Run from inside the Docker network so traffic to `app` never crosses the
+    # Windows host's network stack (no client port exhaustion).
+    environment:
+      - BASE_URL=http://app:8080
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-BenchAdmin123!}
+      - OUTPUT_DIR=/out
+      - DRIVER=mysql
+      - GIT_SHA=${GIT_SHA:-unknown}
+      - GIT_BRANCH=${GIT_BRANCH:-unknown}
+      - READ_RATE=${READ_RATE:-1000}
+      - WRITE_RATE=${WRITE_RATE:-100}
+      - READ_DURATION=${READ_DURATION:-15s}
+      - WRITE_DURATION=${WRITE_DURATION:-10s}
+      - COOLDOWN_SECONDS=${COOLDOWN_SECONDS:-5}
+    volumes:
+      # JSON output lands here on the host so generate-report.ps1 can pick it up.
+      - ../../reports/benchmarks/raw/mysql:/out
+    depends_on:
+      app:
+        condition: service_started
     networks:
       - bench-net
 

@@ -1,0 +1,29 @@
+# C4: One-shot container that applies seed_sqlite_10000.sql to the SQLite
+# database file the app created via AutoMigrate. Uses the same GORM SQLite
+# driver (CGO) as the app, so no sqlite3 CLI is needed inside the container.
+#
+# Build context must be the repo root (same as Dockerfile.bench):
+#   docker build -t contentx-sqlite-seeder -f scripts/benchmark/Dockerfile.sqlite-seeder \
+#       --build-arg GOPROXY=https://goproxy.cn,direct .
+
+# --- Stage 1: build the seeder binary with CGO (SQLite driver needs it) ---
+FROM golang:1.25-alpine AS seeder-builder
+RUN apk add --no-cache gcc musl-dev
+WORKDIR /app
+ARG GOPROXY=https://proxy.golang.org,direct
+ENV GOPROXY=${GOPROXY}
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=1 GOOS=linux go build -o /cxseed ./scripts/benchmark/seeder
+
+# --- Stage 2: minimal runtime that runs the seeder once ---
+FROM alpine:3.20
+RUN apk add --no-cache tzdata
+COPY --from=seeder-builder /cxseed /usr/local/bin/cxseed
+COPY scripts/benchmark/seed_sqlite_10000.sql /seed.sql
+
+# The caller mounts the SQLite DB file (or its directory) at /data and passes
+# -db /data/bench_sqlite.db. ENTRYPOINT hard-codes the SQL file.
+ENTRYPOINT ["cxseed", "-sql", "/seed.sql"]
+CMD ["-db", "/data/bench_sqlite.db"]

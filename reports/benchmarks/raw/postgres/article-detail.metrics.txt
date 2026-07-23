@@ -1,0 +1,2 @@
+[2026-07-23T12:53:18Z] article-detail pre base=http://contentx:8080 goroutines=16 open_fds=n/a
+[2026-07-23T12:53:38Z] article-detail post base=http://contentx:8080 goroutines=16 open_fds=n/a

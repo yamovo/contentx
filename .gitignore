@@ -38,6 +38,8 @@ logs/
 
 # Benchmark binary artifacts (vegeta .bin files exceed GitHub 100MB limit)
 reports/benchmarks/raw/**/*.bin
+# Generated per-run env (GIT_SHA changes each run)
+scripts/benchmark/.bench.env
 
 # Backup drill artifacts (raw .sql backups are 25MB+, keep only the .md reports)
 reports/backup/raw-*/

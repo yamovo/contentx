@@ -1,0 +1,1 @@
+{"query":"{ articles(page:1,pageSize:20){ total items{ id title slug excerpt } } }"}

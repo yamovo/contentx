@@ -140,6 +140,58 @@ function Invoke-VegetaCase {
 }
 
 Write-Host "=== ContentX benchmark: driver=$Driver base=$BaseUrl vegeta=$Vegeta cooldown=${CooldownSeconds}s ==="
+
+# --- C1: Capture run metadata (Git SHA, COUNT(*), config, response sizes) ---
+$gitSha = (git -C $repoRoot rev-parse --short HEAD).Trim()
+$gitDirty = (git -C $repoRoot status --porcelain).Trim()
+$gitBranch = (git -C $repoRoot rev-parse --abbrev-ref HEAD).Trim()
+
+# Article count via API (the list endpoint returns total)
+$countResp = Invoke-RestMethod -Uri "$BaseUrl/api/v1/articles?page=1&page_size=1" -Headers @{ Authorization = "Bearer $token" }
+$articleCount = $countResp.data.total
+
+# Response body sizes (one sample per scenario, for the metadata record)
+$listSample = Invoke-WebRequest -Uri "$BaseUrl/api/v1/articles?page=1&page_size=20" -Headers @{ Authorization = "Bearer $token" } -UseBasicParsing
+$detailSample = Invoke-WebRequest -Uri "$BaseUrl/api/v1/articles/$articleID" -Headers @{ Authorization = "Bearer $token" } -UseBasicParsing
+$graphqlSample = Invoke-WebRequest -Method Post -Uri "$BaseUrl/api/v1/graphql" -Headers @{ Authorization = "Bearer $token" } -ContentType "application/json" -Body '{"query":"{ articles(page:1,pageSize:20){ total items{ id title slug excerpt } } }"}' -UseBasicParsing
+
+# Best-effort app config snapshot from /metrics (driver, pool size, goroutines)
+$appConfig = @{ driver = $Driver }
+try {
+    $metricsResp = Invoke-WebRequest -Uri "$BaseUrl$MetricsPath" -TimeoutSec 3 -UseBasicParsing
+    $metricsLines = $metricsResp.Content -split "`n"
+    $goroutinesLine = ($metricsLines | Where-Object { $_ -match '^go_goroutines ' } | Select-Object -First 1)
+    if ($goroutinesLine) { $appConfig.goroutines = ($goroutinesLine -split '\s+')[-1] }
+} catch {
+    $appConfig.metrics = "unavailable"
+}
+
+$runMeta = @{
+    timestamp = (Get-Date -Format "yyyy-MM-ddTHH:mm:sszzz")
+    git_sha = $gitSha
+    git_branch = $gitBranch
+    git_dirty = if ($gitDirty) { $true } else { $false }
+    driver = $Driver
+    base_url = $BaseUrl
+    article_count = $articleCount
+    article_id = $articleID
+    read_rate = $ReadRate
+    write_rate = $WriteRate
+    read_duration = $ReadDuration
+    write_duration = $WriteDuration
+    cooldown_seconds = $CooldownSeconds
+    scenarios = @(
+        @{ name = "article-list"; method = "GET"; url = "/api/v1/articles?page=1&page_size=20"; rate = $ReadRate; duration = $ReadDuration; response_bytes = $listSample.Content.Length }
+        @{ name = "article-detail"; method = "GET"; url = "/api/v1/articles/$articleID"; rate = $ReadRate; duration = $ReadDuration; response_bytes = $detailSample.Content.Length }
+        @{ name = "graphql"; method = "POST"; url = "/api/v1/graphql"; rate = $ReadRate; duration = $ReadDuration; response_bytes = $graphqlSample.Content.Length }
+        @{ name = "concurrent-write"; method = "PUT"; url = "/api/v1/articles/$articleID"; rate = $WriteRate; duration = $WriteDuration; response_bytes = 0 }
+    )
+    app_config = $appConfig
+}
+$metaPath = Join-Path $outputPath "run-metadata.json"
+$runMeta | ConvertTo-Json -Depth 5 | Set-Content -Encoding UTF8 $metaPath
+Write-Host "Run metadata: git_sha=$gitSha article_count=$articleCount driver=$Driver -> $metaPath"
+
 Invoke-VegetaCase -Name "article-list" -Method "GET" -Url "$BaseUrl/api/v1/articles?page=1&page_size=20" -Rate $ReadRate -Duration $ReadDuration
 Start-Sleep -Seconds $CooldownSeconds
 Invoke-VegetaCase -Name "article-detail" -Method "GET" -Url "$BaseUrl/api/v1/articles/$articleID" -Rate $ReadRate -Duration $ReadDuration

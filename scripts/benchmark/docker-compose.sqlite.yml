@@ -1,0 +1,116 @@
+# Self-contained SQLite benchmark stack for the 7.2 cross-database comparison.
+# SQLite is embedded in the app process, so there is no separate DB container —
+# the database file lives on a named volume mounted at /data.
+#
+# Cache and queue use Redis (same as the PostgreSQL and MySQL stacks) so the
+# only variable across the three legs is the database driver.
+#
+# Usage (from repo root):
+#   docker compose -f scripts/benchmark/docker-compose.sqlite.yml up -d --build
+#   # wait until the seeder exits successfully, then run the load test:
+#   docker compose -f scripts/benchmark/docker-compose.sqlite.yml --profile bench up --build
+#   # generate the report on the host:
+#   pwsh scripts/benchmark/generate-report.ps1 -Driver sqlite
+#   docker compose -f scripts/benchmark/docker-compose.sqlite.yml down -v
+#
+# App is published on 18100 (differs from PostgreSQL's 18080 and MySQL's 18090
+# to allow all three stacks to run side by side).
+
+services:
+  app:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    container_name: contentx-bench-sqlite-app
+    restart: "no"
+    ports:
+      - "18100:8080"
+    environment:
+      - SERVER_MODE=release
+      - SERVER_PORT=8080
+      - DB_DRIVER=sqlite
+      # /app/uploads is created and chowned to the non-root `contentx` user in
+      # the Dockerfile; named volumes inherit that ownership on first mount, so
+      # the app can write the SQLite file here without running as root.
+      - DB_NAME=/app/uploads/bench_sqlite.db
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-benchredis}
+      - JWT_SECRET=${JWT_SECRET:-bench-jwt-secret-change-me-please-32chars}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-BenchAdmin123!}
+      - CACHE_DRIVER=redis
+      - QUEUE_DRIVER=redis
+      - METRICS_ENABLED=true
+      - OTEL_ENABLED=false
+      # Effectively disable the per-minute API rate limiter for load testing.
+      - LIMITS_API_RATE=100000000
+    volumes:
+      - sqlite-data:/app/uploads
+    depends_on:
+      redis:
+        condition: service_started
+    networks:
+      - sqlite-net
+
+  seeder:
+    build:
+      context: ../..
+      dockerfile: scripts/benchmark/Dockerfile.sqlite-seeder
+    container_name: contentx-bench-sqlite-seeder
+    restart: "no"
+    # Runs once after the app is healthy (schema created by AutoMigrate), then
+    # exits. The app keeps running and serves requests against the seeded file.
+    # Same named volume as app; seeder sees it at /data, app at /app/uploads.
+    command: ["-db", "/data/bench_sqlite.db"]
+    volumes:
+      - sqlite-data:/data
+    depends_on:
+      app:
+        condition: service_healthy
+    networks:
+      - sqlite-net
+
+  redis:
+    image: redis:7-alpine
+    container_name: contentx-bench-sqlite-redis
+    restart: "no"
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD:-benchredis}"]
+    networks:
+      - sqlite-net
+
+  bench-runner:
+    profiles: ["bench"]
+    build:
+      context: ../..
+      dockerfile: scripts/benchmark/Dockerfile.bench
+    container_name: contentx-bench-sqlite-runner
+    restart: "no"
+    # Run from inside the Docker network so traffic to `app` never crosses the
+    # Windows host's network stack — same conditions as PostgreSQL and MySQL.
+    environment:
+      - BASE_URL=http://app:8080
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-BenchAdmin123!}
+      - OUTPUT_DIR=/out
+      - DRIVER=sqlite
+      - GIT_SHA=${GIT_SHA:-unknown}
+      - GIT_BRANCH=${GIT_BRANCH:-unknown}
+      - READ_RATE=${READ_RATE:-1000}
+      - WRITE_RATE=${WRITE_RATE:-100}
+      - READ_DURATION=${READ_DURATION:-15s}
+      - WRITE_DURATION=${WRITE_DURATION:-10s}
+      - COOLDOWN_SECONDS=${COOLDOWN_SECONDS:-5}
+    volumes:
+      # JSON output lands here on the host so generate-report.ps1 can pick it up.
+      - ../../reports/benchmarks/raw/sqlite:/out
+    depends_on:
+      seeder:
+        condition: service_completed_successfully
+    networks:
+      - sqlite-net
+
+volumes:
+  sqlite-data:
+
+networks:
+  sqlite-net:
+    driver: bridge

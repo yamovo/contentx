@@ -1,0 +1,2 @@
+[2026-07-23T13:13:49Z] graphql pre base=http://app:8080 goroutines=12 open_fds=n/a
+[2026-07-23T13:14:35Z] graphql post base=http://app:8080 goroutines=12 open_fds=n/a
