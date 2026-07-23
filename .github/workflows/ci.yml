@@ -57,6 +57,15 @@ jobs:
       - name: Run tests
         run: go test ./... -v -coverprofile=coverage.out
 
+      - name: Check coverage threshold
+        run: |
+          TOTAL=$(go tool cover -func=coverage.out | grep '^total:' | awk '{print $3}' | tr -d '%')
+          echo "Total Go coverage: ${TOTAL}%"
+          # Round 6 / F8: baseline ratchet at 75% (current ~82.9% for tested packages).
+          # Prevents coverage regression; raise as more packages gain tests.
+          THRESHOLD=75
+          awk -v t="$TOTAL" -v th="$THRESHOLD" 'BEGIN { if (t < th) { printf "::error::Coverage %s%% below threshold %s%%\n", t, th; exit 1 } }'
+
       - name: Upload coverage
         uses: codecov/codecov-action@v4
         with:
@@ -91,7 +100,7 @@ jobs:
 
       - name: Run tests
         working-directory: web
-        run: npx vitest run
+        run: npx vitest run --coverage
 
       - name: Build frontend
         working-directory: web
