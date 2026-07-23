@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -21,8 +22,26 @@ func NewLocalDriver(basePath, urlPrefix string) *LocalDriver {
 	return &LocalDriver{basePath: basePath, urlPrefix: urlPrefix}
 }
 
-func (d *LocalDriver) Upload(_ context.Context, key string, reader io.Reader, _ string) (string, error) {
+// safePath joins the key with basePath and verifies the resolved path stays
+// within basePath. This prevents path traversal attacks via keys containing
+// ".." segments or absolute paths (Round 6 / F6 security fix).
+func (d *LocalDriver) safePath(key string) (string, error) {
 	fullPath := filepath.Join(d.basePath, key)
+	rel, err := filepath.Rel(d.basePath, fullPath)
+	if err != nil {
+		return "", fmt.Errorf("invalid key %q: %w", key, err)
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("invalid key %q: escapes base path", key)
+	}
+	return fullPath, nil
+}
+
+func (d *LocalDriver) Upload(_ context.Context, key string, reader io.Reader, _ string) (string, error) {
+	fullPath, err := d.safePath(key)
+	if err != nil {
+		return "", err
+	}
 	dir := filepath.Dir(fullPath)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return "", fmt.Errorf("create directory: %w", err)
@@ -42,8 +61,11 @@ func (d *LocalDriver) Upload(_ context.Context, key string, reader io.Reader, _ 
 }
 
 func (d *LocalDriver) Delete(_ context.Context, key string) error {
-	fullPath := filepath.Join(d.basePath, key)
-	err := os.Remove(fullPath)
+	fullPath, err := d.safePath(key)
+	if err != nil {
+		return err
+	}
+	err = os.Remove(fullPath)
 	if os.IsNotExist(err) {
 		return nil
 	}

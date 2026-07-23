@@ -103,12 +103,12 @@ func (d *S3Driver) GetSignedURL(key string, expiry time.Duration) string {
 }
 
 func (d *S3Driver) objectURL(key string) string {
-	if d.config.PathStyle {
-		return fmt.Sprintf("http://%s/%s/%s", d.config.Endpoint, d.config.Bucket, key)
-	}
 	scheme := "https"
 	if !d.config.UseSSL {
 		scheme = "http"
+	}
+	if d.config.PathStyle {
+		return fmt.Sprintf("%s://%s/%s/%s", scheme, d.config.Endpoint, d.config.Bucket, key)
 	}
 	return fmt.Sprintf("%s://%s.%s/%s", scheme, d.config.Bucket, d.config.Endpoint, key)
 }

@@ -55,7 +55,7 @@ func (r *gormUserRepository) List(filter UserListFilter) ([]models.User, int64, 
 	}
 
 	var users []models.User
-	if err := query.Order("created_at DESC").
+	if err := query.Order("users.created_at DESC").
 		Offset((filter.Page - 1) * filter.PageSize).
 		Limit(filter.PageSize).
 		Find(&users).Error; err != nil {

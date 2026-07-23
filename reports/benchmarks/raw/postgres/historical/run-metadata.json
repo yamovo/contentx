@@ -1,0 +1,53 @@
+﻿{
+    "app_config":  {
+                       "driver":  "postgres",
+                       "goroutines":  "14"
+                   },
+    "article_id":  10901,
+    "cooldown_seconds":  5,
+    "timestamp":  "2026-07-23T20:27:02+08:00",
+    "git_sha":  "0f5d624",
+    "driver":  "postgres",
+    "write_rate":  100,
+    "write_duration":  "10s",
+    "git_dirty":  true,
+    "scenarios":  [
+                      {
+                          "response_bytes":  28618,
+                          "name":  "article-list",
+                          "duration":  "15s",
+                          "method":  "GET",
+                          "rate":  1000,
+                          "url":  "/api/v1/articles?page=1\u0026page_size=20"
+                      },
+                      {
+                          "response_bytes":  3674,
+                          "name":  "article-detail",
+                          "duration":  "15s",
+                          "method":  "GET",
+                          "rate":  1000,
+                          "url":  "/api/v1/articles/10901"
+                      },
+                      {
+                          "response_bytes":  2467,
+                          "name":  "graphql",
+                          "duration":  "15s",
+                          "method":  "POST",
+                          "rate":  1000,
+                          "url":  "/api/v1/graphql"
+                      },
+                      {
+                          "response_bytes":  0,
+                          "name":  "concurrent-write",
+                          "duration":  "10s",
+                          "method":  "PUT",
+                          "rate":  100,
+                          "url":  "/api/v1/articles/10901"
+                      }
+                  ],
+    "read_rate":  1000,
+    "read_duration":  "15s",
+    "article_count":  10000,
+    "base_url":  "http://127.0.0.1:18080",
+    "git_branch":  "main"
+}
