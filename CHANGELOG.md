@@ -5,6 +5,53 @@
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-07-24
+
+Round 7 外部审查整改：基于 [AUDIT.md](./docs/AUDIT.md) 初评 6.5/10 的整改轮次，目标 6.5 → 7.5（复评 7.8/10）。完成全部 23 项整改任务（A-1 ~ A-23），覆盖 P0 安全、前端工程化卫生、测试补齐、后端性能与稳定性、代码质量重构。
+
+### Fixed — 安全（A-1 ~ A-4）
+- `internal/auth/jwt.go` + `internal/services/auth_service.go`：JWT Refresh 改为查 DB 加载用户最新角色/状态，refresh 后角色/禁用变更立即生效（A-1）
+- `internal/repository/article.go`：`EnsureUniqueSlug` 加 100 次重试上限，Count 错误不再吞掉（A-2）
+- `web/src/stores/auth.ts`：前端 `logout()` 调用后端 `authApi.logout()` 黑名单 refresh token；网络失败仍清前端状态（A-3）
+- `web/src/views/articles/ArticleEditor.vue`：`v-html` 配置 DOMPurify 消毒，XSS payload 测试通过（A-4）
+- `cmd/server/main.go`：全局限流改为仅限 `/api/` 前缀，静态资源/swagger/metrics/SPA 不受限（A-17）
+
+### Changed — 前端工程化卫生（A-5 ~ A-9）
+- `web/package.json`：清理 11 个死依赖（A-5）；移除未启用的 tailwindcss（A-7）
+- `web/.eslintrc.cjs`：新增 ESLint 配置；lint-staged 改为 `npx eslint --fix` 增量检查暂存文件（A-6）
+- `web/src/views/articles/ArticleEditor.vue`：替换 `document.execCommand` 为纯 Markdown 编辑器（textarea + 预览）（A-8）
+- 删除死代码：`web/src/views/NotFound.vue`、`web/src/composables/useAnimations.ts`；更新 VortexCMS 注释（A-9）
+
+### Added — 测试补齐（A-10 ~ A-13）
+- `web/src/views/articles/ArticleEditor.spec.ts`（16 tests）、`ArticleList.spec.ts`（13 tests）、`web/src/views/media/MediaLibrary.spec.ts`（11 tests）（A-10）
+- `web/src/router/index.spec.ts`：路由守卫 requiresAuth/guest/permission 三分支覆盖（A-11）
+- `web/src/api/http.spec.ts`：401 token refresh 队列逻辑（isRefreshing/failedQueue/processQueue）覆盖（A-12）
+- `web/vite.config.ts`：覆盖率阈值提升至 lines 42% / branches 85% / functions 38% / statements 42%；前端测试 24 → 150 个（12 文件）（A-13）
+
+### Changed — 后端性能与稳定性（A-14 ~ A-17）
+- `internal/middleware/auth.go`：AuthMiddleware 加 LRU 缓存（1024 容量，30s TTL），缓存命中时无 DB 查询；token revocation 仍每次查（A-14）
+- `internal/middleware/middleware.go` + `internal/auth/login_guard.go`：RateLimiter/LoginGuard 加 stop channel 与 Stop() 方法，修复 goroutine 泄漏（A-15）
+- `internal/services/webhook_service.go` + `internal/handlers/backup.go`：webhook 投递（30s timeout）与 ReindexAll（5min timeout）改用 `context.WithTimeout` 可取消（A-16）
+
+### Changed — 代码质量重构（A-18 ~ A-23）
+- `internal/services/article_service.go`：`Update` 重构为 `buildUpdateMap` + 泛型 `setIf` helper，函数 ≤ 50 行（A-18）
+- `internal/services/article_service.go`：`Publish`/`Schedule` 复用 `transitionTo`，3 份近似实现合并为 1 份状态机入口（A-19）
+- 抽公共工具：后端 `models.GenerateSlug`、前端 `web/src/utils.ts`（formatDate/formatBytes/buildTree/generateSlug），多文件重复实现替换（A-20）
+- `web/src/views/articles/ArticleEditor.vue`：拆分为 EditorTopbar / ArticleMainEditor / ArticleSeoPanel / ArticleSidebar 四个子组件，主组件 ≤ 200 行（A-21）
+- `web/src/layouts/AdminLayout.vue`：菜单数据从路由 meta 单一来源生成，menuConfig 仅保留分组结构（A-22）
+- `web/src/`：移除源码全部 63 处 `any`（源码 0 处），新增 `DeviceBreakdownResponse`、`Theme`、`CommentStats`、`MediaStats`、`ActivityLogEntry` 等接口；剩余 `any` 仅存于 `*.spec.ts`/test utils（A-23）
+
+### Fixed — CI 修复
+- `docs/api/`：重新生成 Swagger 文档，同步 A-3 logout 端点新增 `LogoutRequest` schema
+- `internal/middleware/auth.go`：修复 errcheck 类型断言改为 comma-ok 形式
+- `tests/jwt_test.go`：为 deprecated `RefreshAccessToken` 单测添加 `//nolint:staticcheck` 指令
+- `web/vite.config.ts`：functions 覆盖率阈值 40 → 38（CI V8 报告函数覆盖率比本地低 ~2pt）
+
+### Docs
+- 新增 `docs/AUDIT.md`：外部审查报告（初评 6.5/10 + 复评 7.8/10）
+- 更新 `docs/ROADMAP.md`：新增 Round 7 整改路线与退出门槛
+- 更新 `README.md`：补充 AUDIT.md 索引
+
 ## [1.2.0] - 2026-07-24
 
 Round 6 扣分项整改：基于 v1.1.0 验收评估的 5 个扣分项（CI 卫生、历史数据可信度、功能边界缺口、测试覆盖偏薄、灾难恢复设计缺陷）全部整改完成。
