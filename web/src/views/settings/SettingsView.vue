@@ -2,17 +2,57 @@
   <div class="settings-page">
     <h2>系统设置</h2>
 
-    <el-tabs v-model="activeGroup" @tab-change="fetchSettings">
-      <el-tab-pane v-for="g in groups" :key="g" :label="groupLabels[g] || g" :name="g">
+    <el-tabs
+      v-model="activeGroup"
+      @tab-change="fetchSettings"
+    >
+      <el-tab-pane
+        v-for="g in groups"
+        :key="g"
+        :label="groupLabels[g] || g"
+        :name="g"
+      >
         <el-card shadow="never">
-          <el-form label-width="140px" label-position="left">
-            <el-form-item v-for="s in settings[g]" :key="s.key" :label="s.label || s.key">
-              <el-input v-if="s.type === 'string'" v-model="s.value" />
-              <el-input v-else-if="s.type === 'text'" v-model="s.value" type="textarea" :rows="3" />
-              <el-input-number v-else-if="s.type === 'int'" :model-value="Number(s.value)" @update:model-value="s.value = String($event)" />
-              <el-switch v-else-if="s.type === 'bool'" v-model="s.value" active-value="true" inactive-value="false" />
-              <el-input v-else v-model="s.value" />
-              <div v-if="s.help_text" class="help-text">{{ s.help_text }}</div>
+          <el-form
+            label-width="140px"
+            label-position="left"
+          >
+            <el-form-item
+              v-for="s in settings[g]"
+              :key="s.key"
+              :label="s.label || s.key"
+            >
+              <el-input
+                v-if="s.type === 'string'"
+                v-model="s.value"
+              />
+              <el-input
+                v-else-if="s.type === 'text'"
+                v-model="s.value"
+                type="textarea"
+                :rows="3"
+              />
+              <el-input-number
+                v-else-if="s.type === 'int'"
+                :model-value="Number(s.value)"
+                @update:model-value="s.value = String($event)"
+              />
+              <el-switch
+                v-else-if="s.type === 'bool'"
+                v-model="s.value"
+                active-value="true"
+                inactive-value="false"
+              />
+              <el-input
+                v-else
+                v-model="s.value"
+              />
+              <div
+                v-if="s.help_text"
+                class="help-text"
+              >
+                {{ s.help_text }}
+              </div>
             </el-form-item>
           </el-form>
         </el-card>
@@ -20,7 +60,13 @@
     </el-tabs>
 
     <div class="save-bar">
-      <el-button type="primary" :loading="saving" @click="saveSettings">保存设置</el-button>
+      <el-button
+        type="primary"
+        :loading="saving"
+        @click="saveSettings"
+      >
+        保存设置
+      </el-button>
     </div>
   </div>
 </template>

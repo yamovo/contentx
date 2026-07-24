@@ -8,8 +8,6 @@ NProgress.configure({ showSpinner: false })
 const AdminLayout = () => import('@/layouts/AdminLayout.vue')
 const LoginView = () => import('@/views/login/LoginView.vue')
 
-const NotFound = () => import('@/views/NotFound.vue')
-
 const routes: RouteRecordRaw[] = [
   // Public routes (front-end).
   {

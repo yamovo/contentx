@@ -17,10 +17,10 @@ const http: AxiosInstance = axios.create(config)
 let isRefreshing = false
 let failedQueue: Array<{
   resolve: (token: string) => void
-  reject: (error: any) => void
+  reject: (error: unknown) => void
 }> = []
 
-const processQueue = (error: any, token: string | null = null) => {
+const processQueue = (error: unknown, token: string | null = null) => {
   failedQueue.forEach((prom) => {
     if (error) {
       prom.reject(error)
@@ -72,7 +72,7 @@ http.interceptors.response.use(
 
       const authStore = useAuthStore()
       if (!authStore.refreshToken) {
-        authStore.logout()
+        authStore.clearAuth()
         router.push('/login')
         isRefreshing = false
         return Promise.reject(error)
@@ -87,7 +87,7 @@ http.interceptors.response.use(
         })
         .catch((err) => {
           processQueue(err, null)
-          authStore.logout()
+          authStore.clearAuth()
           router.push('/login')
           return Promise.reject(err)
         })
@@ -123,15 +123,15 @@ http.interceptors.response.use(
 export default http
 
 // Typed API helpers.
-export function get<T>(url: string, params?: Record<string, any>): Promise<T> {
+export function get<T>(url: string, params?: Record<string, unknown>): Promise<T> {
   return http.get(url, { params }).then(r => r.data)
 }
 
-export function post<T>(url: string, data?: any): Promise<T> {
+export function post<T>(url: string, data?: unknown): Promise<T> {
   return http.post(url, data).then(r => r.data)
 }
 
-export function put<T>(url: string, data?: any): Promise<T> {
+export function put<T>(url: string, data?: unknown): Promise<T> {
   return http.put(url, data).then(r => r.data)
 }
 

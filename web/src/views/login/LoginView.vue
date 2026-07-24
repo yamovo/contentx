@@ -1,10 +1,20 @@
 <template>
   <div class="login-page">
     <div class="login-container">
-      <div class="login-card" ref="cardRef">
+      <div
+        ref="cardRef"
+        class="login-card"
+      >
         <div class="login-header">
-          <h1 class="logo-text" ref="logoRef">ContentX</h1>
-          <p class="subtitle">内容管理系统</p>
+          <h1
+            ref="logoRef"
+            class="logo-text"
+          >
+            ContentX
+          </h1>
+          <p class="subtitle">
+            内容管理系统
+          </p>
         </div>
 
         <el-form
@@ -38,8 +48,13 @@
 
           <el-form-item>
             <div class="login-options">
-              <el-checkbox v-model="rememberMe">记住我</el-checkbox>
-              <a href="#" class="forgot-link">忘记密码？</a>
+              <el-checkbox v-model="rememberMe">
+                记住我
+              </el-checkbox>
+              <a
+                href="#"
+                class="forgot-link"
+              >忘记密码？</a>
             </div>
           </el-form-item>
 
@@ -48,8 +63,8 @@
               type="primary"
               size="large"
               :loading="authStore.loading"
-              @click="handleLogin"
               class="login-btn"
+              @click="handleLogin"
             >
               登 录
             </el-button>
@@ -58,17 +73,31 @@
 
         <div class="login-footer">
           <span>还没有账号？</span>
-          <router-link to="/register">立即注册</router-link>
+          <router-link to="/register">
+            立即注册
+          </router-link>
         </div>
       </div>
     </div>
 
     <div class="login-bg">
-      <div class="bg-overlay" ref="bgRef"></div>
+      <div
+        ref="bgRef"
+        class="bg-overlay"
+      />
       <!-- floating decorative circles -->
-      <div class="bg-circle c1" ref="c1Ref"></div>
-      <div class="bg-circle c2" ref="c2Ref"></div>
-      <div class="bg-circle c3" ref="c3Ref"></div>
+      <div
+        ref="c1Ref"
+        class="bg-circle c1"
+      />
+      <div
+        ref="c2Ref"
+        class="bg-circle c2"
+      />
+      <div
+        ref="c3Ref"
+        class="bg-circle c3"
+      />
     </div>
   </div>
 </template>
@@ -79,8 +108,8 @@ import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { User, Lock } from '@element-plus/icons-vue'
 import { ElMessage, type FormInstance } from 'element-plus'
-import { animate, createTimeline } from 'animejs'
-import { stagger } from 'animejs/utils'
+import { animate } from 'animejs'
+import { getApiError } from '@/utils'
 
 const router = useRouter()
 const route = useRoute()
@@ -117,8 +146,8 @@ async function handleLogin() {
 
     const redirect = (route.query.redirect as string) || '/admin'
     router.push(redirect)
-  } catch (err: any) {
-    ElMessage.error(err.response?.data?.error || '登录失败')
+  } catch (err) {
+    ElMessage.error(getApiError(err, '登录失败'))
   }
 }
 

@@ -4,31 +4,69 @@
       <h2>主题管理</h2>
     </div>
     <el-row :gutter="16">
-      <el-col :span="8" v-for="t in themes" :key="t.id">
-        <el-card shadow="hover" class="theme-card" :class="{ active: t.is_active }">
+      <el-col
+        v-for="t in themes"
+        :key="t.id"
+        :span="8"
+      >
+        <el-card
+          shadow="hover"
+          class="theme-card"
+          :class="{ active: t.is_active }"
+        >
           <div class="theme-preview">
-            <img v-if="t.screenshot" :src="t.screenshot" />
-            <div v-else class="placeholder"><el-icon :size="48"><Brush /></el-icon></div>
-            <el-tag v-if="t.is_active" class="active-badge" type="success">当前主题</el-tag>
+            <img
+              v-if="t.screenshot"
+              :src="t.screenshot"
+            >
+            <div
+              v-else
+              class="placeholder"
+            >
+              <el-icon :size="48">
+                <Brush />
+              </el-icon>
+            </div>
+            <el-tag
+              v-if="t.is_active"
+              class="active-badge"
+              type="success"
+            >
+              当前主题
+            </el-tag>
           </div>
           <div class="theme-info">
-            <h3>{{ t.name }} <el-tag size="small">v{{ t.version }}</el-tag></h3>
+            <h3>
+              {{ t.name }} <el-tag size="small">
+                v{{ t.version }}
+              </el-tag>
+            </h3>
             <p>{{ t.description }}</p>
-            <el-button v-if="!t.is_active" type="primary" size="small" @click="activateTheme(t)">启用</el-button>
+            <el-button
+              v-if="!t.is_active"
+              type="primary"
+              size="small"
+              @click="activateTheme(t)"
+            >
+              启用
+            </el-button>
           </div>
         </el-card>
       </el-col>
     </el-row>
-    <el-empty v-if="!themes.length" description="暂无已安装的主题" />
+    <el-empty
+      v-if="!themes.length"
+      description="暂无已安装的主题"
+    />
   </div>
 </template>
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import { themeApi } from '@/api'
+import { themeApi, type Theme } from '@/api'
 import { ElMessage } from 'element-plus'
-const themes = ref<any[]>([])
-async function fetchThemes() { try { themes.value = (await themeApi.list() as any).data } catch {} }
-async function activateTheme(t: any) {
+const themes = ref<Theme[]>([])
+async function fetchThemes() { try { themes.value = (await themeApi.list()).data } catch {} }
+async function activateTheme(t: Theme) {
   await themeApi.activate(t.id); ElMessage.success('主题已激活'); fetchThemes()
 }
 onMounted(fetchThemes)

@@ -49,7 +49,7 @@ export const useAuthStore = defineStore('auth', () => {
       user.value = res.data.user
       permissions.value = res.data.permissions
     } catch {
-      logout()
+      clearAuth()
     }
   }
 
@@ -77,13 +77,30 @@ export const useAuthStore = defineStore('auth', () => {
     localStorage.setItem('refresh_token', pair.refresh_token)
   }
 
-  function logout() {
+  // clearAuth clears local auth state only (no backend call). Used when the
+  // token is already known to be invalid (e.g. 401 after failed refresh).
+  function clearAuth() {
     user.value = null
     token.value = ''
     refreshToken.value = ''
     permissions.value = []
     localStorage.removeItem('access_token')
     localStorage.removeItem('refresh_token')
+  }
+
+  // logout invalidates the session on the backend (blacklist the refresh
+  // token) and then clears local state. Network failures are swallowed so
+  // the user is still logged out locally (A-3 fix).
+  async function logout() {
+    try {
+      if (refreshToken.value) {
+        await authApi.logout(refreshToken.value)
+      }
+    } catch {
+      // Best-effort: ignore network errors so local state is still cleared.
+    } finally {
+      clearAuth()
+    }
   }
 
   function hasPermission(slug: string): boolean {
@@ -100,6 +117,6 @@ export const useAuthStore = defineStore('auth', () => {
     user, token, refreshToken, permissions, loading,
     isAuthenticated, isAdmin, isEditor,
     login, register, fetchUser, fetchPermissions, refreshAccessToken,
-    setTokens, logout, hasPermission,
+    setTokens, logout, clearAuth, hasPermission,
   }
 })

@@ -1,36 +1,90 @@
 <template>
-  <div class="blog-article" ref="pageRef">
-    <div v-if="loading" class="loading">Loading...</div>
+  <div
+    ref="pageRef"
+    class="blog-article"
+  >
+    <div
+      v-if="loading"
+      class="loading"
+    >
+      Loading...
+    </div>
     <template v-else-if="article">
       <!-- Article Header -->
-      <header class="article-header" ref="headerRef">
+      <header
+        ref="headerRef"
+        class="article-header"
+      >
         <div class="header-meta">
-          <router-link v-if="category" :to="'/blog/category/' + category.slug" class="meta-cat">{{ category.name }}</router-link>
-          <span>{{ formatDate(article.created_at) }}</span>
+          <router-link
+            v-if="category"
+            :to="'/blog/category/' + category.slug"
+            class="meta-cat"
+          >
+            {{ category.name }}
+          </router-link>
+          <span>{{ formatDate(article.created_at, 'MMM DD, YYYY') }}</span>
           <span>{{ article.view_count || 0 }} views</span>
         </div>
         <h1>{{ article.title }}</h1>
-        <p class="header-summary" v-if="article.excerpt">{{ article.excerpt }}</p>
-        <div class="header-author" v-if="article.author">
-          <el-avatar :size="32">{{ (article.author.display_name || 'U')[0] }}</el-avatar>
+        <p
+          v-if="article.excerpt"
+          class="header-summary"
+        >
+          {{ article.excerpt }}
+        </p>
+        <div
+          v-if="article.author"
+          class="header-author"
+        >
+          <el-avatar :size="32">
+            {{ (article.author.display_name || 'U')[0] }}
+          </el-avatar>
           <span>{{ article.author.display_name }}</span>
         </div>
       </header>
 
       <!-- Article Content -->
-      <article class="article-content markdown-body" v-html="renderedContent"></article>
+      <article
+        class="article-content markdown-body"
+        v-html="renderedContent"
+      />
 
       <!-- Tags -->
-      <div class="article-tags" v-if="article.tags && article.tags.length">
-        <router-link v-for="tag in article.tags" :key="tag.id" :to="'/blog/tag/' + tag.slug" class="tag-chip">{{ tag.name }}</router-link>
+      <div
+        v-if="article.tags && article.tags.length"
+        class="article-tags"
+      >
+        <router-link
+          v-for="tag in article.tags"
+          :key="tag.id"
+          :to="'/blog/tag/' + tag.slug"
+          class="tag-chip"
+        >
+          {{ tag.name }}
+        </router-link>
       </div>
-      <div class="article-tags" v-else-if="tags.length">
-        <router-link v-for="tag in tags" :key="tag.id" :to="'/blog/tag/' + tag.slug" class="tag-chip">{{ tag.name }}</router-link>
+      <div
+        v-else-if="tags.length"
+        class="article-tags"
+      >
+        <router-link
+          v-for="tag in tags"
+          :key="tag.id"
+          :to="'/blog/tag/' + tag.slug"
+          class="tag-chip"
+        >
+          {{ tag.name }}
+        </router-link>
       </div>
 
       <!-- Like -->
       <div class="article-actions">
-        <button class="like-btn" :class="{ liked }" @click="toggleLike">
+        <button
+          class="like-btn"
+          :class="{ liked }"
+          @click="toggleLike"
+        >
           {{ liked ? 'Liked' : 'Like' }} ({{ article.like_count || 0 }})
         </button>
       </div>
@@ -39,22 +93,52 @@
       <section class="comments-section">
         <h3>Comments ({{ comments.length }})</h3>
         <div class="comment-form">
-          <input v-model="commentName" placeholder="Your name" class="comment-input" />
-          <textarea v-model="commentBody" placeholder="Leave a comment..." class="comment-textarea" rows="3"></textarea>
-          <button class="comment-submit" @click="submitComment" :disabled="!commentBody.trim()">Submit</button>
+          <input
+            v-model="commentName"
+            placeholder="Your name"
+            class="comment-input"
+          >
+          <textarea
+            v-model="commentBody"
+            placeholder="Leave a comment..."
+            class="comment-textarea"
+            rows="3"
+          />
+          <button
+            class="comment-submit"
+            :disabled="!commentBody.trim()"
+            @click="submitComment"
+          >
+            Submit
+          </button>
         </div>
         <div class="comment-list">
-          <div v-for="c in comments" :key="c.id" class="comment-item">
-            <div class="comment-avatar">{{ (c.author_name || 'A')[0].toUpperCase() }}</div>
+          <div
+            v-for="c in comments"
+            :key="c.id"
+            class="comment-item"
+          >
+            <div class="comment-avatar">
+              {{ (c.author_name || 'A')[0].toUpperCase() }}
+            </div>
             <div class="comment-body">
-              <div class="comment-head"><strong>{{ c.author_name || 'Anonymous' }}</strong><span>{{ formatDate(c.created_at) }}</span></div>
+              <div class="comment-head">
+                <strong>{{ c.author_name || 'Anonymous' }}</strong><span>{{ formatDate(c.created_at, 'MMM DD, YYYY') }}</span>
+              </div>
               <p>{{ c.content }}</p>
             </div>
           </div>
         </div>
       </section>
     </template>
-    <div v-else class="not-found"><h2>Article not found</h2><router-link to="/blog">Back to articles</router-link></div>
+    <div
+      v-else
+      class="not-found"
+    >
+      <h2>Article not found</h2><router-link to="/blog">
+        Back to articles
+      </router-link>
+    </div>
   </div>
 </template>
 
@@ -62,14 +146,16 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { marked } from 'marked'
+import DOMPurify from 'dompurify'
 import { animate } from 'animejs'
-import dayjs from 'dayjs'
+import { formatDate } from '@/utils'
+import type { Article, Category, Comment } from '@/api'
 
 const route = useRoute()
-const article = ref<any>(null)
-const category = ref<any>(null)
-const tags = ref<any[]>([])
-const comments = ref<any[]>([])
+const article = ref<Article | null>(null)
+const category = ref<Category | null>(null)
+const tags = ref<Article['tags']>([])
+const comments = ref<Comment[]>([])
 const loading = ref(true)
 const liked = ref(false)
 const commentName = ref('')
@@ -79,10 +165,8 @@ const headerRef = ref<HTMLElement>()
 
 const renderedContent = computed(() => {
   if (!article.value?.content) return ''
-  return marked(article.value.content) as string
+  return DOMPurify.sanitize(marked(article.value.content) as string)
 })
-
-function formatDate(s: string) { return dayjs(s).format('MMM DD, YYYY') }
 
 async function fetchArticle() {
   loading.value = true
@@ -102,6 +186,7 @@ async function fetchArticle() {
 
 async function fetchComments() {
   try {
+    if (!article.value) return
     const res = await fetch('/api/v1/articles/' + article.value.id + '/comments')
     const data = await res.json()
     comments.value = data.items || data.data || []

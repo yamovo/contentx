@@ -21,6 +21,7 @@ vi.mock('@/api', () => ({
     register: vi.fn(),
     me: vi.fn(),
     refresh: vi.fn(),
+    logout: vi.fn(),
   },
 }))
 
@@ -121,21 +122,54 @@ describe('Auth Store', () => {
   })
 
   describe('logout', () => {
-    it('should clear all state and localStorage', () => {
+    it('should call backend to blacklist refresh token and clear state', async () => {
+      vi.mocked(authApi.logout).mockResolvedValueOnce({} as any)
+
       const store = useAuthStore()
       store.user = mockUser
       store.token = 'some-token'
       store.refreshToken = 'some-refresh'
       store.permissions = ['articles.create']
 
-      store.logout()
+      await store.logout()
 
+      expect(authApi.logout).toHaveBeenCalledWith('some-refresh')
       expect(store.user).toBeNull()
       expect(store.token).toBe('')
       expect(store.refreshToken).toBe('')
       expect(store.permissions).toEqual([])
       expect(localStorageMock.removeItem).toHaveBeenCalledWith('access_token')
       expect(localStorageMock.removeItem).toHaveBeenCalledWith('refresh_token')
+    })
+
+    it('should still clear local state when backend call fails', async () => {
+      vi.mocked(authApi.logout).mockRejectedValueOnce(new Error('network error'))
+
+      const store = useAuthStore()
+      store.user = mockUser
+      store.token = 'some-token'
+      store.refreshToken = 'some-refresh'
+      store.permissions = ['articles.create']
+
+      await store.logout()
+
+      expect(authApi.logout).toHaveBeenCalledWith('some-refresh')
+      expect(store.user).toBeNull()
+      expect(store.token).toBe('')
+      expect(store.refreshToken).toBe('')
+      expect(store.permissions).toEqual([])
+    })
+
+    it('should skip backend call when no refresh token', async () => {
+      const store = useAuthStore()
+      store.user = mockUser
+      store.token = 'some-token'
+      store.refreshToken = ''
+
+      await store.logout()
+
+      expect(authApi.logout).not.toHaveBeenCalled()
+      expect(store.token).toBe('')
     })
   })
 
@@ -182,6 +216,7 @@ describe('Auth Store', () => {
 
       const store = useAuthStore()
       const result = await store.login('testuser', 'password123')
+      void result
 
       expect(authApi.login).toHaveBeenCalledWith({ username: 'testuser', password: 'password123' })
       expect(store.token).toBe('access-jwt-token')

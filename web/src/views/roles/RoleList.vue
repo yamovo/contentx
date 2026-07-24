@@ -2,21 +2,58 @@
   <div class="role-page">
     <div class="page-header">
       <h2>角色权限</h2>
-      <el-button type="primary" @click="openDialog()"><el-icon><Plus /></el-icon> 新建角色</el-button>
+      <el-button
+        type="primary"
+        @click="openDialog()"
+      >
+        <el-icon><Plus /></el-icon> 新建角色
+      </el-button>
     </div>
 
     <el-row :gutter="16">
-      <el-col :span="12" v-for="role in roles" :key="role.id">
-        <el-card shadow="hover" class="role-card">
+      <el-col
+        v-for="role in roles"
+        :key="role.id"
+        :span="12"
+      >
+        <el-card
+          shadow="hover"
+          class="role-card"
+        >
           <template #header>
             <div class="role-header">
               <div>
-                <h3>{{ role.name }} <el-tag v-if="role.is_system" size="small" type="info">系统</el-tag></h3>
-                <p class="role-desc">{{ role.description }}</p>
+                <h3>
+                  {{ role.name }} <el-tag
+                    v-if="role.is_system"
+                    size="small"
+                    type="info"
+                  >
+                    系统
+                  </el-tag>
+                </h3>
+                <p class="role-desc">
+                  {{ role.description }}
+                </p>
               </div>
               <div class="role-actions">
-                <el-button text size="small" @click="editRole(role)" :disabled="role.is_system">编辑</el-button>
-                <el-button text size="small" type="danger" @click="deleteRole(role)" :disabled="role.is_system">删除</el-button>
+                <el-button
+                  text
+                  size="small"
+                  :disabled="role.is_system"
+                  @click="editRole(role)"
+                >
+                  编辑
+                </el-button>
+                <el-button
+                  text
+                  size="small"
+                  type="danger"
+                  :disabled="role.is_system"
+                  @click="deleteRole(role)"
+                >
+                  删除
+                </el-button>
               </div>
             </div>
           </template>
@@ -25,10 +62,19 @@
             <span>权限数: {{ role.permissions?.length || 0 }}</span>
           </div>
           <div class="perm-list">
-            <el-tag v-for="perm in role.permissions?.slice(0, 8)" :key="perm.id" size="small" class="perm-tag">
+            <el-tag
+              v-for="perm in role.permissions?.slice(0, 8)"
+              :key="perm.id"
+              size="small"
+              class="perm-tag"
+            >
               {{ perm.name }}
             </el-tag>
-            <el-tag v-if="(role.permissions?.length || 0) > 8" size="small" type="info">
+            <el-tag
+              v-if="(role.permissions?.length || 0) > 8"
+              size="small"
+              type="info"
+            >
               +{{ (role.permissions?.length || 0) - 8 }}
             </el-tag>
           </div>
@@ -37,11 +83,26 @@
     </el-row>
 
     <!-- Permission Reference -->
-    <el-card shadow="never" class="section-card">
-      <template #header><span>权限列表</span></template>
+    <el-card
+      shadow="never"
+      class="section-card"
+    >
+      <template #header>
+        <span>权限列表</span>
+      </template>
       <el-collapse>
-        <el-collapse-item v-for="(perms, module) in groupedPerms" :key="module" :title="String(module)">
-          <el-checkbox v-for="p in perms" :key="p.id" :label="p.name" disabled class="perm-checkbox">
+        <el-collapse-item
+          v-for="(perms, module) in groupedPerms"
+          :key="module"
+          :title="String(module)"
+        >
+          <el-checkbox
+            v-for="p in perms"
+            :key="p.id"
+            :label="p.name"
+            disabled
+            class="perm-checkbox"
+          >
             {{ p.name }} <span class="perm-slug">{{ p.slug }}</span>
           </el-checkbox>
         </el-collapse-item>
@@ -49,23 +110,59 @@
     </el-card>
 
     <!-- Dialog -->
-    <el-dialog v-model="dialogVisible" :title="editingId ? '编辑角色' : '新建角色'" width="600px">
-      <el-form :model="form" label-width="80px">
-        <el-form-item label="名称" required><el-input v-model="form.name" /></el-form-item>
-        <el-form-item label="标识" required><el-input v-model="form.slug" /></el-form-item>
-        <el-form-item label="描述"><el-input v-model="form.description" /></el-form-item>
+    <el-dialog
+      v-model="dialogVisible"
+      :title="editingId ? '编辑角色' : '新建角色'"
+      width="600px"
+    >
+      <el-form
+        :model="form"
+        label-width="80px"
+      >
+        <el-form-item
+          label="名称"
+          required
+        >
+          <el-input v-model="form.name" />
+        </el-form-item>
+        <el-form-item
+          label="标识"
+          required
+        >
+          <el-input v-model="form.slug" />
+        </el-form-item>
+        <el-form-item label="描述">
+          <el-input v-model="form.description" />
+        </el-form-item>
         <el-form-item label="权限">
           <el-checkbox-group v-model="form.permission_ids">
-            <div v-for="(perms, module) in groupedPerms" :key="module" class="perm-group">
+            <div
+              v-for="(perms, module) in groupedPerms"
+              :key="module"
+              class="perm-group"
+            >
               <h4>{{ module }}</h4>
-              <el-checkbox v-for="p in perms" :key="p.id" :label="p.id">{{ p.name }}</el-checkbox>
+              <el-checkbox
+                v-for="p in perms"
+                :key="p.id"
+                :label="p.id"
+              >
+                {{ p.name }}
+              </el-checkbox>
             </div>
           </el-checkbox-group>
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="saveRole">保存</el-button>
+        <el-button @click="dialogVisible = false">
+          取消
+        </el-button>
+        <el-button
+          type="primary"
+          @click="saveRole"
+        >
+          保存
+        </el-button>
       </template>
     </el-dialog>
   </div>
@@ -75,6 +172,7 @@
 import { ref, reactive, onMounted } from 'vue'
 import { roleApi, type Role, type Permission } from '@/api'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { getApiError } from '@/utils'
 
 const roles = ref<Role[]>([])
 const allPerms = ref<Permission[]>([])
@@ -118,7 +216,7 @@ async function saveRole() {
     }
     dialogVisible.value = false
     fetchData()
-  } catch (err: any) { ElMessage.error(err.response?.data?.error || '保存失败') }
+  } catch (err) { ElMessage.error(getApiError(err, '保存失败')) }
 }
 
 async function deleteRole(role: Role) {

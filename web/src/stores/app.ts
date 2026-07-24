@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
-import { ref, reactive } from 'vue'
-import { settingsApi, type SiteSetting } from '@/api'
+import { ref } from 'vue'
+import { settingsApi } from '@/api'
 
 export const useAppStore = defineStore('app', () => {
   const sidebarCollapsed = ref(false)

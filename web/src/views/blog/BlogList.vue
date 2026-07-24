@@ -1,25 +1,67 @@
 <template>
-  <div class="blog-list" ref="pageRef">
-    <div class="list-header" ref="headerRef">
+  <div
+    ref="pageRef"
+    class="blog-list"
+  >
+    <div
+      ref="headerRef"
+      class="list-header"
+    >
       <h1>{{ headerTitle }}</h1>
-      <p class="header-desc">{{ headerDesc }}</p>
+      <p class="header-desc">
+        {{ headerDesc }}
+      </p>
     </div>
     <div class="list-body">
       <div class="articles-col">
-        <div v-for="article in articles" :key="article.id" class="article-card">
-          <div class="card-image" v-if="article.featured_image">
-            <img :src="article.featured_image" :alt="article.title" loading="lazy" />
+        <div
+          v-for="article in articles"
+          :key="article.id"
+          class="article-card"
+        >
+          <div
+            v-if="article.featured_image"
+            class="card-image"
+          >
+            <img
+              :src="article.featured_image"
+              :alt="article.title"
+              loading="lazy"
+            >
           </div>
           <div class="card-body">
             <div class="card-meta">
-              <router-link v-if="getCategory(article.category_id)" :to="'/blog/category/' + getCategory(article.category_id).slug" class="meta-cat">{{ getCategory(article.category_id).name }}</router-link>
-              <span class="meta-date">{{ formatDate(article.created_at) }}</span>
+              <router-link
+                v-if="getCategory(article.category_id)"
+                :to="'/blog/category/' + getCategory(article.category_id).slug"
+                class="meta-cat"
+              >
+                {{ getCategory(article.category_id).name }}
+              </router-link>
+              <span class="meta-date">{{ formatDate(article.created_at, 'MMM DD, YYYY') }}</span>
             </div>
-            <router-link :to="'/blog/article/' + (article.slug || article.id)" class="card-title">{{ article.title }}</router-link>
-            <p class="card-summary">{{ article.excerpt || truncate(article.content || '', 160) }}</p>
+            <router-link
+              :to="'/blog/article/' + (article.slug || article.id)"
+              class="card-title"
+            >
+              {{ article.title }}
+            </router-link>
+            <p class="card-summary">
+              {{ article.excerpt || truncate(article.content || '', 160) }}
+            </p>
             <div class="card-footer">
-              <div class="card-tags" v-if="article.tags && article.tags.length">
-                <router-link v-for="tag in article.tags.slice(0, 3)" :key="tag.id" :to="'/blog/tag/' + tag.slug" class="tag-chip">{{ tag.name }}</router-link>
+              <div
+                v-if="article.tags && article.tags.length"
+                class="card-tags"
+              >
+                <router-link
+                  v-for="tag in article.tags.slice(0, 3)"
+                  :key="tag.id"
+                  :to="'/blog/tag/' + tag.slug"
+                  class="tag-chip"
+                >
+                  {{ tag.name }}
+                </router-link>
               </div>
               <div class="card-stats">
                 <span>{{ article.view_count || 0 }} views</span>
@@ -28,18 +70,41 @@
             </div>
           </div>
         </div>
-        <div v-if="!loading && articles.length === 0" class="empty-state"><p>No articles found.</p></div>
-        <div class="pagination" v-if="totalPages > 1">
-          <button :disabled="page <= 1" @click="goPage(page - 1)">Prev</button>
+        <div
+          v-if="!loading && articles.length === 0"
+          class="empty-state"
+        >
+          <p>No articles found.</p>
+        </div>
+        <div
+          v-if="totalPages > 1"
+          class="pagination"
+        >
+          <button
+            :disabled="page <= 1"
+            @click="goPage(page - 1)"
+          >
+            Prev
+          </button>
           <span>{{ page }} / {{ totalPages }}</span>
-          <button :disabled="page >= totalPages" @click="goPage(page + 1)">Next</button>
+          <button
+            :disabled="page >= totalPages"
+            @click="goPage(page + 1)"
+          >
+            Next
+          </button>
         </div>
       </div>
       <aside class="sidebar-col">
         <div class="sidebar-card">
           <h3>Categories</h3>
           <div class="cat-list">
-            <router-link v-for="cat in categories" :key="cat.id" :to="'/blog/category/' + cat.slug" class="cat-item">
+            <router-link
+              v-for="cat in categories"
+              :key="cat.id"
+              :to="'/blog/category/' + cat.slug"
+              class="cat-item"
+            >
               <span>{{ cat.name }}</span><span class="cat-count">{{ cat.post_count || 0 }}</span>
             </router-link>
           </div>
@@ -47,7 +112,14 @@
         <div class="sidebar-card">
           <h3>Tags</h3>
           <div class="tag-cloud">
-            <router-link v-for="tag in tags" :key="tag.id" :to="'/blog/tag/' + tag.slug" class="tag-chip">{{ tag.name }}</router-link>
+            <router-link
+              v-for="tag in tags"
+              :key="tag.id"
+              :to="'/blog/tag/' + tag.slug"
+              class="tag-chip"
+            >
+              {{ tag.name }}
+            </router-link>
           </div>
         </div>
       </aside>
@@ -57,13 +129,12 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, watch, nextTick } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { useRoute } from 'vue-router'
 import { animate } from 'animejs'
 import { stagger } from 'animejs/utils'
-import dayjs from 'dayjs'
+import { formatDate } from '@/utils'
 
 const route = useRoute()
-const router = useRouter()
 const articles = ref<any[]>([])
 const categories = ref<any[]>([])
 const tags = ref<any[]>([])
@@ -87,7 +158,6 @@ const headerDesc = computed(() => {
 })
 
 function truncate(s: string, n: number) { return !s ? '' : s.length > n ? s.slice(0, n) + '...' : s }
-function formatDate(s: string) { return dayjs(s).format('MMM DD, YYYY') }
 function getCategory(id: number) { return categories.value.find(c => c.id === id) }
 
 function goPage(p: number) { page.value = p; fetchArticles(); window.scrollTo({ top: 0, behavior: 'smooth' }) }

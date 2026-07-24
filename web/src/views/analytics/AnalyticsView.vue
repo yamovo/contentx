@@ -8,30 +8,62 @@
           <template #header>
             <div class="card-header">
               <span>访问趋势</span>
-              <el-radio-group v-model="days" size="small" @change="fetchViews">
-                <el-radio-button :value="7">7天</el-radio-button>
-                <el-radio-button :value="30">30天</el-radio-button>
-                <el-radio-button :value="90">90天</el-radio-button>
+              <el-radio-group
+                v-model="days"
+                size="small"
+                @change="fetchViews"
+              >
+                <el-radio-button :value="7">
+                  7天
+                </el-radio-button>
+                <el-radio-button :value="30">
+                  30天
+                </el-radio-button>
+                <el-radio-button :value="90">
+                  90天
+                </el-radio-button>
               </el-radio-group>
             </div>
           </template>
-          <v-chart class="chart-lg" :option="lineOption" autoresize />
+          <v-chart
+            class="chart-lg"
+            :option="lineOption"
+            autoresize
+          />
         </el-card>
       </el-col>
       <el-col :span="8">
         <el-card shadow="never">
-          <template #header><span>设备分布</span></template>
-          <v-chart class="chart-md" :option="pieOption" autoresize />
+          <template #header>
+            <span>设备分布</span>
+          </template>
+          <v-chart
+            class="chart-md"
+            :option="pieOption"
+            autoresize
+          />
         </el-card>
       </el-col>
     </el-row>
 
-    <el-row :gutter="16" style="margin-top: 16px">
+    <el-row
+      :gutter="16"
+      style="margin-top: 16px"
+    >
       <el-col :span="12">
         <el-card shadow="never">
-          <template #header><span>热门文章</span></template>
-          <div v-for="(a, i) in topArticles" :key="a.id" class="rank-item">
-            <span class="rank-num" :class="{ top: i < 3 }">{{ i + 1 }}</span>
+          <template #header>
+            <span>热门文章</span>
+          </template>
+          <div
+            v-for="(a, i) in topArticles"
+            :key="a.id"
+            class="rank-item"
+          >
+            <span
+              class="rank-num"
+              :class="{ top: i < 3 }"
+            >{{ i + 1 }}</span>
             <span class="rank-title">{{ a.title }}</span>
             <span class="rank-value">{{ a.view_count }} 次</span>
           </div>
@@ -39,13 +71,23 @@
       </el-col>
       <el-col :span="12">
         <el-card shadow="never">
-          <template #header><span>来源站点</span></template>
-          <div v-for="(r, i) in referrers" :key="i" class="rank-item">
+          <template #header>
+            <span>来源站点</span>
+          </template>
+          <div
+            v-for="(r, i) in referrers"
+            :key="i"
+            class="rank-item"
+          >
             <span class="rank-num">{{ i + 1 }}</span>
             <span class="rank-title">{{ r.referrer }}</span>
             <span class="rank-value">{{ r.count }} 次</span>
           </div>
-          <el-empty v-if="!referrers.length" description="暂无数据" :image-size="60" />
+          <el-empty
+            v-if="!referrers.length"
+            description="暂无数据"
+            :image-size="60"
+          />
         </el-card>
       </el-col>
     </el-row>
@@ -95,8 +137,8 @@ async function fetchViews() {
 }
 async function fetchDevices() {
   try {
-    const res = await analyticsApi.deviceBreakdown() as any
-    devices.value = (res.devices || []).map((d: any) => ({ name: d.name, value: d.count }))
+    const res = await analyticsApi.deviceBreakdown()
+    devices.value = (res.data?.devices || []).map((d) => ({ name: d.name, value: d.count }))
   } catch {}
 }
 async function fetchTop() {

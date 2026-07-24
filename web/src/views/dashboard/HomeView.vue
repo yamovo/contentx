@@ -2,17 +2,32 @@
   <div class="home-page">
     <header class="hero">
       <nav class="nav">
-        <h1 class="logo">VortexCMS</h1>
+        <h1 class="logo">
+          ContentX
+        </h1>
         <div class="nav-links">
-          <router-link to="/login">登录</router-link>
+          <router-link to="/login">
+            登录
+          </router-link>
         </div>
       </nav>
       <div class="hero-content">
         <h1>现代化内容管理系统</h1>
         <p>基于 Go + Vue 3 构建的高性能、可扩展的 CMS</p>
         <div class="hero-actions">
-          <el-button type="primary" size="large" @click="$router.push('/login')">进入后台</el-button>
-          <el-button size="large" @click="scrollToFeatures">了解更多</el-button>
+          <el-button
+            type="primary"
+            size="large"
+            @click="$router.push('/login')"
+          >
+            进入后台
+          </el-button>
+          <el-button
+            size="large"
+            @click="scrollToFeatures"
+          >
+            了解更多
+          </el-button>
         </div>
       </div>
     </header>
@@ -21,9 +36,18 @@
       <div class="container">
         <h2>核心特性</h2>
         <el-row :gutter="24">
-          <el-col :span="8" v-for="f in features" :key="f.title">
+          <el-col
+            v-for="f in features"
+            :key="f.title"
+            :span="8"
+          >
             <div class="feature-card">
-              <el-icon :size="40" :color="f.color"><component :is="f.icon" /></el-icon>
+              <el-icon
+                :size="40"
+                :color="f.color"
+              >
+                <component :is="f.icon" />
+              </el-icon>
               <h3>{{ f.title }}</h3>
               <p>{{ f.desc }}</p>
             </div>
@@ -39,11 +63,9 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { onMounted } from 'vue'
 import { animate } from 'animejs'
 import { stagger } from 'animejs/utils'
-const heroRef = ref<HTMLElement>()
-const featuresRef = ref<HTMLElement>()
 
 const features = [
   { title: '高性能', desc: 'Go 后端，编译型语言带来的极致性能', icon: 'Lightning', color: '#e6a23c' },

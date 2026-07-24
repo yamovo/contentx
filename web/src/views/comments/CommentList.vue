@@ -2,74 +2,190 @@
   <div class="comment-page">
     <div class="page-header">
       <h2>评论管理</h2>
-      <div class="comment-stats" v-if="stats">
+      <div
+        v-if="stats"
+        class="comment-stats"
+      >
         <el-tag>全部 {{ stats.total }}</el-tag>
-        <el-tag type="warning">待审 {{ stats.pending }}</el-tag>
-        <el-tag type="success">已批准 {{ stats.approved }}</el-tag>
-        <el-tag type="danger">垃圾 {{ stats.spam }}</el-tag>
+        <el-tag type="warning">
+          待审 {{ stats.pending }}
+        </el-tag>
+        <el-tag type="success">
+          已批准 {{ stats.approved }}
+        </el-tag>
+        <el-tag type="danger">
+          垃圾 {{ stats.spam }}
+        </el-tag>
       </div>
     </div>
 
     <el-card shadow="never">
-      <el-form :inline="true" class="filter-form">
+      <el-form
+        :inline="true"
+        class="filter-form"
+      >
         <el-form-item>
-          <el-select v-model="filters.status" placeholder="状态" clearable @change="fetchComments">
-            <el-option label="待审核" value="pending" />
-            <el-option label="已批准" value="approved" />
-            <el-option label="垃圾" value="spam" />
-            <el-option label="回收站" value="trash" />
+          <el-select
+            v-model="filters.status"
+            placeholder="状态"
+            clearable
+            @change="fetchComments"
+          >
+            <el-option
+              label="待审核"
+              value="pending"
+            />
+            <el-option
+              label="已批准"
+              value="approved"
+            />
+            <el-option
+              label="垃圾"
+              value="spam"
+            />
+            <el-option
+              label="回收站"
+              value="trash"
+            />
           </el-select>
         </el-form-item>
         <el-form-item>
-          <el-input v-model="filters.search" placeholder="搜索评论..." clearable @clear="fetchComments" />
+          <el-input
+            v-model="filters.search"
+            placeholder="搜索评论..."
+            clearable
+            @clear="fetchComments"
+          />
         </el-form-item>
         <el-form-item>
-          <el-button type="primary" @click="fetchComments">搜索</el-button>
+          <el-button
+            type="primary"
+            @click="fetchComments"
+          >
+            搜索
+          </el-button>
         </el-form-item>
       </el-form>
 
       <!-- Bulk Actions -->
-      <div class="bulk-bar" v-if="selectedIds.length">
+      <div
+        v-if="selectedIds.length"
+        class="bulk-bar"
+      >
         <span>已选 {{ selectedIds.length }} 项</span>
-        <el-button size="small" @click="bulk('approve')">批准</el-button>
-        <el-button size="small" @click="bulk('spam')">标记垃圾</el-button>
-        <el-button size="small" type="danger" @click="bulk('delete')">删除</el-button>
+        <el-button
+          size="small"
+          @click="bulk('approve')"
+        >
+          批准
+        </el-button>
+        <el-button
+          size="small"
+          @click="bulk('spam')"
+        >
+          标记垃圾
+        </el-button>
+        <el-button
+          size="small"
+          type="danger"
+          @click="bulk('delete')"
+        >
+          删除
+        </el-button>
       </div>
 
-      <el-table :data="comments" v-loading="loading" @selection-change="(rows: Comment[]) => selectedIds = rows.map(r => r.id)">
-        <el-table-column type="selection" width="50" />
-        <el-table-column label="评论内容" min-width="300">
+      <el-table
+        v-loading="loading"
+        :data="comments"
+        @selection-change="(rows: Comment[]) => selectedIds = rows.map(r => r.id)"
+      >
+        <el-table-column
+          type="selection"
+          width="50"
+        />
+        <el-table-column
+          label="评论内容"
+          min-width="300"
+        >
           <template #default="{ row }">
             <div class="comment-cell">
               <div class="comment-author">
-                <el-avatar :size="28">{{ (row.author_name || 'A')[0] }}</el-avatar>
+                <el-avatar :size="28">
+                  {{ (row.author_name || 'A')[0] }}
+                </el-avatar>
                 <div>
                   <strong>{{ row.author_name || row.user?.display_name || '匿名' }}</strong>
                   <span class="comment-email">{{ row.author_email }}</span>
                 </div>
               </div>
-              <p class="comment-text">{{ row.content }}</p>
+              <p class="comment-text">
+                {{ row.content }}
+              </p>
               <div class="comment-meta">
-                文章: <router-link :to="`/admin/articles/${row.article_id}/edit`">{{ row.article?.title || `#${row.article_id}` }}</router-link>
-                · {{ formatDate(row.created_at) }}
+                文章: <router-link :to="`/admin/articles/${row.article_id}/edit`">
+                  {{ row.article?.title || `#${row.article_id}` }}
+                </router-link>
+                · {{ formatDate(row.created_at, 'MM-DD HH:mm') }}
                 · IP: {{ row.author_ip }}
               </div>
             </div>
           </template>
         </el-table-column>
-        <el-table-column label="状态" width="100">
+        <el-table-column
+          label="状态"
+          width="100"
+        >
           <template #default="{ row }">
-            <el-tag :type="statusType(row.status)" size="small">{{ row.status }}</el-tag>
+            <el-tag
+              :type="statusType(row.status)"
+              size="small"
+            >
+              {{ row.status }}
+            </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="240">
+        <el-table-column
+          label="操作"
+          width="240"
+        >
           <template #default="{ row }">
-            <el-button v-if="row.status !== 'approved'" text size="small" type="success" @click="approve(row.id)">批准</el-button>
-            <el-button v-if="row.status !== 'spam'" text size="small" type="warning" @click="markSpam(row.id)">垃圾</el-button>
-            <el-button text size="small" @click="replyTo(row as Comment)">回复</el-button>
-            <el-popconfirm title="确认删除？" @confirm="deleteComment(row.id)">
+            <el-button
+              v-if="row.status !== 'approved'"
+              text
+              size="small"
+              type="success"
+              @click="approve(row.id)"
+            >
+              批准
+            </el-button>
+            <el-button
+              v-if="row.status !== 'spam'"
+              text
+              size="small"
+              type="warning"
+              @click="markSpam(row.id)"
+            >
+              垃圾
+            </el-button>
+            <el-button
+              text
+              size="small"
+              @click="replyTo(row as Comment)"
+            >
+              回复
+            </el-button>
+            <el-popconfirm
+              title="确认删除？"
+              @confirm="deleteComment(row.id)"
+            >
               <template #reference>
-                <el-button text size="small" type="danger">删除</el-button>
+                <el-button
+                  text
+                  size="small"
+                  type="danger"
+                >
+                  删除
+                </el-button>
               </template>
             </el-popconfirm>
           </template>
@@ -88,14 +204,33 @@
     </el-card>
 
     <!-- Reply Dialog -->
-    <el-dialog v-model="replyVisible" title="回复评论" width="500px">
-      <p v-if="replyTarget" class="reply-context">
+    <el-dialog
+      v-model="replyVisible"
+      title="回复评论"
+      width="500px"
+    >
+      <p
+        v-if="replyTarget"
+        class="reply-context"
+      >
         <strong>{{ replyTarget.author_name }}</strong>: {{ replyTarget.content }}
       </p>
-      <el-input v-model="replyContent" type="textarea" :rows="4" placeholder="输入回复内容..." />
+      <el-input
+        v-model="replyContent"
+        type="textarea"
+        :rows="4"
+        placeholder="输入回复内容..."
+      />
       <template #footer>
-        <el-button @click="replyVisible = false">取消</el-button>
-        <el-button type="primary" @click="submitReply">回复</el-button>
+        <el-button @click="replyVisible = false">
+          取消
+        </el-button>
+        <el-button
+          type="primary"
+          @click="submitReply"
+        >
+          回复
+        </el-button>
       </template>
     </el-dialog>
   </div>
@@ -105,7 +240,7 @@
 import { ref, reactive, onMounted } from 'vue'
 import { commentApi, type Comment } from '@/api'
 import { ElMessage } from 'element-plus'
-import dayjs from 'dayjs'
+import { formatDate } from '@/utils'
 
 const comments = ref<Comment[]>([])
 const loading = ref(false)
@@ -113,7 +248,15 @@ const page = ref(1)
 const pageSize = ref(20)
 const total = ref(0)
 const selectedIds = ref<number[]>([])
-const stats = ref<any>(null)
+interface CommentStats {
+  total: number
+  pending: number
+  approved: number
+  spam: number
+  today: number
+}
+
+const stats = ref<CommentStats | null>(null)
 const replyVisible = ref(false)
 const replyTarget = ref<Comment | null>(null)
 const replyContent = ref('')
@@ -169,7 +312,7 @@ async function submitReply() {
 function statusType(s: string) {
   return s === 'approved' ? 'success' : s === 'pending' ? 'warning' : 'danger'
 }
-function formatDate(s: string) { return dayjs(s).format('MM-DD HH:mm') }
+
 
 onMounted(() => { fetchComments(); fetchStats() })
 </script>

@@ -1,7 +1,12 @@
 <template>
   <div class="revisions-page">
     <div class="page-header">
-      <el-button text @click="$router.back()"><el-icon><ArrowLeft /></el-icon> 返回</el-button>
+      <el-button
+        text
+        @click="$router.back()"
+      >
+        <el-icon><ArrowLeft /></el-icon> 返回
+      </el-button>
       <h2>版本历史 — {{ articleTitle }}</h2>
     </div>
 
@@ -10,31 +15,52 @@
         <el-timeline-item
           v-for="rev in revisions"
           :key="rev.id"
-          :timestamp="formatDate(rev.created_at)"
+          :timestamp="formatDate(rev.created_at, 'YYYY-MM-DD HH:mm:ss')"
           placement="top"
           :type="rev.version === currentVersion ? 'primary' : ''"
         >
-          <el-card shadow="hover" class="revision-card">
+          <el-card
+            shadow="hover"
+            class="revision-card"
+          >
             <div class="revision-header">
               <span class="version-badge">v{{ rev.version }}</span>
-              <span v-if="rev.version === currentVersion" class="current-tag">当前版本</span>
+              <span
+                v-if="rev.version === currentVersion"
+                class="current-tag"
+              >当前版本</span>
               <span class="editor">{{ rev.editor?.display_name || 'Unknown' }}</span>
               <span class="note">{{ rev.note }}</span>
             </div>
             <div class="revision-meta">
               标题: {{ rev.title }} | 字数: {{ rev.content?.length || 0 }}
             </div>
-            <div class="revision-actions" v-if="rev.version !== currentVersion">
-              <el-button size="small" type="primary" @click="restoreRevision(rev.id)">
+            <div
+              v-if="rev.version !== currentVersion"
+              class="revision-actions"
+            >
+              <el-button
+                size="small"
+                type="primary"
+                @click="restoreRevision(rev.id)"
+              >
                 恢复此版本
               </el-button>
-              <el-button size="small" @click="viewDiff(rev)">查看差异</el-button>
+              <el-button
+                size="small"
+                @click="viewDiff(rev)"
+              >
+                查看差异
+              </el-button>
             </div>
           </el-card>
         </el-timeline-item>
       </el-timeline>
 
-      <el-empty v-if="!revisions.length" description="暂无版本历史" />
+      <el-empty
+        v-if="!revisions.length"
+        description="暂无版本历史"
+      />
     </el-card>
   </div>
 </template>
@@ -44,7 +70,7 @@ import { ref, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { articleApi, type Revision } from '@/api'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import dayjs from 'dayjs'
+import { formatDate } from '@/utils'
 
 const route = useRoute()
 const articleId = Number(route.params.id)
@@ -79,13 +105,11 @@ async function restoreRevision(revisionId: number) {
   }
 }
 
-function viewDiff(rev: Revision) {
+function viewDiff(_rev: Revision) {
   ElMessage.info('差异查看功能开发中')
 }
 
-function formatDate(s: string) {
-  return dayjs(s).format('YYYY-MM-DD HH:mm:ss')
-}
+
 
 onMounted(fetchRevisions)
 </script>

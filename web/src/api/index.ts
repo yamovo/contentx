@@ -220,7 +220,7 @@ export const authApi = {
     post<{ data: { token: TokenPair; user: User } }>('/auth/register', data),
   refresh: (refresh_token: string) =>
     post<{ data: TokenPair }>('/auth/refresh', { refresh_token }),
-  logout: () => post('/auth/logout'),
+  logout: (refresh_token?: string) => post('/auth/logout', { refresh_token }),
   me: () => get<{ data: { user: User; permissions: string[] } }>('/auth/me'),
   updateProfile: (data: Partial<User>) => put<{ data: User }>('/auth/profile', data),
   changePassword: (data: { old_password: string; new_password: string }) =>
@@ -229,7 +229,7 @@ export const authApi = {
 
 // Articles
 export const articleApi = {
-  list: (params?: Record<string, any>) =>
+  list: (params?: Record<string, unknown>) =>
     get<ListResponse<Article>>('/articles', params),
   get: (id: number) => get<{ data: Article }>(`/articles/${id}`),
   getBySlug: (slug: string) => get<{ data: Article }>(`/articles/slug/${slug}`),
@@ -246,7 +246,7 @@ export const articleApi = {
 
 // Categories
 export const categoryApi = {
-  list: (params?: Record<string, any>) => get<{ data: Category[] }>('/categories', params),
+  list: (params?: Record<string, unknown>) => get<{ data: Category[] }>('/categories', params),
   get: (id: number) => get<{ data: Category }>(`/categories/${id}`),
   create: (data: Partial<Category>) => post<{ data: Category }>('/categories', data),
   update: (id: number, data: Partial<Category>) => put(`/categories/${id}`, data),
@@ -257,7 +257,7 @@ export const categoryApi = {
 
 // Tags
 export const tagApi = {
-  list: (params?: Record<string, any>) => get<{ data: Tag[]; total: number }>('/tags', params),
+  list: (params?: Record<string, unknown>) => get<{ data: Tag[]; total: number }>('/tags', params),
   get: (id: number) => get<{ data: Tag }>(`/tags/${id}`),
   create: (data: Partial<Tag>) => post<{ data: Tag }>('/tags', data),
   update: (id: number, data: Partial<Tag>) => put(`/tags/${id}`, data),
@@ -268,7 +268,7 @@ export const tagApi = {
 
 // Comments
 export const commentApi = {
-  list: (params?: Record<string, any>) => get<ListResponse<Comment>>('/comments', params),
+  list: (params?: Record<string, unknown>) => get<ListResponse<Comment>>('/comments', params),
   get: (id: number) => get<{ data: Comment }>(`/comments/${id}`),
   create: (data: Partial<Comment>) => post<{ data: Comment }>('/comments', data),
   update: (id: number, data: Partial<Comment>) => put(`/comments/${id}`, data),
@@ -282,7 +282,7 @@ export const commentApi = {
 
 // Media
 export const mediaApi = {
-  list: (params?: Record<string, any>) => get<ListResponse<Media>>('/media', params),
+  list: (params?: Record<string, unknown>) => get<ListResponse<Media>>('/media', params),
   get: (id: number) => get<{ data: Media }>(`/media/${id}`),
   upload: (formData: FormData) =>
     post<{ data: Media }>('/media/upload', formData),
@@ -295,7 +295,7 @@ export const mediaApi = {
 
 // Users
 export const userApi = {
-  list: (params?: Record<string, any>) => get<ListResponse<User>>('/users', params),
+  list: (params?: Record<string, unknown>) => get<ListResponse<User>>('/users', params),
   get: (id: number) => get<{ data: User }>(`/users/${id}`),
   create: (data: Partial<User> & { password: string }) => post<{ data: User }>('/users', data),
   update: (id: number, data: Partial<User>) => put(`/users/${id}`, data),
@@ -317,18 +317,18 @@ export const roleApi = {
 export const settingsApi = {
   list: (group?: string) => get<{ data: SiteSetting[]; grouped: Record<string, SiteSetting[]> }>('/settings', { group }),
   get: (key: string) => get<{ data: SiteSetting }>(`/settings/${key}`),
-  update: (data: Record<string, any>) => put('/settings', data),
+  update: (data: Record<string, unknown>) => put('/settings', data),
   public: () => get<{ data: Record<string, string> }>('/settings/public'),
 }
 
 // SEO
 export const seoApi = {
   getSetting: (type: string, id: number) => get(`/seo/${type}/${id}`),
-  updateSetting: (type: string, id: number, data: any) => put(`/seo/${type}/${id}`, data),
+  updateSetting: (type: string, id: number, data: Record<string, unknown>) => put(`/seo/${type}/${id}`, data),
   sitemap: () => get('/seo/sitemap'),
   robotsTxt: () => get('/seo/robots.txt'),
   listRedirects: () => get<{ data: Redirect[] }>('/seo/redirects'),
-  createRedirect: (data: any) => post('/seo/redirects', data),
+  createRedirect: (data: Partial<Redirect>) => post('/seo/redirects', data),
   deleteRedirect: (id: number) => del(`/seo/redirects/${id}`),
 }
 
@@ -348,11 +348,22 @@ export const menuApi = {
 }
 
 // Analytics
+export interface DeviceBreakdownItem {
+  name: string
+  count: number
+}
+
+export interface DeviceBreakdownResponse {
+  devices: DeviceBreakdownItem[]
+  browsers: DeviceBreakdownItem[]
+  os: DeviceBreakdownItem[]
+}
+
 export const analyticsApi = {
   dashboard: () => get<{ stats: DashboardStats; recent_articles: Article[]; recent_comments: Comment[]; popular_articles: Article[] }>('/analytics/dashboard'),
   viewsOverTime: (days?: number) => get<{ data: { date: string; views: number }[] }>('/analytics/views', { days }),
   topReferrers: () => get<{ data: { referrer: string; count: number }[] }>('/analytics/referrers'),
-  deviceBreakdown: () => get('/analytics/devices'),
+  deviceBreakdown: () => get<{ data: DeviceBreakdownResponse }>('/analytics/devices'),
   recordView: (data: { article_id?: number; path: string; duration?: number }) =>
     post('/analytics/record', data),
 }
@@ -365,7 +376,7 @@ export interface Plugin {
   description: string
   author: string
   is_enabled: boolean
-  config?: Record<string, any>
+  config?: Record<string, unknown>
 }
 
 export interface Redirect {
@@ -382,18 +393,27 @@ export const pluginApi = {
   list: () => get<{ data: Plugin[] }>('/plugins'),
   enable: (id: number) => post(`/plugins/${id}/enable`),
   disable: (id: number) => post(`/plugins/${id}/disable`),
-  updateConfig: (id: number, config: any) => put(`/plugins/${id}/config`, config),
+  updateConfig: (id: number, config: Record<string, unknown>) => put(`/plugins/${id}/config`, config),
+}
+
+export interface Theme {
+  id: number
+  name: string
+  version: string
+  description: string
+  screenshot: string
+  is_active: boolean
 }
 
 export const themeApi = {
-  list: () => get('/themes'),
+  list: () => get<{ data: Theme[] }>('/themes'),
   activate: (id: number) => post(`/themes/${id}/activate`),
-  updateConfig: (id: number, config: any) => put(`/themes/${id}/config`, config),
+  updateConfig: (id: number, config: Record<string, unknown>) => put(`/themes/${id}/config`, config),
 }
 
 // System
 export const systemApi = {
   info: () => get('/system/info'),
   health: () => get('/system/health'),
-  activity: (params?: Record<string, any>) => get('/system/activity', params),
+  activity: (params?: Record<string, unknown>) => get('/system/activity', params),
 }

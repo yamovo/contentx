@@ -7,5 +7,3 @@ declare module '*.vue' {
 }
 
 declare module 'nprogress'
-declare module 'mavon-editor'
-declare module '@vueup/vue-quill'

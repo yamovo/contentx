@@ -1,23 +1,57 @@
 <template>
-  <div class="blog-layout" :class="{ 'dark-mode': isDark }">
+  <div
+    class="blog-layout"
+    :class="{ 'dark-mode': isDark }"
+  >
     <!-- Navbar -->
-    <header class="blog-nav" ref="navRef">
+    <header
+      ref="navRef"
+      class="blog-nav"
+    >
       <div class="nav-inner">
-        <router-link to="/" class="nav-logo">
-          <span class="logo-text">VortexCMS</span>
+        <router-link
+          to="/"
+          class="nav-logo"
+        >
+          <span class="logo-text">ContentX</span>
         </router-link>
-        <nav class="nav-links" :class="{ open: mobileMenuOpen }">
-          <router-link to="/blog" @click="closeMobile">文章</router-link>
-          <router-link to="/blog/categories" @click="closeMobile">分类</router-link>
-          <router-link to="/blog/tags" @click="closeMobile">标签</router-link>
+        <nav
+          class="nav-links"
+          :class="{ open: mobileMenuOpen }"
+        >
+          <router-link
+            to="/blog"
+            @click="closeMobile"
+          >
+            文章
+          </router-link>
+          <router-link
+            to="/blog/categories"
+            @click="closeMobile"
+          >
+            分类
+          </router-link>
+          <router-link
+            to="/blog/tags"
+            @click="closeMobile"
+          >
+            标签
+          </router-link>
         </nav>
         <div class="nav-right">
-          <button class="theme-btn" @click="toggleTheme" :title="isDark ? 'Light mode' : 'Dark mode'">
+          <button
+            class="theme-btn"
+            :title="isDark ? 'Light mode' : 'Dark mode'"
+            @click="toggleTheme"
+          >
             <span v-if="isDark">&#9788;</span>
             <span v-else>&#9789;</span>
           </button>
-          <button class="mobile-toggle" @click="mobileMenuOpen = !mobileMenuOpen">
-            <span></span><span></span><span></span>
+          <button
+            class="mobile-toggle"
+            @click="mobileMenuOpen = !mobileMenuOpen"
+          >
+            <span /><span /><span />
           </button>
         </div>
       </div>
@@ -38,14 +72,24 @@
         <div class="footer-links">
           <div>
             <h4>Navigation</h4>
-            <router-link to="/blog">Articles</router-link>
-            <router-link to="/blog/categories">Categories</router-link>
-            <router-link to="/blog/tags">Tags</router-link>
+            <router-link to="/blog">
+              Articles
+            </router-link>
+            <router-link to="/blog/categories">
+              Categories
+            </router-link>
+            <router-link to="/blog/tags">
+              Tags
+            </router-link>
           </div>
           <div>
             <h4>Admin</h4>
-            <router-link to="/login">Login</router-link>
-            <router-link to="/admin">Dashboard</router-link>
+            <router-link to="/login">
+              Login
+            </router-link>
+            <router-link to="/admin">
+              Dashboard
+            </router-link>
           </div>
         </div>
         <div class="footer-bottom">
@@ -57,7 +101,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, onMounted } from 'vue'
 import { animate } from 'animejs'
 
 const mobileMenuOpen = ref(false)

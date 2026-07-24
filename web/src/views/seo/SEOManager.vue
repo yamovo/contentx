@@ -3,37 +3,87 @@
     <div class="page-header">
       <h2>SEO 管理</h2>
       <div>
-        <el-button @click="$router.push('/admin/seo/redirects')">URL 重定向</el-button>
-        <el-button type="primary" @click="previewSitemap">预览 Sitemap</el-button>
+        <el-button @click="$router.push('/admin/seo/redirects')">
+          URL 重定向
+        </el-button>
+        <el-button
+          type="primary"
+          @click="previewSitemap"
+        >
+          预览 Sitemap
+        </el-button>
       </div>
     </div>
 
     <el-row :gutter="16">
       <el-col :span="12">
         <el-card shadow="never">
-          <template #header><span>全局 SEO 设置</span></template>
-          <el-form label-width="120px" label-position="left">
-            <el-form-item label="标题分隔符"><el-input v-model="globalSEO.title_separator" /></el-form-item>
-            <el-form-item label="首页标题"><el-input v-model="globalSEO.home_title" /></el-form-item>
-            <el-form-item label="首页描述"><el-input v-model="globalSEO.home_description" type="textarea" /></el-form-item>
-            <el-form-item label="首页关键词"><el-input v-model="globalSEO.home_keywords" /></el-form-item>
-            <el-form-item label="启用 Sitemap"><el-switch v-model="globalSEO.enable_sitemap" /></el-form-item>
-            <el-form-item label="启用 Robots"><el-switch v-model="globalSEO.enable_robots" /></el-form-item>
-            <el-form-item label="Google 统计"><el-input v-model="globalSEO.google_analytics" placeholder="UA-XXXX" /></el-form-item>
-            <el-form-item label="百度统计"><el-input v-model="globalSEO.baidu_analytics" /></el-form-item>
+          <template #header>
+            <span>全局 SEO 设置</span>
+          </template>
+          <el-form
+            label-width="120px"
+            label-position="left"
+          >
+            <el-form-item label="标题分隔符">
+              <el-input v-model="globalSEO.title_separator" />
+            </el-form-item>
+            <el-form-item label="首页标题">
+              <el-input v-model="globalSEO.home_title" />
+            </el-form-item>
+            <el-form-item label="首页描述">
+              <el-input
+                v-model="globalSEO.home_description"
+                type="textarea"
+              />
+            </el-form-item>
+            <el-form-item label="首页关键词">
+              <el-input v-model="globalSEO.home_keywords" />
+            </el-form-item>
+            <el-form-item label="启用 Sitemap">
+              <el-switch v-model="globalSEO.enable_sitemap" />
+            </el-form-item>
+            <el-form-item label="启用 Robots">
+              <el-switch v-model="globalSEO.enable_robots" />
+            </el-form-item>
+            <el-form-item label="Google 统计">
+              <el-input
+                v-model="globalSEO.google_analytics"
+                placeholder="UA-XXXX"
+              />
+            </el-form-item>
+            <el-form-item label="百度统计">
+              <el-input v-model="globalSEO.baidu_analytics" />
+            </el-form-item>
           </el-form>
-          <el-button type="primary" @click="saveSEO">保存</el-button>
+          <el-button
+            type="primary"
+            @click="saveSEO"
+          >
+            保存
+          </el-button>
         </el-card>
       </el-col>
       <el-col :span="12">
         <el-card shadow="never">
-          <template #header><span>Robots.txt 预览</span></template>
+          <template #header>
+            <span>Robots.txt 预览</span>
+          </template>
           <pre class="robots-preview">{{ robotsTxt }}</pre>
         </el-card>
-        <el-card shadow="never" style="margin-top: 16px">
-          <template #header><span>SEO 检查清单</span></template>
+        <el-card
+          shadow="never"
+          style="margin-top: 16px"
+        >
+          <template #header>
+            <span>SEO 检查清单</span>
+          </template>
           <div class="checklist">
-            <div v-for="item in checklist" :key="item.label" class="check-item">
+            <div
+              v-for="item in checklist"
+              :key="item.label"
+              class="check-item"
+            >
               <el-icon :color="item.ok ? '#67c23a' : '#f56c6c'">
                 <CircleCheck v-if="item.ok" /><CircleClose v-else />
               </el-icon>
@@ -70,10 +120,11 @@ const checklist = computed(() => [
 async function fetchSEO() {
   try {
     const res = await settingsApi.list('seo')
+    const target = globalSEO.value as unknown as Record<string, unknown>
     for (const s of res.data) {
       const key = s.key.replace('seo_', '')
-      if (key in globalSEO.value) {
-        (globalSEO.value as any)[key] = s.value
+      if (key in target) {
+        target[key] = s.value
       }
     }
   } catch {}

@@ -1,20 +1,43 @@
 <template>
-  <div class="dashboard" ref="pageRef">
+  <div
+    ref="pageRef"
+    class="dashboard"
+  >
     <!-- Stats Cards -->
-    <el-row :gutter="16" class="stats-row">
-      <el-col :xs="12" :sm="6" v-for="(card, idx) in statCards" :key="card.label">
-        <el-card shadow="hover" class="stat-card" :body-style="{ padding: '20px' }">
+    <el-row
+      :gutter="16"
+      class="stats-row"
+    >
+      <el-col
+        v-for="(card, idx) in statCards"
+        :key="card.label"
+        :xs="12"
+        :sm="6"
+      >
+        <el-card
+          shadow="hover"
+          class="stat-card"
+          :body-style="{ padding: '20px' }"
+        >
           <div class="stat-content">
             <div class="stat-info">
               <span class="stat-label">{{ card.label }}</span>
               <span class="stat-value">{{ displayValues[idx] ?? card.value }}</span>
-              <span class="stat-change" :class="card.trend">
+              <span
+                class="stat-change"
+                :class="card.trend"
+              >
                 <el-icon><Top v-if="card.trend === 'up'" /><Bottom v-else /></el-icon>
                 {{ card.change }}
               </span>
             </div>
-            <div class="stat-icon" :style="{ background: card.color }">
-              <el-icon :size="24"><component :is="card.icon" /></el-icon>
+            <div
+              class="stat-icon"
+              :style="{ background: card.color }"
+            >
+              <el-icon :size="24">
+                <component :is="card.icon" />
+              </el-icon>
             </div>
           </div>
         </el-card>
@@ -22,51 +45,110 @@
     </el-row>
 
     <!-- Charts Row -->
-    <el-row :gutter="16" class="chart-row">
-      <el-col :xs="24" :lg="16">
-        <el-card shadow="hover" class="chart-card-left">
+    <el-row
+      :gutter="16"
+      class="chart-row"
+    >
+      <el-col
+        :xs="24"
+        :lg="16"
+      >
+        <el-card
+          shadow="hover"
+          class="chart-card-left"
+        >
           <template #header>
             <div class="card-header">
               <span>访问趋势</span>
-              <el-radio-group v-model="chartDays" size="small" @change="fetchViews">
-                <el-radio-button :value="7">7天</el-radio-button>
-                <el-radio-button :value="30">30天</el-radio-button>
-                <el-radio-button :value="90">90天</el-radio-button>
+              <el-radio-group
+                v-model="chartDays"
+                size="small"
+                @change="fetchViews"
+              >
+                <el-radio-button :value="7">
+                  7天
+                </el-radio-button>
+                <el-radio-button :value="30">
+                  30天
+                </el-radio-button>
+                <el-radio-button :value="90">
+                  90天
+                </el-radio-button>
               </el-radio-group>
             </div>
           </template>
-          <v-chart class="chart" :option="viewsChartOption" autoresize />
+          <v-chart
+            class="chart"
+            :option="viewsChartOption"
+            autoresize
+          />
         </el-card>
       </el-col>
 
-      <el-col :xs="24" :lg="8">
-        <el-card shadow="hover" class="chart-card-right">
-          <template #header><span>设备分布</span></template>
-          <v-chart class="chart" :option="deviceChartOption" autoresize />
+      <el-col
+        :xs="24"
+        :lg="8"
+      >
+        <el-card
+          shadow="hover"
+          class="chart-card-right"
+        >
+          <template #header>
+            <span>设备分布</span>
+          </template>
+          <v-chart
+            class="chart"
+            :option="deviceChartOption"
+            autoresize
+          />
         </el-card>
       </el-col>
     </el-row>
 
     <!-- Recent Activity -->
     <el-row :gutter="16">
-      <el-col :xs="24" :lg="12">
-        <el-card shadow="hover" class="activity-card">
+      <el-col
+        :xs="24"
+        :lg="12"
+      >
+        <el-card
+          shadow="hover"
+          class="activity-card"
+        >
           <template #header>
             <div class="card-header">
               <span>最新文章</span>
-              <el-button text type="primary" @click="$router.push('/admin/articles')">查看全部</el-button>
+              <el-button
+                text
+                type="primary"
+                @click="$router.push('/admin/articles')"
+              >
+                查看全部
+              </el-button>
             </div>
           </template>
           <div class="article-list">
-            <div v-for="article in recentArticles" :key="article.id" class="article-item">
+            <div
+              v-for="article in recentArticles"
+              :key="article.id"
+              class="article-item"
+            >
               <div class="article-info">
-                <router-link :to="'/admin/articles/' + article.id + '/edit'" class="article-title">
+                <router-link
+                  :to="'/admin/articles/' + article.id + '/edit'"
+                  class="article-title"
+                >
                   {{ article.title }}
                 </router-link>
                 <div class="article-meta">
-                  <el-tag :type="statusType(article.status)" size="small">{{ statusLabel(article.status) }}</el-tag>
+                  <el-tag
+                    :type="statusType(article.status)"
+                    size="small"
+                  >
+                    {{ statusLabel(article.status) }}
+                  </el-tag>
                   <span>{{ article.author?.display_name }}</span>
-                  <span>{{ formatDate(article.created_at) }}</span>
+                  <span>{{ formatDate(article.created_at, 'MM-DD HH:mm') }}</span>
                 </div>
               </div>
               <div class="article-stats">
@@ -74,34 +156,65 @@
                 <span><el-icon><ChatDotSquare /></el-icon> {{ article.comment_count }}</span>
               </div>
             </div>
-            <el-empty v-if="!recentArticles.length" description="暂无文章" :image-size="80" />
+            <el-empty
+              v-if="!recentArticles.length"
+              description="暂无文章"
+              :image-size="80"
+            />
           </div>
         </el-card>
       </el-col>
 
-      <el-col :xs="24" :lg="12">
-        <el-card shadow="hover" class="activity-card">
+      <el-col
+        :xs="24"
+        :lg="12"
+      >
+        <el-card
+          shadow="hover"
+          class="activity-card"
+        >
           <template #header>
             <div class="card-header">
               <span>最新评论</span>
-              <el-button text type="primary" @click="$router.push('/admin/comments')">查看全部</el-button>
+              <el-button
+                text
+                type="primary"
+                @click="$router.push('/admin/comments')"
+              >
+                查看全部
+              </el-button>
             </div>
           </template>
           <div class="comment-list">
-            <div v-for="comment in recentComments" :key="comment.id" class="comment-item">
-              <el-avatar :size="36">{{ (comment.author_name || 'U')[0] }}</el-avatar>
+            <div
+              v-for="comment in recentComments"
+              :key="comment.id"
+              class="comment-item"
+            >
+              <el-avatar :size="36">
+                {{ (comment.author_name || 'U')[0] }}
+              </el-avatar>
               <div class="comment-content">
                 <div class="comment-header">
                   <strong>{{ comment.author_name || comment.user?.display_name || '匿名' }}</strong>
-                  <el-tag :type="commentStatusType(comment.status)" size="small">
+                  <el-tag
+                    :type="commentStatusType(comment.status)"
+                    size="small"
+                  >
                     {{ comment.status }}
                   </el-tag>
                 </div>
-                <p class="comment-text">{{ truncate(comment.content, 80) }}</p>
-                <span class="comment-time">{{ formatDate(comment.created_at) }}</span>
+                <p class="comment-text">
+                  {{ truncate(comment.content, 80) }}
+                </p>
+                <span class="comment-time">{{ formatDate(comment.created_at, 'MM-DD HH:mm') }}</span>
               </div>
             </div>
-            <el-empty v-if="!recentComments.length" description="暂无评论" :image-size="80" />
+            <el-empty
+              v-if="!recentComments.length"
+              description="暂无评论"
+              :image-size="80"
+            />
           </div>
         </el-card>
       </el-col>
@@ -117,7 +230,7 @@ import { CanvasRenderer } from 'echarts/renderers'
 import { LineChart, PieChart } from 'echarts/charts'
 import { GridComponent, TooltipComponent, LegendComponent, TitleComponent } from 'echarts/components'
 import { analyticsApi, type DashboardStats, type Article, type Comment } from '@/api'
-import dayjs from 'dayjs'
+import { formatDate } from '@/utils'
 import { animate } from 'animejs'
 import { stagger } from 'animejs/utils'
 
@@ -188,12 +301,10 @@ function commentStatusType(s: string) {
 function truncate(s: string, n: number) {
   return s?.length > n ? s.slice(0, n) + '…' : s
 }
-function formatDate(s: string) {
-  return dayjs(s).format('MM-DD HH:mm')
-}
+
 
 function animateCounters() {
-  ;[0, 1, 2, 3].forEach(idx => {
+  [0, 1, 2, 3].forEach(idx => {
     const card = statCards.value[idx]
     if (!card || card.value === 0) return
     const proxy = { v: 0 }
@@ -260,8 +371,8 @@ async function fetchViews() {
 
 async function fetchDevices() {
   try {
-    const res = await analyticsApi.deviceBreakdown() as any
-    deviceData.value = (res.devices || []).map((d: any) => ({
+    const res = await analyticsApi.deviceBreakdown()
+    deviceData.value = (res.data?.devices || []).map((d) => ({
       name: d.name, value: d.count,
     }))
   } catch {

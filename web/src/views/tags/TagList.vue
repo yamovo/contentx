@@ -3,49 +3,112 @@
     <div class="page-header">
       <h2>标签管理</h2>
       <div class="header-actions">
-        <el-input v-model="search" placeholder="搜索标签..." :prefix-icon="Search" clearable
-          style="width: 200px; margin-right: 12px" @input="fetchTags" />
-        <el-button type="primary" @click="openDialog()"><el-icon><Plus /></el-icon> 新建标签</el-button>
+        <el-input
+          v-model="search"
+          placeholder="搜索标签..."
+          :prefix-icon="Search"
+          clearable
+          style="width: 200px; margin-right: 12px"
+          @input="fetchTags"
+        />
+        <el-button
+          type="primary"
+          @click="openDialog()"
+        >
+          <el-icon><Plus /></el-icon> 新建标签
+        </el-button>
       </div>
     </div>
 
     <el-card shadow="never">
       <div class="tag-cloud">
-        <div v-for="tag in tags" :key="tag.id" class="tag-card">
+        <div
+          v-for="tag in tags"
+          :key="tag.id"
+          class="tag-card"
+        >
           <div class="tag-info">
-            <el-tag :color="tag.color" effect="dark" size="large" class="tag-name">{{ tag.name }}</el-tag>
+            <el-tag
+              :color="tag.color"
+              effect="dark"
+              size="large"
+              class="tag-name"
+            >
+              {{ tag.name }}
+            </el-tag>
             <span class="tag-slug">/{{ tag.slug }}</span>
             <span class="tag-count">{{ tag.count }} 篇文章</span>
           </div>
           <div class="tag-actions">
-            <el-button text size="small" @click="openDialog(tag)">编辑</el-button>
-            <el-popconfirm title="确认删除？" @confirm="deleteTag(tag.id)">
+            <el-button
+              text
+              size="small"
+              @click="openDialog(tag)"
+            >
+              编辑
+            </el-button>
+            <el-popconfirm
+              title="确认删除？"
+              @confirm="deleteTag(tag.id)"
+            >
               <template #reference>
-                <el-button text size="small" type="danger">删除</el-button>
+                <el-button
+                  text
+                  size="small"
+                  type="danger"
+                >
+                  删除
+                </el-button>
               </template>
             </el-popconfirm>
           </div>
         </div>
       </div>
-      <el-empty v-if="!tags.length" description="暂无标签" />
+      <el-empty
+        v-if="!tags.length"
+        description="暂无标签"
+      />
     </el-card>
 
     <!-- Dialog -->
-    <el-dialog v-model="dialogVisible" :title="editingId ? '编辑标签' : '新建标签'" width="400px">
-      <el-form :model="form" label-width="60px">
-        <el-form-item label="名称" required>
-          <el-input v-model="form.name" placeholder="标签名称" />
+    <el-dialog
+      v-model="dialogVisible"
+      :title="editingId ? '编辑标签' : '新建标签'"
+      width="400px"
+    >
+      <el-form
+        :model="form"
+        label-width="60px"
+      >
+        <el-form-item
+          label="名称"
+          required
+        >
+          <el-input
+            v-model="form.name"
+            placeholder="标签名称"
+          />
         </el-form-item>
         <el-form-item label="别名">
-          <el-input v-model="form.slug" placeholder="URL 别名" />
+          <el-input
+            v-model="form.slug"
+            placeholder="URL 别名"
+          />
         </el-form-item>
         <el-form-item label="颜色">
           <el-color-picker v-model="form.color" />
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="saveTag">保存</el-button>
+        <el-button @click="dialogVisible = false">
+          取消
+        </el-button>
+        <el-button
+          type="primary"
+          @click="saveTag"
+        >
+          保存
+        </el-button>
       </template>
     </el-dialog>
   </div>
@@ -56,6 +119,7 @@ import { ref, reactive, onMounted } from 'vue'
 import { Search } from '@element-plus/icons-vue'
 import { tagApi, type Tag } from '@/api'
 import { ElMessage } from 'element-plus'
+import { getApiError } from '@/utils'
 
 const tags = ref<Tag[]>([])
 const search = ref('')
@@ -93,8 +157,8 @@ async function saveTag() {
     }
     dialogVisible.value = false
     fetchTags()
-  } catch (err: any) {
-    ElMessage.error(err.response?.data?.error || '保存失败')
+  } catch (err) {
+    ElMessage.error(getApiError(err, '保存失败'))
   }
 }
 

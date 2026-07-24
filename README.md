@@ -11,6 +11,7 @@ ContentX 是一个使用 Go 构建的 API-first Headless CMS。它提供 REST AP
 | [docs/PRD.md](./docs/PRD.md) | 产品需求、已交付能力、当前边界和完成定义 |
 | [docs/SOP.md](./docs/SOP.md) | 本地开发、Docker 部署、可观测性、压测流程和验证命令 |
 | [docs/ROADMAP.md](./docs/ROADMAP.md) | 轮次化执行路线、退出门槛和当前进度 |
+| [docs/AUDIT.md](./docs/AUDIT.md) | 外部审查报告（评分、缺点、整改清单） |
 | [CHANGELOG.md](./CHANGELOG.md) | 版本变更记录 |
 
 ## 技术栈

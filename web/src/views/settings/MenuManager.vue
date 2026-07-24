@@ -2,65 +2,155 @@
   <div class="menu-page">
     <div class="page-header">
       <h2>导航菜单</h2>
-      <el-button type="primary" @click="createMenu"><el-icon><Plus /></el-icon> 新建菜单</el-button>
+      <el-button
+        type="primary"
+        @click="createMenu"
+      >
+        <el-icon><Plus /></el-icon> 新建菜单
+      </el-button>
     </div>
 
     <el-row :gutter="16">
       <el-col :span="8">
         <el-card shadow="never">
-          <template #header><span>菜单列表</span></template>
-          <div v-for="m in menus" :key="m.id" class="menu-item" :class="{ active: selectedMenu?.id === m.id }" @click="selectMenu(m)">
+          <template #header>
+            <span>菜单列表</span>
+          </template>
+          <div
+            v-for="m in menus"
+            :key="m.id"
+            class="menu-item"
+            :class="{ active: selectedMenu?.id === m.id }"
+            @click="selectMenu(m)"
+          >
             <span>{{ m.name }}</span>
             <span class="menu-loc">{{ m.locations }}</span>
           </div>
-          <el-empty v-if="!menus.length" description="暂无菜单" :image-size="60" />
+          <el-empty
+            v-if="!menus.length"
+            description="暂无菜单"
+            :image-size="60"
+          />
         </el-card>
       </el-col>
 
       <el-col :span="16">
-        <el-card v-if="selectedMenu" shadow="never">
+        <el-card
+          v-if="selectedMenu"
+          shadow="never"
+        >
           <template #header>
             <div class="card-header">
               <span>{{ selectedMenu.name }} — 菜单项</span>
-              <el-button size="small" type="primary" @click="addItem">添加项目</el-button>
+              <el-button
+                size="small"
+                type="primary"
+                @click="addItem"
+              >
+                添加项目
+              </el-button>
             </div>
           </template>
-          <div v-for="item in selectedMenu.items" :key="item.id" class="menu-entry">
+          <div
+            v-for="item in selectedMenu.items"
+            :key="item.id"
+            class="menu-entry"
+          >
             <div class="entry-info">
               <el-icon><Rank /></el-icon>
               <span class="entry-title">{{ item.title }}</span>
               <span class="entry-url">{{ item.url }}</span>
-              <el-tag v-if="!item.is_active" size="small" type="info">禁用</el-tag>
+              <el-tag
+                v-if="!item.is_active"
+                size="small"
+                type="info"
+              >
+                禁用
+              </el-tag>
             </div>
             <div class="entry-actions">
-              <el-button text size="small" @click="editItem(item)">编辑</el-button>
-              <el-button text size="small" type="danger" @click="deleteItem(item.id)">删除</el-button>
+              <el-button
+                text
+                size="small"
+                @click="editItem(item)"
+              >
+                编辑
+              </el-button>
+              <el-button
+                text
+                size="small"
+                type="danger"
+                @click="deleteItem(item.id)"
+              >
+                删除
+              </el-button>
             </div>
           </div>
-          <el-empty v-if="!selectedMenu.items?.length" description="暂无菜单项" :image-size="60" />
+          <el-empty
+            v-if="!selectedMenu.items?.length"
+            description="暂无菜单项"
+            :image-size="60"
+          />
         </el-card>
-        <el-card v-else shadow="never">
+        <el-card
+          v-else
+          shadow="never"
+        >
           <el-empty description="选择一个菜单" />
         </el-card>
       </el-col>
     </el-row>
 
-    <el-dialog v-model="itemDialog" :title="editingItemId ? '编辑菜单项' : '添加菜单项'" width="500px">
-      <el-form :model="itemForm" label-width="80px">
-        <el-form-item label="标题" required><el-input v-model="itemForm.title" /></el-form-item>
-        <el-form-item label="URL"><el-input v-model="itemForm.url" /></el-form-item>
+    <el-dialog
+      v-model="itemDialog"
+      :title="editingItemId ? '编辑菜单项' : '添加菜单项'"
+      width="500px"
+    >
+      <el-form
+        :model="itemForm"
+        label-width="80px"
+      >
+        <el-form-item
+          label="标题"
+          required
+        >
+          <el-input v-model="itemForm.title" />
+        </el-form-item>
+        <el-form-item label="URL">
+          <el-input v-model="itemForm.url" />
+        </el-form-item>
         <el-form-item label="打开方式">
           <el-select v-model="itemForm.target">
-            <el-option label="当前窗口" value="_self" />
-            <el-option label="新窗口" value="_blank" />
+            <el-option
+              label="当前窗口"
+              value="_self"
+            />
+            <el-option
+              label="新窗口"
+              value="_blank"
+            />
           </el-select>
         </el-form-item>
-        <el-form-item label="图标"><el-input v-model="itemForm.icon" placeholder="图标类名" /></el-form-item>
-        <el-form-item label="CSS 类"><el-input v-model="itemForm.css_class" /></el-form-item>
+        <el-form-item label="图标">
+          <el-input
+            v-model="itemForm.icon"
+            placeholder="图标类名"
+          />
+        </el-form-item>
+        <el-form-item label="CSS 类">
+          <el-input v-model="itemForm.css_class" />
+        </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="itemDialog = false">取消</el-button>
-        <el-button type="primary" @click="saveItem">保存</el-button>
+        <el-button @click="itemDialog = false">
+          取消
+        </el-button>
+        <el-button
+          type="primary"
+          @click="saveItem"
+        >
+          保存
+        </el-button>
       </template>
     </el-dialog>
   </div>

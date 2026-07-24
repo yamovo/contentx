@@ -3,8 +3,12 @@
     <div class="login-container">
       <div class="login-card">
         <div class="login-header">
-          <h1 class="logo-text">ContentX</h1>
-          <p class="subtitle">创建新账号</p>
+          <h1 class="logo-text">
+            ContentX
+          </h1>
+          <p class="subtitle">
+            创建新账号
+          </p>
         </div>
 
         <el-form
@@ -72,8 +76,8 @@
               type="primary"
               size="large"
               :loading="loading"
-              @click="handleRegister"
               class="login-btn"
+              @click="handleRegister"
             >
               注 册
             </el-button>
@@ -82,13 +86,15 @@
 
         <div class="login-footer">
           <span>已有账号？</span>
-          <router-link to="/login">立即登录</router-link>
+          <router-link to="/login">
+            立即登录
+          </router-link>
         </div>
       </div>
     </div>
 
     <div class="login-bg">
-      <div class="bg-overlay"></div>
+      <div class="bg-overlay" />
     </div>
   </div>
 </template>
@@ -99,6 +105,7 @@ import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { User, Lock, Message, UserFilled } from '@element-plus/icons-vue'
 import { ElMessage, type FormInstance } from 'element-plus'
+import { getApiError } from '@/utils'
 
 const router = useRouter()
 const authStore = useAuthStore()
@@ -129,7 +136,7 @@ const rules = {
   confirmPassword: [
     { required: true, message: '请确认密码', trigger: 'blur' },
     {
-      validator: (_r: any, value: string, callback: Function) => {
+      validator: (_r: unknown, value: string, callback: (err?: Error) => void) => {
         if (value !== form.password) {
           callback(new Error('两次输入的密码不一致'))
         } else {
@@ -155,8 +162,8 @@ async function handleRegister() {
     })
     ElMessage.success('注册成功')
     router.push('/admin')
-  } catch (err: any) {
-    ElMessage.error(err.response?.data?.error || '注册失败')
+  } catch (err) {
+    ElMessage.error(getApiError(err, '注册失败'))
   } finally {
     loading.value = false
   }

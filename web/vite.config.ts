@@ -9,7 +9,7 @@ export default defineConfig({
   plugins: [
     vue(),
     AutoImport({
-      imports: ['vue', 'vue-router', 'pinia', '@vueuse/core'],
+      imports: ['vue', 'vue-router', 'pinia'],
       resolvers: [ElementPlusResolver()],
       dts: 'src/auto-imports.d.ts',
     }),
@@ -31,14 +31,14 @@ export default defineConfig({
       provider: 'v8',
       reporter: ['text', 'html', 'json-summary'],
       reportsDirectory: './coverage',
-      // Baseline ratchets (Round 6 / F8): set below current coverage to
-      // prevent regression. Raised after F7 added view-component tests.
-      // Current: lines 25.31%, branches 80.25%, functions 43.71%, statements 25.31%
+      // Ratcheted thresholds (Round 7 / A-13): set just below current coverage
+      // to prevent regression while tolerating minor fluctuations.
+      // Current: lines 44.32%, branches 87.43%, functions 41.78%, statements 44.32%
       thresholds: {
-        lines: 20,
-        branches: 40,
-        functions: 35,
-        statements: 20,
+        lines: 42,
+        branches: 85,
+        functions: 40,
+        statements: 42,
       },
     },
     server: {
