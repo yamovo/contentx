@@ -5,6 +5,26 @@
 
 ## [Unreleased]
 
+Round 7 后续清理：消除 AUDIT.md 剩余代码层面未解决项，补齐 E2E 测试缺口。
+
+### Fixed — AUDIT 未解决项清理
+- `internal/services/article_service.go`：RSS feed 改用 `encoding/xml` 序列化（Q-4）；魔法数字抽常量 `defaultExcerptLen`/`defaultFeedSize`（Q-5）；`transitionTo` reload 失败加 `slog.Warn`（Q-6）
+- `internal/services/system_service.go` + `internal/repository/system.go`：promCollector 业务指标封装到 `SystemService.SnapshotMetrics`，定义 `MetricsGaugeSetter` 接口解耦（Q-7）
+- `internal/middleware/auth.go`：`extractToken` 移除 `?token=` query 参数支持，防止 token 泄漏到 access log / Referer
+- `internal/services/auth_service.go`：改用 `LoginGuard.MaxAttempts()` 替代硬编码 5（Q-5）
+- `internal/handlers/coverage_boost_test.go` → `routes_coverage_test.go`：文件重命名，移除"coverage boosting"措辞
+
+### Changed — 前端工程化收尾
+- `web/src/main.ts`：全量注册图标改为按需引入 29 个实际使用的图标（F-18）
+- `web/src/router/index.ts`：权限失败静默重定向改为 `ElMessage.error` 提示（F-19）
+- `web/src/layouts/AdminLayout.vue`：菜单 `v-show` 改为 `v-if`，无权限菜单不进 DOM（F-20）
+
+### Added — E2E 测试
+- `web/playwright.config.ts`：chromium + Vite dev server 配置
+- `web/e2e/helpers.ts`：API mock 工具（RegExp 匹配，login/me/logout + 404 fallback）
+- `web/e2e/smoke.spec.ts`（8 tests）：公共页面冒烟（首页/登录/注册/404/未登录重定向）
+- `web/e2e/auth.spec.ts`（6 tests）：登录/登出全流程（成功跳转/redirect query/表单校验/失败提示/guest 路由/登出清除状态）
+
 ## [1.3.0] - 2026-07-24
 
 Round 7 外部审查整改：基于 [AUDIT.md](./docs/AUDIT.md) 初评 6.5/10 的整改轮次，目标 6.5 → 7.5（复评 7.8/10）。完成全部 23 项整改任务（A-1 ~ A-23），覆盖 P0 安全、前端工程化卫生、测试补齐、后端性能与稳定性、代码质量重构。
