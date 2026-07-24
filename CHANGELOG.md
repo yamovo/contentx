@@ -5,9 +5,74 @@
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-07-24
+
+Round 6 扣分项整改：基于 v1.1.0 验收评估的 5 个扣分项（CI 卫生、历史数据可信度、功能边界缺口、测试覆盖偏薄、灾难恢复设计缺陷）全部整改完成。
+
+### Added — F1 CI 本地防线
+- pre-commit 钩子（`scripts/git/hooks/pre-commit`）：gofmt + go vet + swagger drift 检查
+- Makefile `install-hooks` 和 `check` 聚合目标
+- 前端 husky + lint-staged：暂存 `.ts`/`.vue` 运行 `vue-tsc --noEmit`
+- CI 增加 gofmt drift 快速失败步
+
+### Added — F2 Restore 后自动重建搜索索引
+- `internal/handlers/backup.go` Restore handler 恢复成功后异步调用 `ReindexAll`
+- pg/mysql 场景立即重建，SQLite 场景提示重启后重建
+- 响应返回 `search_index: "rebuilding"`
+
+### Added — F3 `--restore` CLI 子命令
+- `cmd/server/main.go` 增加 `--restore <file>` flag，绕过 HTTP/认证层直接调用 `backup.Restore()`
+- 支持 `--driver postgres|mysql|sqlite`
+- 消除灾难恢复 auth-DB 循环依赖
+
+### Added — F5 repository 层集成测试
+- `internal/repository/article_test.go`、`user_test.go`、`content_test.go`、`testutil_test.go`
+- 15 个测试覆盖 Create/Update/List/Delete + tag 关联 + role/permission CRUD + content type 级联删除 + 过滤器
+
+### Added — F6 storage 层单元测试 + 安全修复
+- `internal/storage/local_test.go`、`s3_test.go`
+- 覆盖 upload/download/delete + 路径遍历拒绝 + URL 构造 + 签名 + 错误处理
+
+### Added — F7 前端业务组件测试
+- 共享测试工具 `web/src/test/utils.ts`（mountWithPlugins + localStorage mock + Element Plus stubs）
+- `TagList.spec.ts`、`CategoryList.spec.ts`、`LoginView.spec.ts`
+- 前端测试 77 → 100 个，coverage 10.86% → 25.31% lines
+
+### Added — F8 CI 覆盖率门槛
+- 后端 Go 覆盖率门槛 60%（当前 ~64.6%）
+- 前端 vitest `--coverage` 强制执行 thresholds（lines/statements 20%，branches 40%，functions 35%）
+
+### Fixed — 安全
+- `internal/storage/local.go`：`safePath` 方法修复路径遍历漏洞，跨平台反斜杠归一化（Linux 拒绝 Windows 风格 `..\..` 遍历）
+- `internal/storage/s3.go`：`objectURL` scheme 硬编码修复（PathStyle 从 `UseSSL` 派生 scheme 而非硬编码 `http://`）
+- `internal/repository/user.go`：`UserRepository.List` 限定 `users.created_at` 解决 JOIN roles 歧义列
+
+### Fixed — F4 文档修正
+- SOP §3.4 灾难恢复：workaround 从 psql 升级为 `--restore` CLI
+- `cross-db-comparison.md` §7：MySQL historical/run-metadata.json 补齐（标注 `invalid: true`）；悬空待办改为已知限制
+- 提交 historical 原始数据（mysql + postgres）
+
+## [1.1.0] - 2026-07-23
+
+P3-A"生产就绪"Round 1-5 全部完成。
+
+### Added — Round 1-3 正确性与构建卫生
+- `.dockerignore` 减少 build context ~2018 MB
+- GraphQL resolvers 按需加载 content（`omitempty`）
+- 6 个集成测试（3 GraphQL + 3 REST）
+- 跨数据库基准测试（SQLite/PostgreSQL/MySQL，10,000 篇文章，Git SHA 0f5d624）
+- `run-metadata.json` 保存 COUNT、Git SHA、配置、响应大小
+
+### Added — Round 4-5 生产就绪收尾
+- golangci-lint v2 格式迁移
+- CI concurrency control + timeouts
+- Swagger 文档 11 端点注解 + 9 空白导入 + regenerated swagger.json + CI drift check
+- Docker Compose E2E 验证
+
 ### Fixed
-- 修复前端 auth store 响应映射 bug（`res.data.token` / `res.data.user` 而非 `res.data` / `res.user`）
-- 全局替换 VortexCMS → ContentX 品牌名（7 个 Vue 组件文件）
+- golangci-lint v2.12.2 版本固定
+- 前端 10 个 vue-tsc 类型错误修复
+- 基准测试脚本可复现性修复（run-benchmark.ps1、run-postgres.ps1、docker-compose.mysql.yml）
 
 ## [1.0.0] - 2026-07-22
 

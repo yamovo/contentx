@@ -194,11 +194,11 @@ BACKUP_RETENTION_DAYS=30       # 或按天数保留 30 天
 
 ### 3.4 灾难恢复（数据库完全丢失）
 
-> **重要约束**：恢复端点 `/api/v1/admin/backup/:file/restore` 需要 superadmin 认证，而认证中间件每次请求都会查询 `users` 表。如果整个数据库被删除（`DROP SCHEMA`），`users` 表不存在，端点会返回 `401 User not found` —— 恢复端点**不能**用于数据库完全丢失的场景。
+> **重要约束**：HTTP 恢复端点 `/api/v1/admin/backup/:file/restore` 需 superadmin 认证，而认证中间件每次请求都会查询 `users` 表。如果整个数据库被删除（`DROP SCHEMA`），`users` 表不存在，端点会返回 `401 User not found` —— HTTP 端点**不能**用于数据库完全丢失的场景。
 >
-> **Round 6 整改**（`[R6-F3]`）：将增加 `--restore` CLI 子命令，绕过 HTTP/认证层直接恢复，消除 auth-DB 循环依赖。以下恢复路径将在 F3 完成后更新为 CLI 方式。
+> **Round 6 已整改**（F3 完成）：已增加 `--restore` CLI 子命令，绕过 HTTP/认证层直接恢复，消除 auth-DB 循环依赖。数据库完全丢失场景请使用下方"方式一"。
 
-#### 方式一：`--restore` CLI 子命令（Round 6 完成后推荐）
+#### 方式一：`--restore` CLI 子命令（推荐）
 
 ```bash
 # 从 app 容器执行 CLI 恢复（绕过 HTTP 认证，直接调用 backup.Restore）
@@ -209,7 +209,7 @@ docker exec contentx-db psql -U contentx -d contentx -c 'SELECT count(*) FROM ar
 docker exec contentx-db psql -U contentx -d contentx -c 'SELECT count(*) FROM users;'
 ```
 
-#### 方式二：直接 psql 客户端（当前可用，PostgreSQL 专用）
+#### 方式二：直接 psql 客户端（PostgreSQL 专用兜底，方式一不可用时使用）
 
 ```bash
 # 1. 确认备份文件存在于 app 容器内
@@ -227,10 +227,10 @@ docker exec contentx-db psql -U contentx -d contentx -c 'SELECT count(*) FROM us
 
 #### 恢复后：重建搜索索引
 
-> **重要**：数据库恢复后，内置搜索索引（保存在应用进程内存中）不会自动同步。必须执行以下任一操作重建索引：
+> **重要**：数据库恢复后，内置搜索索引（保存在应用进程内存中）会由 Restore 流程自动重建（Round 6 / F2 完成）。
 >
-> - **Round 6 完成后**（`[R6-F2]`）：Restore API 和 CLI 将自动触发 `ReindexAll`，无需手动操作。
-> - **当前**：重启应用（启动时自动 warm-up 重建索引），或调用 `POST /api/v1/search/reindex`（需 superadmin 认证）。
+> - **Restore API 与 `--restore` CLI**：恢复成功后异步触发 `ReindexAll`（best-effort，不阻塞响应），响应中返回 `search_index: "rebuilding"`。pg/mysql 场景立即重建；SQLite 场景提示重启后重建。
+> - **手动兜底**：如需强制重建，可重启应用（启动时 warm-up 重建），或调用 `POST /api/v1/search/reindex`（需 superadmin 认证）。
 
 ```bash
 # 方式 A：重启应用（启动时自动重建索引）
@@ -315,7 +315,7 @@ OTEL_TRACE_SAMPLE_RATIO=1.0
 
 ## 5. 压测流程
 
-### 4.1 对照原则
+### 5.1 对照原则
 
 - **同一数据集**：三种驱动都用等价的 10,000 篇文章 seed（正文均为 `ContentX benchmark content for realistic payload size. ` 重复 40 次，2,200 字符）。
 - **同一场景**：文章列表、文章详情、GraphQL 查询、并发写入四个场景。
@@ -324,7 +324,7 @@ OTEL_TRACE_SAMPLE_RATIO=1.0
 - **同一元数据**：每次运行保存 `run-metadata.json`（Git SHA、文章数、响应体大小、应用配置），由 `generate-report.ps1` 读入报告头部。
 - **同一空闲内存口径**：`scripts/benchmark/sample-memory.ps1`，无负载下采样 12 次取 min/mean/max。
 
-### 4.2 PostgreSQL
+### 5.2 PostgreSQL
 
 ```powershell
 # 主 compose 即 PostgreSQL 栈
@@ -348,7 +348,7 @@ docker run --rm --network contentx-main_contentx-net `
 powershell -ExecutionPolicy Bypass -File scripts\benchmark\generate-report.ps1 -Driver postgres
 ```
 
-### 4.3 MySQL
+### 5.3 MySQL
 
 ```powershell
 docker compose -f scripts/benchmark/docker-compose.mysql.yml up -d --build
@@ -370,7 +370,7 @@ powershell -ExecutionPolicy Bypass -File scripts\benchmark\generate-report.ps1 -
 docker compose -f scripts/benchmark/docker-compose.mysql.yml down -v
 ```
 
-### 4.4 SQLite
+### 5.4 SQLite
 
 SQLite 为嵌入式数据库，CGO 构建在 Docker 多阶段构建中完成，无需宿主机安装 C 编译器。
 缓存与队列使用 Redis（与 PostgreSQL/MySQL 一致），唯一变量为数据库驱动。
@@ -400,7 +400,7 @@ docker compose -f scripts/benchmark/docker-compose.sqlite.yml down -v
 > Windows MinGW gcc 8.1.0 与 Go 1.26 CGO 不兼容（生成的 PE 无法加载）。
 > 如需本地原生构建，请使用 Docker 或升级到 gcc 11+。
 
-### 4.5 搜索引擎配置
+### 5.5 搜索引擎配置
 
 `SEARCH_ENGINE=builtin` 是当前完整实现：索引保存在应用进程内，启动时从数据库重建，适合单实例或对短暂索引重建可接受的部署。
 

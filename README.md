@@ -2,7 +2,7 @@
 
 ContentX 是一个使用 Go 构建的 API-first Headless CMS。它提供 REST API、只读 GraphQL、Vue 3 管理后台，并支持文章工作流、自定义内容类型、国际化、媒体管理、搜索、Webhook、插件和可观测性。
 
-当前发布基线为 `v1.0.0`。P3-A“生产就绪”已通过 ROADMAP Round 1-5 全部验收，下一里程碑为 `v1.1.0`。
+当前发布基线为 `v1.2.0`。P3-A“生产就绪”及 Round 6 扣分项整改已通过 ROADMAP Round 1-6 全部验收。
 
 ## 文档导航
 
@@ -131,12 +131,29 @@ reports/benchmarks/     压测原始结果与后续报告
 
 - GraphQL 当前只读，写操作走 REST。
 - 内置搜索索引不跨实例共享，外部 MeiliSearch 驱动尚未完成。
+- **灾难恢复 CLI**：`docker exec contentx /app/contentx --restore <file>` 绕过 HTTP 认证直接恢复（Round 6 / F3）；restore 后异步重建内存搜索索引（F2）。
 - **Release 二进制不支持 SQLite**：CI Release 作业以 `CGO_ENABLED=0` 构建跨平台二进制，
   SQLite 驱动需要 CGO，因此预编译 Release 包仅支持 PostgreSQL / MySQL。需要 SQLite 时
   请使用 Docker 镜像（内置 CGO 构建）或本地 `go build`（需 C 编译器）。
 - README 中的性能数字是阶段性本机结果，不是 SLA。
 
 完整的当前边界和完成定义见 [PRD.md](./docs/PRD.md)。
+
+## 开发
+
+本地防线（Round 6 / F1）：
+
+```bash
+# 安装 pre-commit 钩子（gofmt + go vet + swagger drift 检查）
+make install-hooks
+
+# 聚合检查（fmt + vet + swagger + lint + test）
+make check
+```
+
+前端使用 husky + lint-staged 对暂存的 `.ts`/`.vue` 运行 `vue-tsc --noEmit`。
+
+CI 强制覆盖率门槛（Round 6 / F8）：后端 Go ≥ 60%，前端 vitest `--coverage` thresholds（lines/statements 20%，branches 40%，functions 35%）。
 
 ## 许可证
 

@@ -16,8 +16,8 @@
 
 ## 当前状态
 
-P3-A“生产就绪”整体进度：**Round 1 ✅** / **Round 2 ✅** / **Round 3 ✅** / **Round 4 ✅** / **Round 5 ✅**（P3-A 全部完成，`v1.1.0` 已发布）。
-下一轮为 **Round 6：扣分项整改**（基于 v1.1.0 验收评估的 5 个扣分项）。
+P3-A"生产就绪"整体进度：**Round 1 ✅** / **Round 2 ✅** / **Round 3 ✅** / **Round 4 ✅** / **Round 5 ✅**（P3-A 全部完成，`v1.1.0` 已发布）/ **Round 6 ✅**（扣分项整改完成，`v1.2.0` 已发布）。
+下一阶段为 **P3-B 商业化基础路线**（见 PRD §5）。
 
 ## 问题优先级
 
@@ -174,7 +174,7 @@ P3-A“生产就绪”整体进度：**Round 1 ✅** / **Round 2 ✅** / **Round
 8. **F8 CI 覆盖率门槛** ✅：
    - 后端 `go test` 后增加 `go tool cover -func=coverage.out | grep total`，低于阈值失败。
    - 前端 vitest 加 `--coverage` 并检查 thresholds。
-   - **完成**：CI 增加 Go 覆盖率门槛检查步（75% baseline ratchet，当前 82.9%）；前端 vitest 加 `--coverage` 强制执行 vite.config.ts thresholds。两者均为 ratchet 机制——防止退化，随测试增加逐步提升。
+   - **完成**：CI 增加 Go 覆盖率门槛检查步（60% baseline ratchet，当前 ~64.6%）；前端 vitest 加 `--coverage` 强制执行 vite.config.ts thresholds（lines/statements 20%，branches 40%，functions 35%，当前 lines 25.31%）。两者均为 ratchet 机制——防止退化，随测试增加逐步提升。
 
 #### 第三批：P1-P2 长期路线（归入 P3-B/P3-C）
 
@@ -194,7 +194,7 @@ P3-A“生产就绪”整体进度：**Round 1 ✅** / **Round 2 ✅** / **Round
 - [x] SOP §3.4 文档与 cross-db §7 修正完成，无悬空待办（F4）
 - [x] repository/storage 层测试覆盖，CI 不退化（F5-F6, F8）
 - [x] 前端 coverage 配置就位，业务组件测试基线建立（F7）
-- [ ] CI 全绿，`v1.2.0` Release tag 已打
+- [x] CI 全绿，`v1.2.0` Release tag 已打 — Run 30029628652 全绿（test/frontend/build/docker/release），GitHub Release v1.2.0 已发布 5 平台二进制
 
 ## 历史问题总表
 

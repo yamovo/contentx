@@ -1,4 +1,4 @@
-﻿# PostgreSQL Benchmark Baseline
+# PostgreSQL Benchmark Baseline
 
 - **Date**: 2026-07-23T12:52:47+0000
 - **Git SHA**: 0f5d624
@@ -32,7 +32,7 @@ All table values match their JSON source after unit conversion. **PASS**
 
 ## Raw Data
 
-Vegeta JSON files are in D:\Obsidian\03_Projects\contentx-main\reports\benchmarks\raw\postgres :
+Vegeta JSON files are in `reports/benchmarks/raw/postgres/` :
 
 - article-list.json
 - article-detail.json

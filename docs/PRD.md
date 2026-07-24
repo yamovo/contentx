@@ -6,7 +6,7 @@
 
 ContentX 是一个 API-first 的 Headless CMS，使用 Go 构建，提供 REST API、只读 GraphQL 和 Vue 3 管理后台。核心价值：内容管理、发布工作流、多语言、可观测性和多数据库支持。
 
-当前发布基线：`v1.0.0`。P3-A“生产就绪”已完成（ROADMAP Round 1-5 全部通过），下一里程碑为 `v1.1.0`。
+当前发布基线：`v1.2.0`。P3-A“生产就绪”已完成（ROADMAP Round 1-5 全部通过），Round 6 扣分项整改已完成并发布 `v1.2.0`。下一里程碑为 P3-B 商业化基础路线。
 
 ## 2. 已交付能力
 
@@ -50,15 +50,15 @@ ContentX 是一个 API-first 的 Headless CMS，使用 Go 构建，提供 REST A
 
 ## 4. 当前边界
 
-以下是已知的未完成或受限能力，不构成 SLA 承诺。标记 `[R6]` 的项计划在 ROADMAP Round 6 整改。
+以下是已知的未完成或受限能力，不构成 SLA 承诺。标记 `[P3-C]` 的项归入 P3-C 路线后续处理；其余边界项已在 ROADMAP Round 6 整改完成。
 
-- **GraphQL**：当前只读，写操作走 REST。Mutation 支持归入 P3-C 路线 `[R6-F13]`。
-- **搜索**：内置索引不跨实例共享，外部 MeiliSearch 驱动尚未完成。DB restore 后当前需手动重启或调 `/api/v1/search/reindex` 重建索引；Round 6 将改为 restore 后自动重建 `[R6-F2]`。
-- **备份与恢复**：PostgreSQL/MySQL/SQLite 备份与恢复已在 ROADMAP Round 2 完成端到端演练。灾难恢复（数据库完全丢失）存在 auth-DB 循环依赖——restore 端点需认证查 users 表，DB 丢失时返回 401，当前需绕过应用层用 psql 客户端（见 SOP §3.4）。Round 6 将增加 `--restore` CLI 子命令消除该依赖 `[R6-F3]`。
-- **CI 卫生**：当前无本地 pre-commit 钩子，格式化与 Swagger 漂移 100% 依赖远端 CI 拦截。Round 6 将增加本地防线 `[R6-F1]`。
-- **测试覆盖**：repository/storage 等 6 个包无测试，前端仅 5 个 spec 无 coverage 配置。Round 6 将补齐 `[R6-F5~F8]`。
-- **压测基线**：PostgreSQL/MySQL/SQLite 三库对照基线已在 ROADMAP Round 3 统一条件下重跑，完整数据见 [reports/benchmarks/cross-db-comparison.md](../reports/benchmarks/cross-db-comparison.md)。MySQL historical/ 缺 metadata 将在 Round 6 补齐 `[R6-F4]`。
-- **Release 二进制**：无 CGO 发版不支持 SQLite，需 SQLite 时使用 Docker 镜像或本地 `go build`（见 ROADMAP Round 4 / S1-3）。CGO 构建变体归入 P3-C 路线 `[R6-F14]`。
+- **GraphQL**：当前只读，写操作走 REST。Mutation 支持归入 P3-C 路线 `[P3-C-F13]`。
+- **搜索**：内置索引不跨实例共享，外部 MeiliSearch 驱动尚未完成（归入 P3-C）。DB restore 后已自动重建搜索索引（Round 6 / F2 已完成：Restore handler 在恢复成功后异步调用 `ReindexAll`）。
+- **备份与恢复**：PostgreSQL/MySQL/SQLite 备份与恢复已在 ROADMAP Round 2 完成端到端演练。灾难恢复（数据库完全丢失）：HTTP restore 端点需认证查 users 表，DB 丢失时返回 401；Round 6 已增加 `--restore` CLI 子命令绕过 HTTP/认证层直接恢复，消除 auth-DB 循环依赖（见 SOP §3.4）。psql 客户端仍作为 PostgreSQL 专用兜底路径。
+- **CI 卫生**：本地 pre-commit 钩子已就位（Round 6 / F1 完成）：`make install-hooks` 安装 `go fmt` + `go vet` + `swag init` 漂移检查；前端 husky + lint-staged 对暂存 `.ts`/`.vue` 运行 `vue-tsc --noEmit`。CI 仍保留 gofmt drift 快速失败步作为第二道防线。
+- **测试覆盖**：repository/storage 层已有集成/单元测试（Round 6 / F5-F6 完成）；前端已配置 coverage 门槛并新增业务组件测试（F7 完成）；CI 已加后端 60% 覆盖率门槛与前端 vitest `--coverage` 强制检查（F8 完成）。剩余 errs/logger/mail/migrations 包测试归入后续轮次（F9-F10）。
+- **压测基线**：PostgreSQL/MySQL/SQLite 三库对照基线已在 ROADMAP Round 3 统一条件下重跑，完整数据见 [reports/benchmarks/cross-db-comparison.md](../reports/benchmarks/cross-db-comparison.md)。MySQL historical/ 缺 metadata 已在 Round 6 补齐（标注 `invalid: true` + 失效原因）。
+- **Release 二进制**：无 CGO 发版不支持 SQLite，需 SQLite 时使用 Docker 镜像或本地 `go build`（见 ROADMAP Round 4 / S1-3）。CGO 构建变体归入 P3-C 路线 `[P3-C-F14]`。
 - **性能数字**：README 中引用的性能数字是阶段性本机结果，不是 SLA。
 
 ## 5. P3-B：商业化基础路线

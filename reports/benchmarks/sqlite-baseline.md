@@ -1,4 +1,4 @@
-﻿# SQLite Benchmark Baseline
+# SQLite Benchmark Baseline
 
 - **Date**: 2026-07-23T13:12:48+0000
 - **Git SHA**: 0f5d624
@@ -32,7 +32,7 @@ All table values match their JSON source after unit conversion. **PASS**
 
 ## Raw Data
 
-Vegeta JSON files are in D:\Obsidian\03_Projects\contentx-main\reports\benchmarks\raw\sqlite :
+Vegeta JSON files are in `reports/benchmarks/raw/sqlite/` :
 
 - article-list.json
 - article-detail.json
