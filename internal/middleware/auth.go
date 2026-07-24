@@ -68,7 +68,7 @@ func (c *userCache) get(userID uint) (*models.User, bool) {
 	if !ok {
 		return nil, false
 	}
-	entry := el.Value.(*userCacheEntry)
+	entry, _ := el.Value.(*userCacheEntry)
 	if time.Now().After(entry.expiresAt) {
 		c.ll.Remove(el)
 		delete(c.entries, userID)
@@ -85,7 +85,7 @@ func (c *userCache) put(user *models.User) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if el, ok := c.entries[user.ID]; ok {
-		entry := el.Value.(*userCacheEntry)
+		entry, _ := el.Value.(*userCacheEntry)
 		entry.user = user
 		entry.expiresAt = time.Now().Add(c.ttl)
 		c.ll.MoveToFront(el)
@@ -101,7 +101,8 @@ func (c *userCache) put(user *models.User) {
 	if c.ll.Len() > c.maxEntries {
 		if oldest := c.ll.Back(); oldest != nil {
 			c.ll.Remove(oldest)
-			delete(c.entries, oldest.Value.(*userCacheEntry).userID)
+			oldestEntry, _ := oldest.Value.(*userCacheEntry)
+			delete(c.entries, oldestEntry.userID)
 		}
 	}
 }

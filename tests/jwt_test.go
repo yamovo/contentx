@@ -86,6 +86,7 @@ func TestRefreshAccessToken(t *testing.T) {
 	mgr := newTestJWTManager()
 
 	pair, _ := mgr.GenerateTokenPair(1, "testuser", "test@example.com", "admin", "Test User")
+	//nolint:staticcheck // SA1019: intentionally testing the deprecated JWT-layer method for backward compatibility; AuthService.RefreshToken is covered by integration tests.
 	newPair, err := mgr.RefreshAccessToken(pair.RefreshToken)
 	if err != nil {
 		t.Fatalf("RefreshAccessToken() error: %v", err)
