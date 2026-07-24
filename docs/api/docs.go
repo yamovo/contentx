@@ -1654,7 +1654,10 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Invalidate the current access token",
+                "description": "Invalidate the current access token and optional refresh token",
+                "consumes": [
+                    "application/json"
+                ],
                 "produces": [
                     "application/json"
                 ],
@@ -1662,6 +1665,16 @@ const docTemplate = `{
                     "Auth"
                 ],
                 "summary": "Logout",
+                "parameters": [
+                    {
+                        "description": "Optional refresh token to blacklist",
+                        "name": "body",
+                        "in": "body",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_yamovo_contentx_internal_services.LogoutRequest"
+                        }
+                    }
+                ],
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -9631,6 +9644,14 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "username": {
+                    "type": "string"
+                }
+            }
+        },
+        "github_com_yamovo_contentx_internal_services.LogoutRequest": {
+            "type": "object",
+            "properties": {
+                "refresh_token": {
                     "type": "string"
                 }
             }

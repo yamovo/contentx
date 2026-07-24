@@ -1302,6 +1302,11 @@ definitions:
     - password
     - username
     type: object
+  github_com_yamovo_contentx_internal_services.LogoutRequest:
+    properties:
+      refresh_token:
+        type: string
+    type: object
   github_com_yamovo_contentx_internal_services.RecordViewRequest:
     properties:
       article_id:
@@ -2605,7 +2610,15 @@ paths:
       - Auth
   /auth/logout:
     post:
-      description: Invalidate the current access token
+      consumes:
+      - application/json
+      description: Invalidate the current access token and optional refresh token
+      parameters:
+      - description: Optional refresh token to blacklist
+        in: body
+        name: body
+        schema:
+          $ref: '#/definitions/github_com_yamovo_contentx_internal_services.LogoutRequest'
       produces:
       - application/json
       responses:
