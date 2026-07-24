@@ -290,3 +290,74 @@ func TestGetCurrentUser_Nil(t *testing.T) {
 		t.Fatal("expected nil user and claims when not authenticated")
 	}
 }
+
+// ---------- userCache (LRU + TTL) ----------
+
+func TestUserCache_Miss(t *testing.T) {
+	c := newUserCache(8, time.Second)
+	if _, ok := c.get(999); ok {
+		t.Fatal("expected cache miss for unknown user")
+	}
+}
+
+func TestUserCache_PutGet(t *testing.T) {
+	c := newUserCache(8, time.Second)
+	u := &models.User{BaseModel: models.BaseModel{ID: 7}, Username: "cached"}
+	c.put(u)
+	got, ok := c.get(7)
+	if !ok {
+		t.Fatal("expected cache hit after put")
+	}
+	if got.Username != "cached" {
+		t.Fatalf("wrong user returned: %+v", got)
+	}
+}
+
+func TestUserCache_TTLExpiry(t *testing.T) {
+	c := newUserCache(8, 20*time.Millisecond)
+	c.put(&models.User{BaseModel: models.BaseModel{ID: 1}})
+	if _, ok := c.get(1); !ok {
+		t.Fatal("expected hit before TTL expiry")
+	}
+	time.Sleep(30 * time.Millisecond)
+	if _, ok := c.get(1); ok {
+		t.Fatal("expected miss after TTL expiry")
+	}
+}
+
+func TestUserCache_LRUEviction(t *testing.T) {
+	c := newUserCache(2, time.Second)
+	c.put(&models.User{BaseModel: models.BaseModel{ID: 1}})
+	c.put(&models.User{BaseModel: models.BaseModel{ID: 2}})
+	// Access ID 1 to make ID 2 the LRU candidate.
+	if _, ok := c.get(1); !ok {
+		t.Fatal("expected hit for ID 1")
+	}
+	// Inserting ID 3 should evict the least-recently-used (ID 2).
+	c.put(&models.User{BaseModel: models.BaseModel{ID: 3}})
+	if _, ok := c.get(2); ok {
+		t.Fatal("ID 2 should have been evicted")
+	}
+	if _, ok := c.get(1); !ok {
+		t.Fatal("ID 1 should still be cached (recently used)")
+	}
+	if _, ok := c.get(3); !ok {
+		t.Fatal("ID 3 should be cached")
+	}
+}
+
+func TestAuthMiddleware_CacheHitServesUser(t *testing.T) {
+	db := setupAuthTestDB(t)
+	m := testJWT()
+	tok := tokenFor(t, m, 1)
+
+	r := setupTestRouter(AuthMiddleware(m, db, nil))
+	// First request populates the cache via DB lookup.
+	if w := doRequest(r, http.MethodGet, "/test", map[string]string{"Authorization": "Bearer " + tok}); w.Code != http.StatusOK {
+		t.Fatalf("first request should pass, got %d", w.Code)
+	}
+	// Second request should be served from cache (still 200).
+	if w := doRequest(r, http.MethodGet, "/test", map[string]string{"Authorization": "Bearer " + tok}); w.Code != http.StatusOK {
+		t.Fatalf("cached request should pass, got %d", w.Code)
+	}
+}

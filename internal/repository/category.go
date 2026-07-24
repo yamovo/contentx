@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"fmt"
 	"strconv"
 
 	"github.com/yamovo/contentx/internal/models"
@@ -16,7 +17,7 @@ type CategoryRepository interface {
 	UpdateFields(id uint, updates map[string]interface{}) error
 	UpdateSortOrder(id uint, sortOrder int, parentID *uint) error
 	Delete(id uint) error // nulls articles' category_id and children's parent_id, then deletes
-	EnsureUniqueSlug(original string, excludeID uint) string
+	EnsureUniqueSlug(original string, excludeID uint) (string, error)
 }
 
 // gormCategoryRepository implements CategoryRepository with GORM.
@@ -94,19 +95,23 @@ func (r *gormCategoryRepository) Delete(id uint) error {
 }
 
 // EnsureUniqueSlug generates a unique slug by appending a counter if needed.
-// Errors from the underlying COUNT query are silently ignored (preserves prior behaviour).
-func (r *gormCategoryRepository) EnsureUniqueSlug(original string, excludeID uint) string {
+// Returns an error if the underlying COUNT query fails or if no unique slug
+// can be found within maxSlugAttempts iterations (A-2 fix).
+func (r *gormCategoryRepository) EnsureUniqueSlug(original string, excludeID uint) (string, error) {
 	candidate := original
-	for i := 1; ; i++ {
+	for i := 1; i <= maxSlugAttempts; i++ {
 		var count int64
 		query := r.db.Model(&models.Category{}).Where("slug = ?", candidate)
 		if excludeID > 0 {
 			query = query.Where("id != ?", excludeID)
 		}
-		query.Count(&count)
+		if err := query.Count(&count).Error; err != nil {
+			return "", fmt.Errorf("ensure unique slug: %w", err)
+		}
 		if count == 0 {
-			return candidate
+			return candidate, nil
 		}
 		candidate = original + "-" + strconv.Itoa(i)
 	}
+	return "", fmt.Errorf("ensure unique slug: no unique slug for %q after %d attempts", original, maxSlugAttempts)
 }

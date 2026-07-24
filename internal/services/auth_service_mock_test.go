@@ -52,7 +52,7 @@ func TestMockAuth_Logout_Success(t *testing.T) {
 		t.Fatalf("GenerateTokenPair failed: %v", err)
 	}
 
-	if err := svc.Logout(pair.AccessToken, 1); err != nil {
+	if err := svc.Logout(pair.AccessToken, ""); err != nil {
 		t.Fatalf("Logout failed: %v", err)
 	}
 	if !bl.IsRevoked(pair.AccessToken) {
@@ -60,11 +60,33 @@ func TestMockAuth_Logout_Success(t *testing.T) {
 	}
 }
 
+func TestMockAuth_Logout_BlacklistsRefreshToken(t *testing.T) {
+	jwtMgr := newTestJWTManager()
+	bl := auth.NewBlacklist()
+	repo := &MockAuthRepository{}
+	svc := NewAuthServiceWithRepo(repo, jwtMgr, bl, nil)
+
+	pair, err := jwtMgr.GenerateTokenPair(1, "alice", "alice@example.com", "editor", "Alice")
+	if err != nil {
+		t.Fatalf("GenerateTokenPair failed: %v", err)
+	}
+
+	if err := svc.Logout(pair.AccessToken, pair.RefreshToken); err != nil {
+		t.Fatalf("Logout failed: %v", err)
+	}
+	if !bl.IsRevoked(pair.AccessToken) {
+		t.Error("expected access token to be blacklisted")
+	}
+	if !bl.IsRevoked(pair.RefreshToken) {
+		t.Error("expected refresh token to be blacklisted (A-3 fix)")
+	}
+}
+
 func TestMockAuth_Logout_InvalidToken(t *testing.T) {
 	repo := &MockAuthRepository{}
 	svc := NewAuthServiceWithRepo(repo, newTestJWTManager(), auth.NewBlacklist(), nil)
 
-	err := svc.Logout("not-a-valid-token", 1)
+	err := svc.Logout("not-a-valid-token", "")
 	if err == nil {
 		t.Fatal("expected error for invalid token")
 	}
@@ -492,7 +514,17 @@ func TestMockAuth_RefreshToken_Invalid(t *testing.T) {
 
 func TestMockAuth_RefreshToken_Success(t *testing.T) {
 	jwtMgr := newTestJWTManager()
-	svc := NewAuthServiceWithRepo(&MockAuthRepository{}, jwtMgr, auth.NewBlacklist(), nil)
+	repo := &MockAuthRepository{
+		UserByIDWithRole: &models.User{
+			BaseModel:   models.BaseModel{ID: 1},
+			Username:    "alice",
+			Email:       "alice@example.com",
+			DisplayName: "Alice",
+			Status:      models.UserStatusActive,
+			Role:        models.Role{Slug: "editor"},
+		},
+	}
+	svc := NewAuthServiceWithRepo(repo, jwtMgr, auth.NewBlacklist(), nil)
 
 	pair, err := jwtMgr.GenerateTokenPair(1, "alice", "alice@example.com", "editor", "Alice")
 	if err != nil {
@@ -505,5 +537,98 @@ func TestMockAuth_RefreshToken_Success(t *testing.T) {
 	}
 	if newPair == nil {
 		t.Fatal("expected non-nil pair")
+	}
+}
+
+// TestMockAuth_RefreshToken_RoleChanged verifies that a role change takes
+// effect on the next refresh. Previously the refresh reused stale claims,
+// so a demoted user kept their old role until the refresh token expired.
+func TestMockAuth_RefreshToken_RoleChanged(t *testing.T) {
+	jwtMgr := newTestJWTManager()
+	// Issue a refresh token that carries the "admin" role.
+	pair, err := jwtMgr.GenerateTokenPair(1, "alice", "alice@example.com", "admin", "Alice")
+	if err != nil {
+		t.Fatalf("GenerateTokenPair failed: %v", err)
+	}
+
+	// The database now reflects a demotion to "editor".
+	repo := &MockAuthRepository{
+		UserByIDWithRole: &models.User{
+			BaseModel:   models.BaseModel{ID: 1},
+			Username:    "alice",
+			Email:       "alice@example.com",
+			DisplayName: "Alice",
+			Status:      models.UserStatusActive,
+			Role:        models.Role{Slug: "editor"},
+		},
+	}
+	svc := NewAuthServiceWithRepo(repo, jwtMgr, auth.NewBlacklist(), nil)
+
+	newPair, err := svc.RefreshToken(pair.RefreshToken)
+	if err != nil {
+		t.Fatalf("RefreshToken failed: %v", err)
+	}
+
+	claims, err := jwtMgr.ValidateToken(newPair.AccessToken)
+	if err != nil {
+		t.Fatalf("validate refreshed token: %v", err)
+	}
+	if claims.RoleSlug != "editor" {
+		t.Fatalf("expected refreshed role editor (loaded from DB), got %q", claims.RoleSlug)
+	}
+}
+
+// TestMockAuth_RefreshToken_InactiveUser verifies that a disabled user cannot
+// refresh their token. Previously the refresh succeeded because it never
+// consulted the database.
+func TestMockAuth_RefreshToken_InactiveUser(t *testing.T) {
+	jwtMgr := newTestJWTManager()
+	pair, err := jwtMgr.GenerateTokenPair(1, "alice", "alice@example.com", "editor", "Alice")
+	if err != nil {
+		t.Fatalf("GenerateTokenPair failed: %v", err)
+	}
+
+	repo := &MockAuthRepository{
+		UserByIDWithRole: &models.User{
+			BaseModel: models.BaseModel{ID: 1},
+			Username:  "alice",
+			Status:    models.UserStatusInactive,
+			Role:      models.Role{Slug: "editor"},
+		},
+	}
+	svc := NewAuthServiceWithRepo(repo, jwtMgr, auth.NewBlacklist(), nil)
+
+	_, err = svc.RefreshToken(pair.RefreshToken)
+	if err == nil {
+		t.Fatal("expected error for inactive user")
+	}
+	appErr, ok := err.(*errs.AppError)
+	if !ok || appErr.Code != "UNAUTHORIZED" {
+		t.Errorf("expected UNAUTHORIZED, got %v", err)
+	}
+}
+
+// TestMockAuth_RefreshToken_UserNotFound verifies that a deleted user cannot
+// refresh their token. Previously the refresh succeeded because it never
+// consulted the database.
+func TestMockAuth_RefreshToken_UserNotFound(t *testing.T) {
+	jwtMgr := newTestJWTManager()
+	pair, err := jwtMgr.GenerateTokenPair(99, "ghost", "ghost@example.com", "editor", "Ghost")
+	if err != nil {
+		t.Fatalf("GenerateTokenPair failed: %v", err)
+	}
+
+	repo := &MockAuthRepository{
+		FindUserByIDWithRoleErr: gorm.ErrRecordNotFound,
+	}
+	svc := NewAuthServiceWithRepo(repo, jwtMgr, auth.NewBlacklist(), nil)
+
+	_, err = svc.RefreshToken(pair.RefreshToken)
+	if err == nil {
+		t.Fatal("expected error for deleted user")
+	}
+	appErr, ok := err.(*errs.AppError)
+	if !ok || appErr.Code != "UNAUTHORIZED" {
+		t.Errorf("expected UNAUTHORIZED, got %v", err)
 	}
 }

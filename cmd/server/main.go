@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -259,8 +260,18 @@ func main() {
 	r.Use(middleware.ContentTypeJSON())
 	r.Use(middleware.ActivityLogger(db))
 
-	// Rate limiting (skip for non-API routes in dev).
-	r.Use(middleware.RateLimitMiddleware(cfg.Limits.APIRateLimit))
+	// Rate limiting: apply only to /api/ routes so static assets, swagger,
+	// /metrics, and SPA fallback routes are not throttled. The RateLimiter is
+	// stoppable so its cleanup goroutine doesn't leak on shutdown.
+	apiRateLimiter := middleware.NewRateLimiter(cfg.Limits.APIRateLimit)
+	apiRateLimitHandler := apiRateLimiter.Handler()
+	r.Use(func(c *gin.Context) {
+		if strings.HasPrefix(c.Request.URL.Path, "/api/") {
+			apiRateLimitHandler(c)
+			return
+		}
+		c.Next()
+	})
 
 	// Create the backup manager (shared between HTTP handler and scheduler so
 	// that the TryLock serializes concurrent backup/restore requests).
@@ -376,7 +387,10 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
+	// Stop background cleanup goroutines to prevent leaks.
 	rateLimiter.Shutdown()
+	apiRateLimiter.Stop()
+	guard.Stop()
 	if closer, ok := baseCacheDriver.(interface{ Close() error }); ok {
 		_ = closer.Close()
 	}

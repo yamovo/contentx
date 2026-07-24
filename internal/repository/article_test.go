@@ -323,7 +323,10 @@ func TestArticleRepository_EnsureUniqueSlug(t *testing.T) {
 	createTestArticleDirect(t, db, author.ID, "Second", "my-slug-1")
 
 	// "my-slug" and "my-slug-1" are taken; EnsureUniqueSlug should return "my-slug-2".
-	got := repo.EnsureUniqueSlug("my-slug", 0)
+	got, err := repo.EnsureUniqueSlug("my-slug", 0)
+	if err != nil {
+		t.Fatalf("EnsureUniqueSlug error: %v", err)
+	}
 	if got != "my-slug-2" {
 		t.Fatalf("expected 'my-slug-2', got %q", got)
 	}
@@ -331,7 +334,10 @@ func TestArticleRepository_EnsureUniqueSlug(t *testing.T) {
 	// With excludeID, the article itself is excluded.
 	first := models.Article{}
 	db.Where("slug = ?", "my-slug").First(&first)
-	got = repo.EnsureUniqueSlug("my-slug", first.ID)
+	got, err = repo.EnsureUniqueSlug("my-slug", first.ID)
+	if err != nil {
+		t.Fatalf("EnsureUniqueSlug error (excludeID): %v", err)
+	}
 	if got != "my-slug" {
 		t.Fatalf("expected 'my-slug' (excluding self), got %q", got)
 	}

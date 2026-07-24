@@ -229,12 +229,12 @@ func (m *MockArticleRepository) ListScheduledDue(now time.Time) ([]models.Articl
 	return m.ScheduledDue, nil
 }
 
-func (m *MockArticleRepository) EnsureUniqueSlug(original string, excludeID uint) string {
+func (m *MockArticleRepository) EnsureUniqueSlug(original string, excludeID uint) (string, error) {
 	m.EnsureUniqueCalls = append(m.EnsureUniqueCalls, original)
 	if m.UniqueSlugSuffix != "" {
-		return original + m.UniqueSlugSuffix
+		return original + m.UniqueSlugSuffix, nil
 	}
-	return original
+	return original, nil
 }
 
 // i18n translation stubs (return zero values by default; tests can swap them).

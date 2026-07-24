@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/yamovo/contentx/internal/backup"
@@ -168,9 +169,13 @@ func (h *BackupHandler) Restore(c *gin.Context) {
 	// Best-effort: runs in a goroutine so the response is not blocked.
 	// For SQLite, the connection is closed during restore so reindex would
 	// fail; the index will be rebuilt on restart via the warm-up goroutine.
+	// A bounded context prevents the reindex from hanging indefinitely and
+	// makes it cancelable during shutdown.
 	if h.articleSvc != nil && h.mgr.Driver() != "sqlite" {
 		go func() {
-			n, err := h.articleSvc.ReindexAll(context.Background())
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+			defer cancel()
+			n, err := h.articleSvc.ReindexAll(ctx)
 			if err != nil {
 				slog.Warn("post-restore search reindex failed", "error", err, "backup", name)
 				return

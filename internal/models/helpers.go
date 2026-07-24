@@ -52,13 +52,20 @@ var (
 	multiSpaceRe = regexp.MustCompile(`\s+`)
 )
 
-// GenerateSlug creates a URL-safe slug from the title.
+// GenerateSlug creates a URL-safe slug from a name, using CJK-aware slugification
+// with a non-CJK fallback. Uniqueness is handled at the repository layer.
+func GenerateSlug(name string) string {
+	s := slug.MakeLang(name, "zh")
+	if s == "" {
+		s = slug.Make(name)
+	}
+	return s
+}
+
+// GenerateSlug creates a URL-safe slug from the article title.
 func (a *Article) GenerateSlug() {
 	if a.Slug == "" {
-		a.Slug = slug.MakeLang(a.Title, "zh")
-		if a.Slug == "" {
-			a.Slug = slug.Make(a.Title)
-		}
+		a.Slug = GenerateSlug(a.Title)
 	}
 	// Ensure uniqueness is handled at the repository layer.
 }

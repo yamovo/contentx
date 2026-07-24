@@ -3,7 +3,6 @@ package services
 import (
 	"errors"
 
-	"github.com/gosimple/slug"
 	"github.com/yamovo/contentx/internal/models"
 	"github.com/yamovo/contentx/internal/repository"
 	"gorm.io/gorm"
@@ -67,10 +66,7 @@ func (s *TagService) Create(req CreateTagRequest) (*models.Tag, error) {
 	if req.Slug != "" {
 		tag.Slug = req.Slug
 	} else {
-		tag.Slug = slug.MakeLang(req.Name, "zh")
-		if tag.Slug == "" {
-			tag.Slug = slug.Make(req.Name)
-		}
+		tag.Slug = models.GenerateSlug(req.Name)
 	}
 
 	if err := s.repo.Create(&tag); err != nil {

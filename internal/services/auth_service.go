@@ -230,23 +230,56 @@ func (s *AuthService) Register(req RegisterRequest, clientIP string) (*auth.Toke
 	return tokenPair, SanitizeUser(userWithRole), nil
 }
 
-// RefreshToken validates a refresh token and issues a new token pair.
+// RefreshToken validates a refresh token, loads the user's current state from
+// the database, and issues a new token pair.
+//
+// Loading the user on every refresh ensures role changes, disablement, or
+// deletion take effect immediately. Previously the refresh reused stale
+// claims from the refresh token, which meant a user whose role was changed
+// or who was disabled could keep obtaining access tokens with the old
+// privileges until the refresh token expired (A-1 security fix).
 func (s *AuthService) RefreshToken(refreshToken string) (*auth.TokenPair, error) {
-	tokenPair, err := s.jwtMgr.RefreshAccessToken(refreshToken)
+	claims, err := s.jwtMgr.ValidateToken(refreshToken)
 	if err != nil {
 		return nil, errs.ErrUnauthorized.WithMessage("invalid refresh token")
 	}
-	return tokenPair, nil
+
+	user, err := s.repo.FindUserByIDWithRole(claims.UserID)
+	if err != nil {
+		return nil, errs.ErrUnauthorized.WithMessage("user not found")
+	}
+
+	if user.Status != models.UserStatusActive {
+		return nil, errs.ErrUnauthorized.WithMessage("user is not active")
+	}
+
+	return s.jwtMgr.GenerateTokenPair(user.ID, user.Username, user.Email, user.Role.Slug, user.DisplayName)
 }
 
-// Logout invalidates the given access token by adding it to the blacklist.
-func (s *AuthService) Logout(tokenString string, userID uint) error {
-	claims, err := s.jwtMgr.ValidateToken(tokenString)
+// LogoutRequest is the optional payload for logout. refresh_token, when
+// provided, is also blacklisted so it can no longer be used to mint new
+// access tokens (A-3 fix).
+type LogoutRequest struct {
+	RefreshToken string `json:"refresh_token"`
+}
+
+// Logout invalidates the given access token (and optional refresh token) by
+// adding them to the blacklist. The refresh token is blacklisted
+// best-effort: an invalid/expired refresh token is silently ignored so a
+// client with a stale token can still log out.
+func (s *AuthService) Logout(accessToken, refreshToken string) error {
+	claims, err := s.jwtMgr.ValidateToken(accessToken)
 	if err != nil {
 		return errs.ErrUnauthorized.WithMessage("invalid token")
 	}
 
-	s.blacklist.Revoke(tokenString, claims.ExpiresAt.Time)
+	s.blacklist.Revoke(accessToken, claims.ExpiresAt.Time)
+
+	if refreshToken != "" {
+		if rClaims, err := s.jwtMgr.ValidateToken(refreshToken); err == nil {
+			s.blacklist.Revoke(refreshToken, rClaims.ExpiresAt.Time)
+		}
+	}
 	return nil
 }
 

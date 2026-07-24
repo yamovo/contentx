@@ -19,6 +19,7 @@ type LoginGuard struct {
 	maxAttempts    int
 	lockDuration   time.Duration
 	windowDuration time.Duration
+	stop           chan struct{}
 }
 
 type attemptRecord struct {
@@ -47,6 +48,7 @@ func NewLoginGuard(opts ...LoginGuardOption) *LoginGuard {
 		maxAttempts:    defaultMaxAttempts,
 		lockDuration:   defaultLockDuration,
 		windowDuration: defaultWindowDuration,
+		stop:           make(chan struct{}),
 	}
 	for _, opt := range opts {
 		opt(g)
@@ -54,6 +56,17 @@ func NewLoginGuard(opts ...LoginGuardOption) *LoginGuard {
 	// Background cleanup every minute.
 	go g.cleanup()
 	return g
+}
+
+// Stop terminates the background cleanup goroutine. It is safe to call
+// multiple times; subsequent calls are no-ops.
+func (g *LoginGuard) Stop() {
+	select {
+	case <-g.stop:
+		// already closed
+	default:
+		close(g.stop)
+	}
 }
 
 // Check returns (locked bool, remainingAttempts int).
@@ -115,20 +128,25 @@ func (g *LoginGuard) RecordSuccess(key string) {
 	delete(g.attempts, key)
 }
 
-// cleanup periodically removes expired records.
+// cleanup periodically removes expired records. Exits when Stop is called.
 func (g *LoginGuard) cleanup() {
 	ticker := time.NewTicker(1 * time.Minute)
 	defer ticker.Stop()
-	for range ticker.C {
-		g.mu.Lock()
-		now := time.Now()
-		for key, rec := range g.attempts {
-			if !rec.lockedUntil.IsZero() && now.After(rec.lockedUntil) &&
-				now.Sub(rec.firstAttempt) > g.windowDuration {
-				delete(g.attempts, key)
+	for {
+		select {
+		case <-g.stop:
+			return
+		case <-ticker.C:
+			g.mu.Lock()
+			now := time.Now()
+			for key, rec := range g.attempts {
+				if !rec.lockedUntil.IsZero() && now.After(rec.lockedUntil) &&
+					now.Sub(rec.firstAttempt) > g.windowDuration {
+					delete(g.attempts, key)
+				}
 			}
+			g.mu.Unlock()
 		}
-		g.mu.Unlock()
 	}
 }
 

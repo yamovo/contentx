@@ -279,6 +279,13 @@ func TestGroupRateLimit_UnknownGroup(t *testing.T) {
 func TestIPRateLimit_Shutdown(t *testing.T) {
 	rl := NewIPRateLimit()
 	rl.Shutdown() // must not panic
+	rl.Shutdown() // idempotent
+}
+
+func TestRateLimiter_Stop(t *testing.T) {
+	rl := NewRateLimiter(10)
+	rl.Stop()
+	rl.Stop() // idempotent, must not panic
 }
 
 // ---------- LoggerMiddleware ----------

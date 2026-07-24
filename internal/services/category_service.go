@@ -3,7 +3,6 @@ package services
 import (
 	"errors"
 
-	"github.com/gosimple/slug"
 	"github.com/yamovo/contentx/internal/models"
 	"github.com/yamovo/contentx/internal/repository"
 	"gorm.io/gorm"
@@ -83,13 +82,14 @@ func (s *CategoryService) Create(req CreateCategoryRequest) (*models.Category, e
 	if req.Slug != "" {
 		category.Slug = req.Slug
 	} else {
-		category.Slug = slug.MakeLang(req.Name, "zh")
-		if category.Slug == "" {
-			category.Slug = slug.Make(req.Name)
-		}
+		category.Slug = models.GenerateSlug(req.Name)
 	}
 
-	category.Slug = s.repo.EnsureUniqueSlug(category.Slug, 0)
+	uniqueSlug, err := s.repo.EnsureUniqueSlug(category.Slug, 0)
+	if err != nil {
+		return nil, err
+	}
+	category.Slug = uniqueSlug
 
 	if err := s.repo.Create(&category); err != nil {
 		return nil, err
@@ -117,13 +117,18 @@ func (s *CategoryService) Update(id uint, req CreateCategoryRequest) error {
 	}
 
 	if req.Slug != "" {
-		updates["slug"] = s.repo.EnsureUniqueSlug(req.Slug, category.ID)
-	} else if req.Name != category.Name {
-		newSlug := slug.MakeLang(req.Name, "zh")
-		if newSlug == "" {
-			newSlug = slug.Make(req.Name)
+		uniqueSlug, err := s.repo.EnsureUniqueSlug(req.Slug, category.ID)
+		if err != nil {
+			return err
 		}
-		updates["slug"] = s.repo.EnsureUniqueSlug(newSlug, category.ID)
+		updates["slug"] = uniqueSlug
+	} else if req.Name != category.Name {
+		newSlug := models.GenerateSlug(req.Name)
+		uniqueSlug, err := s.repo.EnsureUniqueSlug(newSlug, category.ID)
+		if err != nil {
+			return err
+		}
+		updates["slug"] = uniqueSlug
 	}
 
 	if req.IsActive != nil {

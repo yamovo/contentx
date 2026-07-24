@@ -209,49 +209,73 @@ func ActivityLogger(db *gorm.DB) gin.HandlerFunc {
 	}
 }
 
-// RateLimitMiddleware provides global rate limiting using sharded locks for better concurrency.
-func RateLimitMiddleware(requestsPerMinute int) gin.HandlerFunc {
+// RateLimiter provides global per-IP rate limiting using sharded locks for
+// better concurrency. The background cleanup goroutine can be stopped via
+// Stop, preventing goroutine leaks on shutdown.
+type RateLimiter struct {
+	requestsPerMinute int
+	shards            []*rlShard
+	stop              chan struct{}
+	once              sync.Once
+}
+
+type rlBucket struct {
+	tokens    int
+	lastReset time.Time
+	lastSeen  time.Time
+}
+
+type rlShard struct {
+	buckets map[string]*rlBucket
+	mu      sync.Mutex
+}
+
+// NewRateLimiter creates a stoppable RateLimiter. Call Stop to release the
+// background cleanup goroutine.
+func NewRateLimiter(requestsPerMinute int) *RateLimiter {
 	const numShards = 16
-
-	type bucket struct {
-		tokens    int
-		lastReset time.Time
-		lastSeen  time.Time
-	}
-
-	type shard struct {
-		buckets map[string]*bucket
-		mu      sync.Mutex
-	}
-
-	shards := make([]*shard, numShards)
+	shards := make([]*rlShard, numShards)
 	for i := range shards {
-		shards[i] = &shard{buckets: make(map[string]*bucket)}
+		shards[i] = &rlShard{buckets: make(map[string]*rlBucket)}
 	}
-
-	getShard := func(ip string) *shard {
-		h := sha256.Sum256([]byte(ip))
-		return shards[h[0]%numShards]
+	rl := &RateLimiter{
+		requestsPerMinute: requestsPerMinute,
+		shards:            shards,
+		stop:              make(chan struct{}),
 	}
 
 	// Cleanup goroutine: remove stale entries every 5 minutes.
 	go func() {
 		ticker := time.NewTicker(5 * time.Minute)
 		defer ticker.Stop()
-		for range ticker.C {
-			now := time.Now()
-			for _, s := range shards {
-				s.mu.Lock()
-				for ip, b := range s.buckets {
-					if now.Sub(b.lastSeen) > 10*time.Minute {
-						delete(s.buckets, ip)
+		for {
+			select {
+			case <-rl.stop:
+				return
+			case <-ticker.C:
+				now := time.Now()
+				for _, s := range rl.shards {
+					s.mu.Lock()
+					for ip, b := range s.buckets {
+						if now.Sub(b.lastSeen) > 10*time.Minute {
+							delete(s.buckets, ip)
+						}
 					}
+					s.mu.Unlock()
 				}
-				s.mu.Unlock()
 			}
 		}
 	}()
 
+	return rl
+}
+
+// Handler returns the gin middleware function enforcing the rate limit.
+func (rl *RateLimiter) Handler() gin.HandlerFunc {
+	getShard := func(ip string) *rlShard {
+		h := sha256.Sum256([]byte(ip))
+		return rl.shards[h[0]%uint8(len(rl.shards))]
+	}
 	return func(c *gin.Context) {
 		ip := c.ClientIP()
 		s := getShard(ip)
@@ -259,13 +283,13 @@ func RateLimitMiddleware(requestsPerMinute int) gin.HandlerFunc {
 		s.mu.Lock()
 		b, exists := s.buckets[ip]
 		if !exists {
-			b = &bucket{tokens: requestsPerMinute, lastReset: time.Now(), lastSeen: time.Now()}
+			b = &rlBucket{tokens: rl.requestsPerMinute, lastReset: time.Now(), lastSeen: time.Now()}
 			s.buckets[ip] = b
 		}
 		b.lastSeen = time.Now()
 
 		if time.Since(b.lastReset) > time.Minute {
-			b.tokens = requestsPerMinute
+			b.tokens = rl.requestsPerMinute
 			b.lastReset = time.Now()
 		}
 
@@ -283,10 +307,27 @@ func RateLimitMiddleware(requestsPerMinute int) gin.HandlerFunc {
 	}
 }
 
+// Stop terminates the background cleanup goroutine. Safe to call multiple
+// times; subsequent calls are no-ops.
+func (rl *RateLimiter) Stop() {
+	rl.once.Do(func() { close(rl.stop) })
+}
+
+// RateLimitMiddleware provides global rate limiting using sharded locks for
+// better concurrency. The returned handler's background cleanup goroutine
+// cannot be stopped; prefer NewRateLimiter in production wiring so Stop can
+// be called on shutdown. This wrapper is retained for tests and short-lived
+// processes.
+func RateLimitMiddleware(requestsPerMinute int) gin.HandlerFunc {
+	return NewRateLimiter(requestsPerMinute).Handler()
+}
+
 // IPRateLimit tracks per-group rate limits using sharded locks for better concurrency.
 type IPRateLimit struct {
 	groups map[string]*rateGroup
 	mu     sync.RWMutex
+	stop   chan struct{}
+	once   sync.Once
 }
 
 type rateGroup struct {
@@ -312,27 +353,35 @@ func getRateShard(rg *rateGroup, ip string) *rateShard {
 
 // NewIPRateLimit creates a new IP-based rate limiter with background cleanup.
 func NewIPRateLimit() *IPRateLimit {
-	rl := &IPRateLimit{groups: make(map[string]*rateGroup)}
+	rl := &IPRateLimit{
+		groups: make(map[string]*rateGroup),
+		stop:   make(chan struct{}),
+	}
 
 	// Cleanup goroutine: remove stale buckets every 5 minutes.
 	go func() {
 		ticker := time.NewTicker(5 * time.Minute)
 		defer ticker.Stop()
-		for range ticker.C {
-			rl.mu.RLock()
-			now := time.Now()
-			for _, g := range rl.groups {
-				for _, s := range g.shards {
-					s.mu.Lock()
-					for ip, b := range s.buckets {
-						if now.Sub(b.lastSeen) > 10*time.Minute {
-							delete(s.buckets, ip)
+		for {
+			select {
+			case <-rl.stop:
+				return
+			case <-ticker.C:
+				rl.mu.RLock()
+				now := time.Now()
+				for _, g := range rl.groups {
+					for _, s := range g.shards {
+						s.mu.Lock()
+						for ip, b := range s.buckets {
+							if now.Sub(b.lastSeen) > 10*time.Minute {
+								delete(s.buckets, ip)
+							}
 						}
+						s.mu.Unlock()
 					}
-					s.mu.Unlock()
 				}
+				rl.mu.RUnlock()
 			}
-			rl.mu.RUnlock()
 		}
 	}()
 
@@ -348,9 +397,10 @@ func (rl *IPRateLimit) Add(group string, requestsPerMinute int) {
 	rl.groups[group] = rg
 }
 
-// Shutdown cleans up resources.
+// Shutdown stops the background cleanup goroutine. Safe to call multiple
+// times; subsequent calls are no-ops.
 func (rl *IPRateLimit) Shutdown() {
-	// No-op for in-memory implementation.
+	rl.once.Do(func() { close(rl.stop) })
 }
 
 // GroupRateLimit creates middleware for a specific rate limit group.

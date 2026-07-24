@@ -114,19 +114,25 @@ func (h *AuthHandler) RefreshToken(c *gin.Context) {
 // POST /api/v1/auth/logout
 //
 //	@Summary      Logout
-//	@Description  Invalidate the current access token
+//	@Description  Invalidate the current access token and optional refresh token
 //	@Tags         Auth
+//	@Accept       json
 //	@Produce      json
+//	@Param        body  body      services.LogoutRequest  false  "Optional refresh token to blacklist"
 //	@Security     BearerAuth
 //	@Success      200  {object}  APIResponse
 //	@Failure      401  {object}  APIResponse
 //	@Router       /auth/logout [post]
 func (h *AuthHandler) Logout(c *gin.Context) {
+	// Body is optional: a missing/empty body just means no refresh token.
+	var req services.LogoutRequest
+	_ = c.ShouldBindJSON(&req)
+
 	claims := middleware.GetClaims(c)
 	if claims != nil {
 		authHeader := c.GetHeader("Authorization")
 		if strings.HasPrefix(authHeader, "Bearer ") {
-			if err := h.svc.Logout(authHeader[7:], claims.UserID); err != nil {
+			if err := h.svc.Logout(authHeader[7:], req.RefreshToken); err != nil {
 				handleServiceError(c, err)
 				return
 			}

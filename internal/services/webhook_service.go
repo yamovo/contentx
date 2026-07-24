@@ -145,7 +145,12 @@ func (s *WebhookService) deliver(wh models.Webhook, payload WebhookPayload) {
 		return
 	}
 
-	req, err := http.NewRequestWithContext(context.Background(), "POST", wh.URL, bytes.NewReader(body))
+	// Use a bounded context so deliveries can't hang indefinitely (the
+	// http.Client already has a 10s timeout; this adds an explicit upper
+	// bound and makes the operation cancelable during shutdown).
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, "POST", wh.URL, bytes.NewReader(body))
 	if err != nil {
 		slog.Error("webhook request failed", "webhook_id", wh.ID, "error", err)
 		return

@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gosimple/slug"
 	"github.com/yamovo/contentx/internal/errs"
 	"github.com/yamovo/contentx/internal/models"
 	"github.com/yamovo/contentx/internal/plugin"
@@ -382,13 +381,14 @@ func (s *ArticleService) Create(req CreateArticleRequest, userID uint) (*models.
 	if req.Slug != "" {
 		article.Slug = req.Slug
 	} else {
-		article.Slug = slug.MakeLang(req.Title, "zh")
-		if article.Slug == "" {
-			article.Slug = slug.Make(req.Title)
-		}
+		article.Slug = models.GenerateSlug(req.Title)
 	}
 	// Ensure unique slug.
-	article.Slug = s.repo.EnsureUniqueSlug(article.Slug, 0)
+	uniqueSlug, err := s.repo.EnsureUniqueSlug(article.Slug, 0)
+	if err != nil {
+		return nil, errs.ErrInternal.Wrap(err)
+	}
+	article.Slug = uniqueSlug
 
 	// Allow plugins to transform the content before reading-time calculation.
 	article.Content = s.applyContentFilter(article.Content)
@@ -511,12 +511,13 @@ func (s *ArticleService) CreateTranslation(sourceID uint, locale string, req Cre
 	if req.Slug != "" {
 		article.Slug = req.Slug
 	} else {
-		article.Slug = slug.MakeLang(req.Title, "zh")
-		if article.Slug == "" {
-			article.Slug = slug.Make(req.Title)
-		}
+		article.Slug = models.GenerateSlug(req.Title)
 	}
-	article.Slug = s.repo.EnsureUniqueSlug(article.Slug, 0)
+	uniqueSlug, err := s.repo.EnsureUniqueSlug(article.Slug, 0)
+	if err != nil {
+		return nil, errs.ErrInternal.Wrap(err)
+	}
+	article.Slug = uniqueSlug
 
 	article.CalcReadingTime()
 	article.MakeExcerpt(200)
@@ -553,90 +554,9 @@ func (s *ArticleService) Update(id uint, req UpdateArticleRequest, userID uint, 
 		return nil, errs.ErrForbidden.WithMessage("Not authorized to edit this article")
 	}
 
-	// Apply partial updates.
-	updates := map[string]interface{}{}
-	if req.Title != nil {
-		updates["title"] = *req.Title
-	}
-	if req.Slug != nil {
-		updates["slug"] = s.repo.EnsureUniqueSlug(*req.Slug, article.ID)
-	}
-	if req.Content != nil {
-		updates["content"] = *req.Content
-	}
-	if req.Excerpt != nil {
-		updates["excerpt"] = *req.Excerpt
-	}
-	if req.CategoryID != nil {
-		updates["category_id"] = *req.CategoryID
-	}
-	if req.FeaturedImage != nil {
-		updates["featured_image"] = *req.FeaturedImage
-	}
-	if req.Status != nil {
-		target := models.ArticleStatus(*req.Status)
-		if !models.AllowedTransition(article.Status, target) {
-			return nil, errs.ErrBadRequest.WithMessage(
-				fmt.Sprintf("illegal status transition: %s → %s", article.Status, target))
-		}
-		updates["status"] = *req.Status
-	}
-	if req.PostType != nil {
-		updates["post_type"] = *req.PostType
-	}
-	if req.Format != nil {
-		updates["format"] = *req.Format
-	}
-	if req.Visibility != nil {
-		updates["visibility"] = *req.Visibility
-	}
-	if req.Password != nil {
-		updates["password"] = *req.Password
-	}
-	if req.IsPinned != nil {
-		updates["is_pinned"] = *req.IsPinned
-	}
-	if req.IsFeatured != nil {
-		updates["is_featured"] = *req.IsFeatured
-	}
-	if req.AllowComment != nil {
-		updates["allow_comment"] = *req.AllowComment
-	}
-	if req.PublishedAt != nil {
-		updates["published_at"] = *req.PublishedAt
-	}
-	if req.ScheduledAt != nil {
-		updates["scheduled_at"] = *req.ScheduledAt
-	}
-	if req.MetaTitle != nil {
-		updates["meta_title"] = *req.MetaTitle
-	}
-	if req.MetaDesc != nil {
-		updates["meta_desc"] = *req.MetaDesc
-	}
-	if req.MetaKeywords != nil {
-		updates["meta_keywords"] = *req.MetaKeywords
-	}
-	if req.CanonicalURL != nil {
-		updates["canonical_url"] = *req.CanonicalURL
-	}
-	if req.RobotsIndex != nil {
-		updates["robots_index"] = *req.RobotsIndex
-	}
-	if req.RobotsFollow != nil {
-		updates["robots_follow"] = *req.RobotsFollow
-	}
-	if req.OGImage != nil {
-		updates["og_image"] = *req.OGImage
-	}
-	if req.Template != nil {
-		updates["template"] = *req.Template
-	}
-
-	// tagIDs == nil means "do not touch tags"; an empty slice means "clear tags".
-	var tagIDs []uint
-	if req.TagIDs != nil {
-		tagIDs = req.TagIDs
+	updates, tagIDs, err := s.buildUpdateMap(article, req)
+	if err != nil {
+		return nil, err
 	}
 
 	if err := s.repo.Update(article, updates, tagIDs, req.RevisionNote, userID); err != nil {
@@ -655,6 +575,71 @@ func (s *ArticleService) Update(id uint, req UpdateArticleRequest, userID uint, 
 	})
 
 	return article, nil
+}
+
+// buildUpdateMap translates an UpdateArticleRequest into a GORM partial-update
+// map, validating status transitions and slug uniqueness along the way. Simple
+// nullable fields are handled generically via setIf; fields with special logic
+// (slug, status) are handled explicitly. Returns (updates, tagIDs, err) where
+// tagIDs is nil when the request does not touch tags.
+func (s *ArticleService) buildUpdateMap(article *models.Article, req UpdateArticleRequest) (map[string]interface{}, []uint, error) {
+	updates := map[string]interface{}{}
+
+	// Fields with special logic.
+	if req.Slug != nil {
+		uniqueSlug, err := s.repo.EnsureUniqueSlug(*req.Slug, article.ID)
+		if err != nil {
+			return nil, nil, errs.ErrInternal.Wrap(err)
+		}
+		updates["slug"] = uniqueSlug
+	}
+	if req.Status != nil {
+		target := models.ArticleStatus(*req.Status)
+		if !models.AllowedTransition(article.Status, target) {
+			return nil, nil, errs.ErrBadRequest.WithMessage(
+				fmt.Sprintf("illegal status transition: %s → %s", article.Status, target))
+		}
+		updates["status"] = *req.Status
+	}
+
+	// Simple nullable fields — copy through when present.
+	setIf(updates, "title", req.Title)
+	setIf(updates, "content", req.Content)
+	setIf(updates, "excerpt", req.Excerpt)
+	setIf(updates, "category_id", req.CategoryID)
+	setIf(updates, "featured_image", req.FeaturedImage)
+	setIf(updates, "post_type", req.PostType)
+	setIf(updates, "format", req.Format)
+	setIf(updates, "visibility", req.Visibility)
+	setIf(updates, "password", req.Password)
+	setIf(updates, "is_pinned", req.IsPinned)
+	setIf(updates, "is_featured", req.IsFeatured)
+	setIf(updates, "allow_comment", req.AllowComment)
+	setIf(updates, "published_at", req.PublishedAt)
+	setIf(updates, "scheduled_at", req.ScheduledAt)
+	setIf(updates, "meta_title", req.MetaTitle)
+	setIf(updates, "meta_desc", req.MetaDesc)
+	setIf(updates, "meta_keywords", req.MetaKeywords)
+	setIf(updates, "canonical_url", req.CanonicalURL)
+	setIf(updates, "robots_index", req.RobotsIndex)
+	setIf(updates, "robots_follow", req.RobotsFollow)
+	setIf(updates, "og_image", req.OGImage)
+	setIf(updates, "template", req.Template)
+
+	// tagIDs == nil means "do not touch tags"; an empty slice means "clear tags".
+	var tagIDs []uint
+	if req.TagIDs != nil {
+		tagIDs = req.TagIDs
+	}
+	return updates, tagIDs, nil
+}
+
+// setIf assigns *v to updates[key] when v is non-nil. Generic helper used by
+// buildUpdateMap to avoid 20+ repetitive nil-check blocks.
+func setIf[T any](updates map[string]interface{}, key string, v *T) {
+	if v != nil {
+		updates[key] = *v
+	}
 }
 
 // Delete soft-deletes an article. The caller must verify ownership or editor status.
@@ -800,33 +785,24 @@ func (s *ArticleService) transitionTo(id uint, target models.ArticleStatus, publ
 // Publish flips an article to published status, recording the publish time if
 // it has none. Triggers the entry.publish webhook event.
 func (s *ArticleService) Publish(id uint) (*models.Article, error) {
-	var publishedAt *time.Time
 	// Only set PublishedAt if the article doesn't already have one. We need
 	// to inspect the current article to decide, so load it first.
 	current, err := s.repo.FindByID(id)
 	if err != nil {
 		return nil, err
 	}
+	var publishedAt *time.Time
 	if current.PublishedAt == nil {
 		now := time.Now()
 		publishedAt = &now
 	}
-	// Allow publishing from draft/pending/scheduled/trash.
-	if !models.AllowedTransition(current.Status, models.StatusPublished) {
-		return nil, errs.ErrBadRequest.WithMessage(
-			fmt.Sprintf("illegal status transition: %s → published", current.Status))
-	}
-	if err := s.repo.UpdateStatus(id, string(models.StatusPublished), publishedAt, nil); err != nil {
-		return nil, err
-	}
-	updated, err := s.repo.FindByID(id)
+	updated, err := s.transitionTo(id, models.StatusPublished, publishedAt, nil)
 	if err != nil {
-		return current, nil
+		return nil, err
 	}
 	if s.webhook != nil {
 		s.webhook.Dispatch(models.WebhookEventEntryPublish, updated)
 	}
-	s.reindexByID(id)
 	return updated, nil
 }
 
@@ -861,25 +837,13 @@ func (s *ArticleService) Schedule(id uint, at time.Time) (*models.Article, error
 	if at.IsZero() {
 		return nil, errs.ErrBadRequest.WithMessage("scheduled_at is required")
 	}
-	current, err := s.repo.FindByID(id)
+	updated, err := s.transitionTo(id, models.StatusScheduled, nil, &at)
 	if err != nil {
 		return nil, err
-	}
-	if !models.AllowedTransition(current.Status, models.StatusScheduled) {
-		return nil, errs.ErrBadRequest.WithMessage(
-			fmt.Sprintf("illegal status transition: %s → scheduled", current.Status))
-	}
-	if err := s.repo.UpdateStatus(id, string(models.StatusScheduled), nil, &at); err != nil {
-		return nil, err
-	}
-	updated, err := s.repo.FindByID(id)
-	if err != nil {
-		return current, nil
 	}
 	if s.webhook != nil {
 		s.webhook.Dispatch(models.WebhookEventEntrySchedule, updated)
 	}
-	s.reindexByID(id)
 	return updated, nil
 }
 

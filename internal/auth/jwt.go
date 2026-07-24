@@ -121,6 +121,13 @@ func (m *JWTManager) ValidateToken(tokenStr string) (*Claims, error) {
 }
 
 // RefreshAccessToken creates a new access token from a valid refresh token.
+//
+// Deprecated: this method reuses the claims embedded in the refresh token
+// (username, email, role, display name) without reloading the user from the
+// database, so role changes, disablement, or deletion do not take effect
+// until the refresh token expires. Use AuthService.RefreshToken instead,
+// which loads the user's current state on every refresh (A-1 security fix).
+// Retained for backward compatibility and pure JWT-layer unit tests.
 func (m *JWTManager) RefreshAccessToken(refreshTokenStr string) (*TokenPair, error) {
 	claims, err := m.ValidateToken(refreshTokenStr)
 	if err != nil {

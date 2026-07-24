@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -9,6 +10,12 @@ import (
 	"github.com/yamovo/contentx/internal/models"
 	"gorm.io/gorm"
 )
+
+// maxSlugAttempts caps the number of slug-collision retries in EnsureUniqueSlug.
+// Reaching this limit indicates a pathological collision (or a COUNT query
+// returning wrong results) and should surface as an error rather than an
+// infinite loop (A-2 fix).
+const maxSlugAttempts = 100
 
 // ArticleListFilter holds query parameters for listing articles.
 type ArticleListFilter struct {
@@ -70,7 +77,7 @@ type ArticleRepository interface {
 	// ListScheduledDue returns scheduled articles whose ScheduledAt is at or
 	// before `now`, i.e. due for automatic publication. Preloads Author.
 	ListScheduledDue(now time.Time) ([]models.Article, error)
-	EnsureUniqueSlug(original string, excludeID uint) string
+	EnsureUniqueSlug(original string, excludeID uint) (string, error)
 
 	// i18n: ListTranslations returns all articles sharing the same
 	// translation group (excluding the article itself).
@@ -426,21 +433,27 @@ func (r *gormArticleRepository) ListScheduledDue(now time.Time) ([]models.Articl
 }
 
 // EnsureUniqueSlug generates a unique slug by appending a counter if needed.
-// Errors from the underlying COUNT query are silently ignored (preserves prior behaviour).
-func (r *gormArticleRepository) EnsureUniqueSlug(original string, excludeID uint) string {
+// Returns an error if the underlying COUNT query fails or if no unique slug
+// can be found within maxSlugAttempts iterations (A-2 fix: previously the
+// loop was unbounded and COUNT errors were silently ignored, risking both
+// infinite loops and silent slug collisions).
+func (r *gormArticleRepository) EnsureUniqueSlug(original string, excludeID uint) (string, error) {
 	candidate := original
-	for i := 1; ; i++ {
+	for i := 1; i <= maxSlugAttempts; i++ {
 		var count int64
 		query := r.db.Model(&models.Article{}).Where("slug = ?", candidate)
 		if excludeID > 0 {
 			query = query.Where("id != ?", excludeID)
 		}
-		query.Count(&count)
+		if err := query.Count(&count).Error; err != nil {
+			return "", fmt.Errorf("ensure unique slug: %w", err)
+		}
 		if count == 0 {
-			return candidate
+			return candidate, nil
 		}
 		candidate = original + "-" + strconv.Itoa(i)
 	}
+	return "", fmt.Errorf("ensure unique slug: no unique slug for %q after %d attempts", original, maxSlugAttempts)
 }
 
 // ─── i18n: translation queries ──────────────────────────────────────────────
