@@ -50,7 +50,7 @@
 
 - 后端：~~RSS 手写 XML 拼接（Q-4）~~ ✅ 已改用 `encoding/xml` 序列化；~~魔法数字未配置化（Q-5）~~ ✅ 已抽常量；~~`transitionTo` reload 失败静默返回（Q-6）~~ ✅ 已加 `slog.Warn`；~~promCollector 业务逻辑泄漏入口（Q-7）~~ ✅ 已封装到 `SystemService`
 - 前端：~~`main.ts` 全量注册图标（F-18）~~ ✅ 已改按需引入（29 个图标）；~~权限失败静默重定向（F-19）~~ ✅ 已加 `ElMessage.error` 提示；~~菜单 `v-show` 而非 `v-if`（F-20）~~ ✅ 已改 `v-if`
-- 测试：E2E（Playwright）缺口仍存在；~~`coverage_boost_test.go` 文件名~~ ✅ 已重命名为 `routes_coverage_test.go`
+- 测试：~~E2E（Playwright）缺口~~ ✅ 已补齐 14 个 E2E 测试（公共页面冒烟 + 登录/登出流程，API mock 化无需后端）；~~`coverage_boost_test.go` 文件名~~ ✅ 已重命名为 `routes_coverage_test.go`
 - 安全：~~`extractToken` 接受 `?token=` query 参数~~ ✅ 已移除 query 参数支持，仅接受 `Authorization: Bearer`
 - 战略：AI 原生能力缺失、生态零起步、商业模式未启动（归入 A-24~A-27 中长期路线）
 
@@ -237,7 +237,7 @@ return m.GenerateTokenPair(claims.UserID, claims.Username, claims.Email, claims.
 |---|---|---|
 | 后端 Go | 808 Test / 62 文件，CI 60% 门槛（实际 ~64.6%） | 良好，但 `coverage_boost_test.go` 文件名暴露刷覆盖率倾向 |
 | 前端 vitest | 100 测试 / 8 文件，lines 25.31% | 阈值过低，关键流程无覆盖 |
-| E2E | Playwright 装了但无 e2e 测试 | 缺口 |
+| E2E | Playwright 14 测试（公共页面冒烟 + 登录/登出流程，API mock 化） | 已补齐 |
 | 端到端演练 | backup/restore 真实容器验证 | 优秀 |
 | 关键路径 | workflow/auth/backup 全覆盖 | 良好 |
 

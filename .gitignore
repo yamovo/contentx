@@ -14,6 +14,11 @@ web/node_modules/
 web/dist/
 web/.env.local
 
+# Playwright
+web/test-results/
+web/playwright-report/
+web/.cache/
+
 # IDE
 .idea/
 .vscode/
