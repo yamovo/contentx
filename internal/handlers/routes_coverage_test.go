@@ -23,8 +23,9 @@ import (
 	"github.com/yamovo/contentx/internal/services"
 )
 
-// setupCoverageRouter 注册所有在现有测试中缺失路由的 handler，
-// 专门用于提升覆盖率。不修改已有 setup 函数，避免影响现有测试。
+// setupCoverageRouter registers handlers for routes that lack dedicated test
+// setups. It does not modify existing setup functions to avoid affecting
+// current tests.
 func setupCoverageRouter(t *testing.T) (*gin.Engine, *gorm.DB, string) {
 	t.Helper()
 
@@ -980,8 +981,8 @@ func TestCoverage_MediaList_Stats(t *testing.T) {
 	}
 }
 
-// TestCoverage_RegisterRoutes 覆盖生产路由注册函数 RegisterRoutes，
-// 一次性吃下 ~280 行代码，把整体覆盖率推过 60%。
+// TestCoverage_RegisterRoutes exercises the production RegisterRoutes
+// function end-to-end with an in-memory SQLite database.
 func TestCoverage_RegisterRoutes(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -1016,7 +1017,7 @@ func TestCoverage_RegisterRoutes(t *testing.T) {
 	backupMgr := backup.NewManager(cfg.Backup, cfg.Database, cfg.Upload.StoragePath, db)
 
 	r := gin.New()
-	rl := RegisterRoutes(r, db, cfg, jwtMgr, blacklist, guard, cacheDriver, backupMgr)
+	rl := RegisterRoutes(r, db, cfg, jwtMgr, blacklist, guard, cacheDriver, backupMgr, nil)
 	if rl == nil {
 		t.Fatal("RegisterRoutes returned nil rate limiter")
 	}

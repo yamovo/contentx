@@ -138,9 +138,18 @@ func (s *ThemeService) UpdateConfig(id uint, config map[string]interface{}) erro
 
 // ---------- SystemService ----------
 
+// MetricsGaugeSetter is the subset of the Prometheus collector used by
+// SystemService to publish business gauges. Defined here to avoid importing
+// the middleware package into services.
+type MetricsGaugeSetter interface {
+	SetGauge(name string, help string, value float64)
+	SetGaugeWithLabels(name, help string, labels map[string]string, value float64)
+}
+
 // SystemService provides system information and operations.
 type SystemService struct {
-	repo repository.SystemRepository
+	repo   repository.SystemRepository
+	gauges MetricsGaugeSetter
 }
 
 // NewSystemService creates a SystemService backed by a GORM repository.
@@ -151,6 +160,12 @@ func NewSystemService(db *gorm.DB) *SystemService {
 // NewSystemServiceWithRepo builds a SystemService with an explicit repository.
 func NewSystemServiceWithRepo(repo repository.SystemRepository) *SystemService {
 	return &SystemService{repo: repo}
+}
+
+// SetMetricsCollector wires a gauge setter (typically *middleware.PrometheusCollector)
+// so that SnapshotMetrics can publish business gauges.
+func (s *SystemService) SetMetricsCollector(gauges MetricsGaugeSetter) {
+	s.gauges = gauges
 }
 
 // Info returns system information as a map.
@@ -192,4 +207,33 @@ func (s *SystemService) ActivityLog(params ActivityLogParams) ([]models.Activity
 		Action:   params.Action,
 		UserID:   params.UserID,
 	})
+}
+
+// SnapshotMetrics collects business gauges (active users, articles by status,
+// DB connections in use) and publishes them via the registered gauge setter.
+// Intended to be called as a Prometheus snapshotter callback right before
+// /metrics is scraped. Errors are logged but never propagated — a transient
+// DB failure should not break the metrics endpoint.
+func (s *SystemService) SnapshotMetrics() {
+	if s.gauges == nil {
+		return
+	}
+
+	if count, err := s.repo.CountActiveUsers(); err == nil {
+		s.gauges.SetGauge("active_users_total", "Current number of active users", float64(count))
+	}
+
+	for _, status := range []models.ArticleStatus{
+		models.StatusDraft, models.StatusPending, models.StatusScheduled,
+		models.StatusPublished, models.StatusArchived, models.StatusTrash,
+	} {
+		if count, err := s.repo.CountArticlesByStatus(string(status)); err == nil {
+			s.gauges.SetGaugeWithLabels("articles_total", "Current number of articles",
+				map[string]string{"status": string(status)}, float64(count))
+		}
+	}
+
+	if inUse, err := s.repo.DBConnectionsInUse(); err == nil {
+		s.gauges.SetGauge("db_connections_in_use", "Database connections currently in use", float64(inUse))
+	}
 }

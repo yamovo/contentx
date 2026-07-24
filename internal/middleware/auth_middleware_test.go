@@ -151,14 +151,16 @@ func TestAuthMiddleware_InactiveUser(t *testing.T) {
 	}
 }
 
-func TestAuthMiddleware_TokenFromQuery(t *testing.T) {
+func TestAuthMiddleware_TokenFromQueryRejected(t *testing.T) {
 	db := setupAuthTestDB(t)
 	m := testJWT()
 	tok := tokenFor(t, m, 1)
 	r := setupTestRouter(AuthMiddleware(m, db, nil))
+	// Query parameter tokens must be rejected to prevent token leakage
+	// into access logs, browser history, and Referer headers.
 	w := doRequest(r, http.MethodGet, "/test?token="+tok, nil)
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200 with query token, got %d", w.Code)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 for query token (security: must not accept ?token=), got %d", w.Code)
 	}
 }
 

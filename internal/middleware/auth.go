@@ -298,14 +298,15 @@ func hasPermission(user *models.User, slug string) bool {
 	return false
 }
 
-// extractToken gets the JWT token from Authorization header.
+// extractToken gets the JWT token from the Authorization header.
+// Query parameter (?token=) is intentionally NOT supported to prevent
+// tokens from leaking into access logs, browser history, and Referer headers.
 func extractToken(c *gin.Context) string {
 	bearer := c.GetHeader("Authorization")
 	if len(bearer) > 7 && strings.HasPrefix(bearer, "Bearer ") {
 		return bearer[7:]
 	}
-	// Also check query parameter (for WebSocket, etc.)
-	return c.Query("token")
+	return ""
 }
 
 // GetCurrentUser retrieves the authenticated user from context.

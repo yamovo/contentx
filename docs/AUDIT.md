@@ -48,11 +48,11 @@
 
 **未解决项（归入第六批 A-24~A-27 / 后续轮次）**：
 
-- 后端：RSS 手写 XML 拼接（Q-4）、魔法数字未配置化（Q-5）、`transitionTo` reload 失败静默返回（Q-6）、promCollector 业务逻辑泄漏入口（Q-7）
-- 前端：`main.ts` 全量注册图标（F-18）、权限失败静默重定向（F-19）、菜单 `v-show` 而非 `v-if`（F-20）
-- 测试：E2E（Playwright）缺口、`coverage_boost_test.go` 文件名
-- 安全：`extractToken` 接受 `?token=` query 参数（token 进 access log）
-- 战略：AI 原生能力缺失、生态零起步、商业模式未启动
+- 后端：~~RSS 手写 XML 拼接（Q-4）~~ ✅ 已改用 `encoding/xml` 序列化；~~魔法数字未配置化（Q-5）~~ ✅ 已抽常量；~~`transitionTo` reload 失败静默返回（Q-6）~~ ✅ 已加 `slog.Warn`；~~promCollector 业务逻辑泄漏入口（Q-7）~~ ✅ 已封装到 `SystemService`
+- 前端：~~`main.ts` 全量注册图标（F-18）~~ ✅ 已改按需引入（29 个图标）；~~权限失败静默重定向（F-19）~~ ✅ 已加 `ElMessage.error` 提示；~~菜单 `v-show` 而非 `v-if`（F-20）~~ ✅ 已改 `v-if`
+- 测试：E2E（Playwright）缺口仍存在；~~`coverage_boost_test.go` 文件名~~ ✅ 已重命名为 `routes_coverage_test.go`
+- 安全：~~`extractToken` 接受 `?token=` query 参数~~ ✅ 已移除 query 参数支持，仅接受 `Authorization: Bearer`
+- 战略：AI 原生能力缺失、生态零起步、商业模式未启动（归入 A-24~A-27 中长期路线）
 
 ---
 
@@ -121,24 +121,20 @@ return m.GenerateTokenPair(claims.UserID, claims.Username, claims.Email, claims.
 
 **Q-3 slug 生成重复**：`article_service.go:382-389` 与 `511-518`（`CreateTranslation`）完全一致。
 
-**Q-4 RSS feed 手写字符串拼接**（`article_service.go:929-961`）：用 `strings.Builder` 拼 XML，应使用 `encoding/xml` 序列化避免遗漏转义。
+**Q-4 RSS feed 手写字符串拼接** ✅ 已修复：改用 `encoding/xml` 结构化序列化，避免手动转义遗漏（`article_service.go` `GenerateFeed`）。
 
-**Q-5 魔法数字**：
+**Q-5 魔法数字** ✅ 已修复：抽常量 `defaultExcerptLen`/`defaultFeedSize`；`auth_service.go` 改用 `s.guard.MaxAttempts()`；限流配额保持外部配置驱动。
 
-- `article_service.go:398,522` `MakeExcerpt(200)` 字面量重复
-- `auth_service.go:127` 硬编码 5（应读 `s.guard.maxAttempts`）
-- `middleware.go:117-119` 限流配额 `10/20/30` 字面量无配置化
+**Q-6 `transitionTo` 静默返回陈旧数据** ✅ 已修复：reload 失败时 `slog.Warn` 记录 article_id / target_status / error，仍返回 pre-update 快照但不再静默。
 
-**Q-6 `transitionTo` 静默返回陈旧数据**（`article_service.go:792`）：reload 失败时 `return article, nil`（pre-update 快照），调用方拿到不一致数据且无错误。注释承认 "best-effort" 但应至少 log warning。
-
-**Q-7 业务逻辑泄漏到入口**：`cmd/server/main.go:232-249` `promCollector.SetSnapshotter` 回调里直接写 DB 查询，应封装到 `system_service` 或 `observability` 包。
+**Q-7 业务逻辑泄漏到入口** ✅ 已修复：定义 `MetricsGaugeSetter` 接口，业务指标采集封装到 `SystemService.SnapshotMetrics`，`main.go` 仅做注入。
 
 #### 🟢 P2 — 工程小问题
 
-- **`coverage_boost_test.go:26-27` 文件名直白说明意图**："专门用于提升覆盖率"——虽诚实标注但可能存在 trivial 测试倾向
+- **`coverage_boost_test.go:26-27` 文件名直白说明意图** ✅ 已修复：文件重命名为 `routes_coverage_test.go`，注释移除"coverage boosting"措辞。
 - **手写 mock 而非 mockgen 生成**：方法签名变更需手动同步
-- **全局限流覆盖静态资源**（`main.go:263`）：应仅限 `/api/` 前缀，SPA 首页加载多个静态文件可能触发限流
-- **`extractToken` 接受 `?token=` query 参数**（`auth.go:182-189`）：token 会进 access log
+- **全局限流覆盖静态资源** ✅ 已修复（A-17）：限流仅作用于 `/api/` 前缀。
+- **~~`extractToken` 接受 `?token=` query 参数~~** ✅ 已修复：移除 query 参数支持，仅接受 `Authorization: Bearer`，避免 token 泄漏到 access log / Referer。
 
 ---
 
@@ -227,11 +223,11 @@ return m.GenerateTokenPair(claims.UserID, claims.Username, claims.Email, claims.
 
 **F-17 静默吞错**：`MediaLibrary.vue:166` `catch { media.value = [] }` 无提示；`MediaLibrary.vue:171,175` 完全空 catch。
 
-**F-18 `main.ts` 全量注册 Element Plus 图标**（`main.ts:20-22`）：抵消按需引入的包体积优化。
+**F-18 `main.ts` 全量注册 Element Plus 图标** ✅ 已修复：改为按需注册实际使用的 29 个图标，恢复 tree-shaking。
 
-**F-19 权限失败静默重定向**（`router/index.ts:282`）：`next({ name: 'AdminDashboard' })` 无任何提示。
+**F-19 权限失败静默重定向** ✅ 已修复：路由守卫在权限不足时 `ElMessage.error` 提示后再重定向。
 
-**F-20 `AdminLayout.vue` 用 `v-show` 而非 `v-if` 隐藏菜单**：DOM 仍渲染，对安全敏感菜单不理想。
+**F-20 `AdminLayout.vue` 用 `v-show` 而非 `v-if` 隐藏菜单** ✅ 已修复：菜单项改用 `v-if`，无权限菜单不进 DOM。
 
 ---
 

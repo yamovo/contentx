@@ -124,7 +124,7 @@ func (s *AuthService) Login(username, password, clientIP, userAgent string) (*au
 		if s.guard != nil {
 			locked, _ := s.guard.RecordFailed(username)
 			if locked {
-				return nil, nil, errs.ErrAccountLocked.WithMessage(fmt.Sprintf("account locked after %d failed attempts", 5))
+				return nil, nil, errs.ErrAccountLocked.WithMessage(fmt.Sprintf("account locked after %d failed attempts", s.guard.MaxAttempts()))
 			}
 		}
 		return nil, nil, errs.ErrInvalidCreds

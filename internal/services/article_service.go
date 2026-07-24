@@ -1,11 +1,12 @@
 package services
 
 import (
+	"bytes"
 	"context"
+	"encoding/xml"
 	"errors"
 	"fmt"
 	"log/slog"
-	"strings"
 	"time"
 
 	"github.com/yamovo/contentx/internal/errs"
@@ -23,6 +24,13 @@ type ArticleService struct {
 	plugins *plugin.Manager
 	search  SearchIndexer // optional; defaults to NoopIndexer when unset
 }
+
+const (
+	// defaultExcerptLength is the maximum character count for auto-generated excerpts.
+	defaultExcerptLength = 200
+	// defaultFeedSize is the number of articles included in the RSS feed.
+	defaultFeedSize = 20
+)
 
 // NewArticleService creates a new ArticleService backed by a GORM repository.
 // Kept for backward compatibility with existing callers and tests.
@@ -395,7 +403,7 @@ func (s *ArticleService) Create(req CreateArticleRequest, userID uint) (*models.
 
 	// Calculate reading time & excerpt.
 	article.CalcReadingTime()
-	article.MakeExcerpt(200)
+	article.MakeExcerpt(defaultExcerptLength)
 
 	// Set publish time if publishing.
 	if article.Status == models.StatusPublished && article.PublishedAt == nil {
@@ -520,7 +528,7 @@ func (s *ArticleService) CreateTranslation(sourceID uint, locale string, req Cre
 	article.Slug = uniqueSlug
 
 	article.CalcReadingTime()
-	article.MakeExcerpt(200)
+	article.MakeExcerpt(defaultExcerptLength)
 
 	// Inherit tags from source unless overridden.
 	tagIDs := req.TagIDs
@@ -774,6 +782,8 @@ func (s *ArticleService) transitionTo(id uint, target models.ArticleStatus, publ
 	// webhook payloads the bare fields are sufficient).
 	updated, err := s.repo.FindByID(id)
 	if err != nil {
+		slog.Warn("transitionTo: reload after status update failed, returning pre-update snapshot",
+			"article_id", id, "target_status", target, "error", err)
 		return article, nil // best-effort: return pre-update snapshot
 	}
 	// Status changes affect search visibility (e.g. draft→published makes the
@@ -892,48 +902,69 @@ func (s *ArticleService) LikeArticle(id uint) error {
 
 // GenerateFeed produces an RSS 2.0 XML string of the latest published articles.
 func (s *ArticleService) GenerateFeed() (string, error) {
-	articles, err := s.repo.ListPublishedForFeed(20)
+	articles, err := s.repo.ListPublishedForFeed(defaultFeedSize)
 	if err != nil {
 		return "", err
 	}
 
-	var sb strings.Builder
-	sb.WriteString(`<?xml version="1.0" encoding="UTF-8"?>
-<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
-<channel>
-<title>ContentX Feed</title>
-<link>` + s.baseURL + `</link>
-<description>Latest articles from ContentX</description>
-<language>zh-cn</language>
-`)
+	type rssItem struct {
+		XMLName     xml.Name `xml:"item"`
+		Title       string   `xml:"title"`
+		Link        string   `xml:"link"`
+		PubDate     string   `xml:"pubDate"`
+		Description string   `xml:"description"`
+		Author      string   `xml:"author,omitempty"`
+		GUID        string   `xml:"guid"`
+	}
+
+	type rssChannel struct {
+		XMLName     xml.Name  `xml:"channel"`
+		Title       string    `xml:"title"`
+		Link        string    `xml:"link"`
+		Description string    `xml:"description"`
+		Language    string    `xml:"language"`
+		Items       []rssItem `xml:"item"`
+	}
+
+	type rssFeed struct {
+		XMLName xml.Name   `xml:"rss"`
+		Version string     `xml:"version,attr"`
+		Channel rssChannel `xml:"channel"`
+	}
+
+	items := make([]rssItem, 0, len(articles))
 	for _, a := range articles {
 		articleURL := s.baseURL + "/articles/" + a.Slug
-		sb.WriteString("<item>\n")
-		sb.WriteString("  <title>" + xmlEscape(a.Title) + "</title>\n")
-		sb.WriteString("  <link>" + articleURL + "</link>\n")
-		sb.WriteString("  <pubDate>" + a.PublishedAt.Format(time.RFC1123Z) + "</pubDate>\n")
-		sb.WriteString("  <description>" + xmlEscape(a.Excerpt) + "</description>\n")
-		if a.Author.DisplayName != "" {
-			sb.WriteString("  <author>" + xmlEscape(a.Author.Email) + " (" + xmlEscape(a.Author.DisplayName) + ")</author>\n")
+		item := rssItem{
+			Title:       a.Title,
+			Link:        articleURL,
+			PubDate:     a.PublishedAt.Format(time.RFC1123Z),
+			Description: a.Excerpt,
+			GUID:        articleURL,
 		}
-		sb.WriteString("  <guid>" + articleURL + "</guid>\n")
-		sb.WriteString("</item>\n")
+		if a.Author.DisplayName != "" {
+			item.Author = fmt.Sprintf("%s (%s)", a.Author.Email, a.Author.DisplayName)
+		}
+		items = append(items, item)
 	}
-	sb.WriteString("</channel>\n</rss>")
 
-	return sb.String(), nil
-}
+	feed := rssFeed{
+		Version: "2.0",
+		Channel: rssChannel{
+			Title:       "ContentX Feed",
+			Link:        s.baseURL,
+			Description: "Latest articles from ContentX",
+			Language:    "zh-cn",
+			Items:       items,
+		},
+	}
 
-// ---------- Private Helpers ----------
-
-// xmlEscape escapes special XML characters in a string.
-func xmlEscape(s string) string {
-	s = strings.ReplaceAll(s, "&", "&amp;")
-	s = strings.ReplaceAll(s, "<", "&lt;")
-	s = strings.ReplaceAll(s, ">", "&gt;")
-	s = strings.ReplaceAll(s, "\"", "&quot;")
-	s = strings.ReplaceAll(s, "'", "&apos;")
-	return s
+	var buf bytes.Buffer
+	buf.WriteString(xml.Header)
+	if err := xml.NewEncoder(&buf).Encode(&feed); err != nil {
+		return "", fmt.Errorf("encode rss feed: %w", err)
+	}
+	return buf.String(), nil
 }
 
 // ---------- Custom Errors ----------

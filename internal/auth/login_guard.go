@@ -36,6 +36,13 @@ func WithMaxAttempts(n int) LoginGuardOption {
 	return func(g *LoginGuard) { g.maxAttempts = n }
 }
 
+// MaxAttempts returns the configured maximum failed attempts before lockout.
+func (g *LoginGuard) MaxAttempts() int {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	return g.maxAttempts
+}
+
 // WithLockDuration sets how long an account stays locked.
 func WithLockDuration(d time.Duration) LoginGuardOption {
 	return func(g *LoginGuard) { g.lockDuration = d }

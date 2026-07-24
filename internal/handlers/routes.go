@@ -29,6 +29,7 @@ func RegisterRoutes(
 	guard *auth.LoginGuard,
 	cacheDriver cache.Driver,
 	backupMgr *backup.Manager,
+	promCollector *middleware.PrometheusCollector,
 ) *middleware.IPRateLimit {
 	// Create services.
 	articleSvc := services.NewArticleService(db, cfg.Server.BaseURL)
@@ -46,6 +47,10 @@ func RegisterRoutes(
 	pluginSvc := services.NewPluginService(db)
 	themeSvc := services.NewThemeService(db)
 	systemSvc := services.NewSystemService(db)
+	if promCollector != nil {
+		systemSvc.SetMetricsCollector(promCollector)
+		promCollector.SetSnapshotter(systemSvc.SnapshotMetrics)
+	}
 	tokenSvc := services.NewTokenService(db)
 	contentTypeSvc := services.NewContentTypeService(db).WithCache(cacheDriver, cfg.Cache.DefaultTTL)
 	webhookSvc := services.NewWebhookService(db)
@@ -112,11 +117,16 @@ func RegisterRoutes(
 	searchH := NewSearchHandler(articleSvc)
 	backupH := NewBackupHandler(backupMgr, articleSvc)
 
-	// Rate limiter for specific groups.
+	// Rate limiter for specific groups (requests per minute).
+	const (
+		rateLimitAuth    = 10
+		rateLimitUpload  = 20
+		rateLimitComment = 30
+	)
 	rl := middleware.NewIPRateLimit()
-	rl.Add("auth", 10)    // 10 req/min for auth
-	rl.Add("upload", 20)  // 20 req/min for uploads
-	rl.Add("comment", 30) // 30 req/min for comments
+	rl.Add("auth", rateLimitAuth)
+	rl.Add("upload", rateLimitUpload)
+	rl.Add("comment", rateLimitComment)
 
 	// ─── Public API ────────────────────────────────────
 	api := r.Group("/api/v1")

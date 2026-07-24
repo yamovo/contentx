@@ -38,6 +38,9 @@ type SystemRepository interface {
 	DialectorName() string
 	Ping() error
 	ListActivityLogs(filter ActivityLogListFilter) ([]models.ActivityLog, int64, error)
+	CountActiveUsers() (int64, error)
+	CountArticlesByStatus(status string) (int64, error)
+	DBConnectionsInUse() (int, error)
 }
 
 // ---------- Plugin ----------
@@ -175,4 +178,28 @@ func (r *gormSystemRepository) ListActivityLogs(filter ActivityLogListFilter) ([
 	}
 
 	return logs, total, nil
+}
+
+func (r *gormSystemRepository) CountActiveUsers() (int64, error) {
+	var count int64
+	if err := r.db.Model(&models.User{}).Where("status = ?", models.UserStatusActive).Count(&count).Error; err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
+func (r *gormSystemRepository) CountArticlesByStatus(status string) (int64, error) {
+	var count int64
+	if err := r.db.Model(&models.Article{}).Where("status = ?", status).Count(&count).Error; err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
+func (r *gormSystemRepository) DBConnectionsInUse() (int, error) {
+	sqlDB, err := r.db.DB()
+	if err != nil {
+		return 0, err
+	}
+	return sqlDB.Stats().InUse, nil
 }

@@ -24,7 +24,6 @@ import (
 	"github.com/yamovo/contentx/internal/handlers"
 	"github.com/yamovo/contentx/internal/logger"
 	"github.com/yamovo/contentx/internal/middleware"
-	"github.com/yamovo/contentx/internal/models"
 	"github.com/yamovo/contentx/internal/observability"
 	"github.com/yamovo/contentx/internal/services"
 
@@ -227,27 +226,10 @@ func main() {
 	handlers.RegisterJSONTagNameFunc()
 
 	// Prometheus 指标采集器（全局共享，/metrics 端点输出）。
+	// 业务指标快照由 SystemService.SnapshotMetrics 提供，在 RegisterRoutes 中注入。
 	promCollector := middleware.NewPrometheusCollector()
 	observability.SetMetricsRecorder(promCollector)
 	cacheDriver = cache.NewMeteredDriver(cacheDriver)
-	promCollector.SetSnapshotter(func() {
-		var activeUsers int64
-		if err := db.Model(&models.User{}).Where("status = ?", models.UserStatusActive).Count(&activeUsers).Error; err == nil {
-			promCollector.SetGauge("active_users_total", "Current number of active users", float64(activeUsers))
-		}
-		for _, status := range []models.ArticleStatus{
-			models.StatusDraft, models.StatusPending, models.StatusScheduled,
-			models.StatusPublished, models.StatusArchived, models.StatusTrash,
-		} {
-			var count int64
-			if err := db.Model(&models.Article{}).Where("status = ?", status).Count(&count).Error; err == nil {
-				promCollector.SetGaugeWithLabels("articles_total", "Current number of articles", map[string]string{"status": string(status)}, float64(count))
-			}
-		}
-		if sqlDB, err := db.DB(); err == nil {
-			promCollector.SetGauge("db_connections_in_use", "Database connections currently in use", float64(sqlDB.Stats().InUse))
-		}
-	})
 
 	// Global middleware.
 	r.Use(middleware.RecoverMiddleware())
@@ -278,7 +260,7 @@ func main() {
 	backupMgr := backup.NewManager(cfg.Backup, cfg.Database, cfg.Upload.StoragePath, db)
 
 	// Register all routes.
-	rateLimiter := handlers.RegisterRoutes(r, db, cfg, jwtMgr, tokenStore, guard, cacheDriver, backupMgr)
+	rateLimiter := handlers.RegisterRoutes(r, db, cfg, jwtMgr, tokenStore, guard, cacheDriver, backupMgr, promCollector)
 
 	// Prometheus /metrics 端点（无需认证）。
 	if cfg.Metrics.Enabled {
