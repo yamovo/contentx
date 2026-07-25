@@ -2,7 +2,7 @@
 
 ContentX 是一个使用 Go 构建的 API-first Headless CMS。它提供 REST API、只读 GraphQL、Vue 3 管理后台，并支持文章工作流、自定义内容类型、国际化、媒体管理、搜索、Webhook、插件和可观测性。
 
-当前发布基线为 `v1.2.0`。P3-A“生产就绪”及 Round 6 扣分项整改已通过 ROADMAP Round 1-6 全部验收。
+当前发布基线为 `v1.3.0`。P3-A“生产就绪”、Round 6 扣分项整改与 Round 7 外部审查整改（复评 7.8/10）已通过 ROADMAP Round 1-7 全部验收。
 
 ## 文档导航
 
@@ -12,6 +12,7 @@ ContentX 是一个使用 Go 构建的 API-first Headless CMS。它提供 REST AP
 | [docs/SOP.md](./docs/SOP.md) | 本地开发、Docker 部署、可观测性、压测流程和验证命令 |
 | [docs/ROADMAP.md](./docs/ROADMAP.md) | 轮次化执行路线、退出门槛和当前进度 |
 | [docs/AUDIT.md](./docs/AUDIT.md) | 外部审查报告（评分、缺点、整改清单） |
+| [docs/TECH_REVIEW.md](./docs/TECH_REVIEW.md) | 全面技术审查报告（8 维度评分、风险与改进路线） |
 | [CHANGELOG.md](./CHANGELOG.md) | 版本变更记录 |
 
 ## 技术栈
@@ -155,6 +156,39 @@ make check
 前端使用 husky + lint-staged 对暂存的 `.ts`/`.vue` 运行 `vue-tsc --noEmit`。
 
 CI 强制覆盖率门槛（Round 6 / F8）：后端 Go ≥ 60%，前端 vitest `--coverage` thresholds（lines/statements 20%，branches 40%，functions 35%）。
+
+## AI / MCP（实验性）
+
+ContentX 可作为 [Model Context Protocol](https://modelcontextprotocol.io) server，让支持 MCP 的 AI Agent（Claude Desktop、IDE 等）直接检索/读取内容。当前为**只读 MVP**，走 stdio 传输，复用进程内的只读服务：
+
+```bash
+# 需要一个已迁移/已 seed 的数据库（默认 SQLite）
+contentx --mcp        # 或：go run ./cmd/server --mcp
+```
+
+只读工具：`search_content`、`list_articles`、`get_article`、`list_content_types`。默认仅暴露 `published` 内容；受信本地环境如需读取草稿，设 `MCP_INCLUDE_DRAFTS=true`。
+
+Claude Desktop 配置示例（`claude_desktop_config.json`）：
+
+```json
+{
+  "mcpServers": {
+    "contentx": {
+      "command": "contentx",
+      "args": ["--mcp"],
+      "env": { "DB_DRIVER": "sqlite", "DB_NAME": "contentx" }
+    }
+  }
+}
+```
+
+本地冒烟测试：`npx @modelcontextprotocol/inspector contentx --mcp`。
+
+**远程（Streamable HTTP）**：设 `MCP_HTTP_ENABLED=true` 后，MCP 挂载在 `/api/v1/mcp`，供远程 Agent 访问。需先经 `/api/v1/system/tokens`（管理员）创建 API Token，客户端请求带 `Authorization: Bearer <token>`（缺失/无效 → 401）。
+
+HTTP 模式额外提供**写工具** `create_article` / `update_article` / `publish_article`，按 API Token 的 `permissions` 授权（`articles.create` / `articles.edit` / `articles.edit_all` / `articles.publish`）并以 token 所属用户身份执行；AI 创建/修改默认存草稿，发布需单独调用 `publish_article`。stdio 模式无身份，仅暴露只读工具。
+
+**Resources**：支持 MCP resources 原语——内容类型作为具体资源可通过 `resources/list` 发现，文章通过 URI 模板 `contentx://articles/{id}` 按 ID 读取完整正文。
 
 ## 许可证
 

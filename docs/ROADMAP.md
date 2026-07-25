@@ -254,7 +254,7 @@ P3-A"生产就绪"整体进度：**Round 1 ✅** / **Round 2 ✅** / **Round 3 �
 
 | ID | 任务 | 说明 |
 |---|---|---|
-| A-24 | AI 路线评估 | 2026 年不可回避，至少评估 AI 辅助写作 / MCP 协议接入；写入 PRD |
+| A-24 | AI 路线评估 | 进行中：MCP Server 已交付 stdio + Streamable HTTP + 只读工具 + 写工具 + resources（内容类型枚举 + 文章 URI 模板）；后续 AI 辅助写作 / MCP prompts；见 PRD §6 C8 |
 | A-25 | 部署模板与示例 | Next.js / Nuxt 集成示例，Vercel/Netlify 一键部署；归入 P3-C |
 | A-26 | SDK 生态 | TS SDK 覆盖全部稳定 API，多语言 SDK 路线；归入 P3-C |
 | A-27 | 插件市场基础 | 至少提供插件 SDK 文档与示例插件；归入 P3-C |

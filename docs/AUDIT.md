@@ -347,7 +347,7 @@ return m.GenerateTokenPair(claims.UserID, claims.Username, claims.Email, claims.
 
 | ID | 任务 | 说明 |
 |---|---|---|
-| A-24 | AI 路线评估 | 2026 年不可回避，至少评估 AI 辅助写作 / MCP 协议接入 |
+| A-24 | AI 路线评估 | 已启动：交付只读 MCP Server MVP（stdio），见 README「AI / MCP」；后续评估 AI 辅助写作 / 远程 MCP / 写工具 |
 | A-25 | 部署模板与示例 | Next.js / Nuxt 集成示例，Vercel/Netlify 一键部署 |
 | A-26 | SDK 生态 | TS SDK 覆盖全部稳定 API，多语言 SDK 路线 |
 | A-27 | 插件市场基础 | 至少提供插件 SDK 文档与示例插件 |

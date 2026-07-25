@@ -6,7 +6,7 @@
 
 ContentX 是一个 API-first 的 Headless CMS，使用 Go 构建，提供 REST API、只读 GraphQL 和 Vue 3 管理后台。核心价值：内容管理、发布工作流、多语言、可观测性和多数据库支持。
 
-当前发布基线：`v1.2.0`。P3-A“生产就绪”已完成（ROADMAP Round 1-5 全部通过），Round 6 扣分项整改已完成并发布 `v1.2.0`。下一里程碑为 P3-B 商业化基础路线。
+当前发布基线：`v1.3.0`。P3-A“生产就绪”已完成（ROADMAP Round 1-5 全部通过），Round 6 扣分项整改（`v1.2.0`）与 Round 7 外部审查整改（`v1.3.0`，复评 7.8/10）均已完成。下一里程碑为 P3-B 商业化基础路线。
 
 ## 2. 已交付能力
 
@@ -165,6 +165,11 @@ P3-B 在 P3-A 完成后开始。
 - Next.js、Nuxt 示例
 - 部署模板
 - 贡献者指南和版本兼容策略
+
+### C8：AI 原生（MCP）
+
+- 已交付：MCP Server（stdio `contentx --mcp` + Streamable HTTP `/api/v1/mcp`，APIToken 鉴权、`MCP_HTTP_ENABLED` opt-in）。只读工具 search_content / list_articles / get_article / list_content_types；HTTP 写工具 create_article / update_article / publish_article（按 token permissions 授权、默认草稿、发布独立授权）；MCP resources（内容类型枚举 + 文章 URI 模板读取）。用法见 README「AI / MCP」与 SOP §8
+- 后续：AI 辅助写作、MCP prompts、resource subscriptions
 
 ## 7. 完成定义
 

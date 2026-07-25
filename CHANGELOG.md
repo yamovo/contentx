@@ -5,7 +5,55 @@
 
 ## [Unreleased]
 
-Round 7 后续清理：消除 AUDIT.md 剩余代码层面未解决项，补齐 E2E 测试缺口。
+Round 7 后续清理 + P0 收尾 + AI 原生起步：消除 AUDIT.md 剩余代码层面未解决项、补齐 E2E 测试缺口；落地 TECH_REVIEW 独立复核的 P0 项（性能复合索引 + 安全加固 + 文档同步）；并新增只读 MCP Server（AI Agent 内容后端）。
+
+### Added — AI / MCP（只读 stdio MVP）
+- `internal/mcp/`：基于官方 `github.com/modelcontextprotocol/go-sdk` 的只读 MCP Server，暴露 `search_content` / `list_articles` / `get_article` / `list_content_types` 四个工具；工具层传输无关，为后续 Streamable HTTP 铺路
+- `cmd/server/main.go`：新增 `--mcp` 运行模式（stdio 传输，日志改走 stderr 以免污染 JSON-RPC 协议流）
+- `internal/config/config.go`：新增 `MCP_INCLUDE_DRAFTS`（默认 false，仅暴露 published 内容）
+- `internal/mcp/tools_test.go` + `server_test.go`：9 个单测，含 `TestMCPRoundTrip`（in-memory transport 真跑 Client↔Server：tools/list + tools/call、schema 校验、结构化输出）
+
+### Added — MCP HTTP 传输（Streamable HTTP，APIToken 鉴权，只读）
+- `internal/handlers/mcp.go` + `routes.go`：新增可选的 Streamable HTTP MCP 端点 `/api/v1/mcp`（`MCP_HTTP_ENABLED=true` 开启），复用 stdio 同一套只读工具；`mcpTokenAuth` 用 `models.APIToken`（`Authorization: Bearer` / `X-API-Token`）鉴权，无效即 401
+- `internal/config/config.go`：新增 `MCP_HTTP_ENABLED`（默认 false，opt-in）
+- `internal/handlers/mcp_test.go`：鉴权用例 + 经真实 HTTP 的 SDK 客户端往返（tools/list + tools/call）
+
+### Added — MCP 写工具（create/update/publish，token 权限，默认草稿）
+- `internal/mcp/write_tools.go`：HTTP 模式新增 `create_article` / `update_article` / `publish_article`，从 `req.Extra.Header` 解析 API Token 身份，按 token permissions 授权（`articles.create` / `articles.edit` / `articles.edit_all` / `articles.publish`），以 token 用户身份执行
+- 行为：创建/更新默认存草稿、绝不自动发布；发布仅经 `publish_article`；普通 token 仅能改本人文章，`articles.edit_all` 方可改他人
+- `internal/services/token_service.go`：新增 `Resolve` 返回激活 token（含 permissions/owner），`Validate` 复用之
+- `internal/mcp/server.go`：新增 `Authorizer`/`WriterIdentity`，仅 `Deps.Authorizer != nil`（HTTP）才注册写工具，stdio 只读不变
+- `internal/handlers/mcp_test.go`：写工具权限/归属/草稿用例（经真实 HTTP）
+
+### Added — MCP Resources（内容类型枚举 + 文章 URI 模板读取）
+- `internal/mcp/resources.go`：内容类型作为具体资源（resources/list 枚举），文章通过 resource template `contentx://articles/{id}` 按 ID 读取，读取遵循 published-only 策略
+- `internal/mcp/resources_test.go`：协议往返测试（list + read 内容类型/文章 + 草稿拒绝）
+
+### Added — 文章列表/详情缓存（P1 工程强化）
+- `internal/services/article_cache.go`：为 ArticleService.List/Get 加入 cache.Driver 缓存（复用 Redis/内存），世代号失效列表 + 按 ID 精确失效详情，所有写路径自动 invalidate
+- `internal/handlers/routes.go`：`articleSvc.WithCache(cacheDriver, TTL)` 注入
+- `internal/services/article_cache_test.go`：缓存命中/失效验证
+
+### Added — GraphQL 安全限制（P1 工程强化）
+- `internal/graphql/depth.go`：查询深度 AST 计算（MaxDepth=10），超过拒绝 400
+- `internal/graphql/schema.go`：`context.WithTimeout(30s)` 超时保护注入 `graphql.Params.Context`
+- `internal/graphql/depth_test.go`：9 个深度计算用例 + ExceedsMax
+
+### Changed — Webhook 重试（P1 工程强化）
+- `internal/services/webhook_service.go`：失败后指数退避重试 3 次（1s/2s/4s），5xx/网络错误重试、 4xx 不重试；Prometheus status="exhausted" 计数
+- `internal/models/webhook.go`：`WebhookLog.Retries` 字段记录实际重试次数
+
+### Added — 性能索引（TECH_REVIEW P0）
+- `internal/database/migrations/003_add_articles_list_index.go`：新增 articles 复合索引 `(status, post_type, is_pinned, published_at, created_at)`，消除 MySQL filesort / SQLite TEMP B-TREE 导致的列表/GraphQL 超时
+
+### Fixed — 安全加固（TECH_REVIEW P0）
+- `internal/auth/jwt.go`：内存 `Blacklist` 增加 `sync.Mutex`，消除并发读写 map 的 panic 风险（Redis 不可用时的回退路径）
+- `internal/middleware/apikey.go`：`extractAPIKey` 移除 `?api_key=` 查询参数通道，防止 API Key 泄漏到 access log / 浏览器历史 / Referer
+- `internal/handlers/routes.go`：`uploads` 静态服务增加 `X-Content-Type-Options: nosniff`，并对非图片/视频（HTML/SVG/PDF 等）强制 `Content-Disposition: attachment`
+
+### Docs
+- 新增 `docs/TECH_REVIEW.md`：全面技术审查报告（8 维度评分 + 风险与改进路线）
+- `README.md` / `docs/PRD.md`：发布基线更新至 `v1.3.0`；README 文档导航新增 TECH_REVIEW 链接
 
 ### Fixed — AUDIT 未解决项清理
 - `internal/services/article_service.go`：RSS feed 改用 `encoding/xml` 序列化（Q-4）；魔法数字抽常量 `defaultExcerptLen`/`defaultFeedSize`（Q-5）；`transitionTo` reload 失败加 `slog.Warn`（Q-6）

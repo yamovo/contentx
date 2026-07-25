@@ -455,3 +455,51 @@ curl -X POST http://localhost:8080/api/v1/graphql \
   -H "Content-Type: application/json" \
   -d '{"query":"{ articles(page: 1, pageSize: 5) { total items { title slug } } }"}'
 ```
+
+## 8. MCP（AI Agent 内容后端）
+
+ContentX 可作为 Model Context Protocol server 运行，向支持 MCP 的 AI Agent 暴露只读内容工具。当前为只读 MVP，走 stdio 传输。
+
+### 8.1 运行
+
+```bash
+# 假定数据库已迁移/已 seed（与 --restore 同约定）
+contentx --mcp                 # 或：go run ./cmd/server --mcp
+```
+
+- 日志走 stderr，stdout 专用于 JSON-RPC 协议流。
+- 只读工具：`search_content`、`list_articles`、`get_article`、`list_content_types`。
+- 默认仅暴露 `published` 内容；设 `MCP_INCLUDE_DRAFTS=true` 可在受信本地环境读取草稿。
+- stdio 无网络暴露，信任边界为启动进程的操作者；远程/多客户端的 Streamable HTTP 传输为后续增量。
+
+### 8.2 冒烟测试
+
+```bash
+# 用官方 Inspector 连接并调用工具
+npx @modelcontextprotocol/inspector contentx --mcp
+```
+
+在 Inspector 中调用 `list_content_types`，或 `search_content`（参数 `query`）验证返回。
+
+### 8.3 远程（Streamable HTTP）
+
+设 `MCP_HTTP_ENABLED=true` 后，MCP 服务挂载在 `/api/v1/mcp`（Streamable HTTP），供远程/多客户端访问。鉴权复用长期 API Token（`models.APIToken`）。
+
+```bash
+# 1. 管理员创建 API Token（返回的 token 只显示一次）
+curl -X POST http://localhost:8080/api/v1/system/tokens \
+  -H "Authorization: Bearer <admin_jwt>" -H "Content-Type: application/json" \
+  -d '{"name":"mcp-agent"}'
+
+# 2. 客户端连接 /api/v1/mcp，带 Authorization: Bearer <token>（或 X-API-Token）
+#    缺失/无效 token 返回 401
+npx @modelcontextprotocol/inspector   # 选 Streamable HTTP，URL 填 http://localhost:8080/api/v1/mcp
+```
+
+- 端点默认关闭（opt-in），且强制 API Token 鉴权。
+- 只读工具与 stdio 一致；HTTP 模式额外提供写工具 `create_article` / `update_article` / `publish_article`，按 token `permissions` 授权：
+  - `articles.create` → 创建（默认草稿）
+  - `articles.edit` → 更新本人文章；`articles.edit_all` → 可更新他人文章
+  - `articles.publish` → 发布
+  - 写操作以 token 所属用户身份执行；空 permissions 的 token 仅可读。
+- 该端点受 `/api/` 全局限流覆盖。
