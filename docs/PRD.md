@@ -52,7 +52,7 @@ ContentX 是一个 API-first 的 Headless CMS，使用 Go 构建，提供 REST A
 
 以下是已知的未完成或受限能力，不构成 SLA 承诺。标记 `[P3-C]` 的项归入 P3-C 路线后续处理；其余边界项已在 ROADMAP Round 6 整改完成。
 
-- **GraphQL**：当前只读，写操作走 REST。Mutation 支持归入 P3-C 路线 `[P3-C-F13]`。
+- **GraphQL**：当前只读，写操作走 REST。Mutation 支持归入 P3-C 路线 `[P3-C-F13]`。安全限制已落地：查询深度上限 10 层（超出返回 400）+ 30 秒执行超时。
 - **搜索**：内置索引不跨实例共享，外部 MeiliSearch 驱动尚未完成（归入 P3-C）。DB restore 后已自动重建搜索索引（Round 6 / F2 已完成：Restore handler 在恢复成功后异步调用 `ReindexAll`）。
 - **备份与恢复**：PostgreSQL/MySQL/SQLite 备份与恢复已在 ROADMAP Round 2 完成端到端演练。灾难恢复（数据库完全丢失）：HTTP restore 端点需认证查 users 表，DB 丢失时返回 401；Round 6 已增加 `--restore` CLI 子命令绕过 HTTP/认证层直接恢复，消除 auth-DB 循环依赖（见 SOP §3.4）。psql 客户端仍作为 PostgreSQL 专用兜底路径。
 - **CI 卫生**：本地 pre-commit 钩子已就位（Round 6 / F1 完成）：`make install-hooks` 安装 `go fmt` + `go vet` + `swag init` 漂移检查；前端 husky + lint-staged 对暂存 `.ts`/`.vue` 运行 `vue-tsc --noEmit`。CI 仍保留 gofmt drift 快速失败步作为第二道防线。
@@ -168,8 +168,8 @@ P3-B 在 P3-A 完成后开始。
 
 ### C8：AI 原生（MCP）
 
-- 已交付：MCP Server（stdio `contentx --mcp` + Streamable HTTP `/api/v1/mcp`，APIToken 鉴权、`MCP_HTTP_ENABLED` opt-in）。只读工具 search_content / list_articles / get_article / list_content_types；HTTP 写工具 create_article / update_article / publish_article（按 token permissions 授权、默认草稿、发布独立授权）；MCP resources（内容类型枚举 + 文章 URI 模板读取）。用法见 README「AI / MCP」与 SOP §8
-- 后续：AI 辅助写作、MCP prompts、resource subscriptions
+- 已交付：MCP Server（stdio `contentx --mcp` + Streamable HTTP `/api/v1/mcp`，APIToken 鉴权、`MCP_HTTP_ENABLED` opt-in）。只读工具 search_content / list_articles / get_article / list_content_types；HTTP 写工具 create_article / update_article / publish_article（按 token permissions 授权、默认草稿、发布独立授权）；MCP resources（内容类型枚举 + 文章 URI 模板读取）；MCP prompts（write/improve/summarize/translate 4 个 AI 写作工作流模板，产出一律存草稿）。用法见 README「AI / MCP」与 SOP §8
+- 后续：AI 辅助写作端点（服务端直连 LLM）、resource subscriptions、MCP sampling
 
 ## 7. 完成定义
 

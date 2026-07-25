@@ -479,7 +479,7 @@ contentx --mcp                 # 或：go run ./cmd/server --mcp
 npx @modelcontextprotocol/inspector contentx --mcp
 ```
 
-在 Inspector 中调用 `list_content_types`，或 `search_content`（参数 `query`）验证返回。
+在 Inspector 中调用 `list_content_types`，或 `search_content`（参数 `query`）验证返回。Prompts 页签中应能看到 `write_article` / `improve_article` / `summarize_article` / `translate_article` 四个模板，选中后填参数（如 `topic`）可预览生成的指令文本。
 
 ### 8.3 远程（Streamable HTTP）
 
@@ -503,3 +503,16 @@ npx @modelcontextprotocol/inspector   # 选 Streamable HTTP，URL 填 http://loc
   - `articles.publish` → 发布
   - 写操作以 token 所属用户身份执行；空 permissions 的 token 仅可读。
 - 该端点受 `/api/` 全局限流覆盖。
+
+### 8.4 Prompts（AI 写作工作流）
+
+所有传输均暴露 4 个提示词模板（`prompts/list` / `prompts/get`），用于引导 AI Agent 编排现有工具完成内容创作：
+
+| Prompt | 必填参数 | 可选参数 | 行为 |
+|---|---|---|---|
+| `write_article` | `topic` | `style`、`length`、`locale` | 查重→起草→存草稿 |
+| `improve_article` | `article_id` | `focus` | 拉取→改进→保存修订（不改发布状态） |
+| `summarize_article` | `article_id` | `max_words` | 拉取→摘要，仅按明确指令写回 excerpt |
+| `translate_article` | `article_id`、`target_locale` | — | 拉取→翻译→存为新语种草稿 |
+
+约束：模板只生成指令文本、不直接读写数据库；产出一律要求存草稿、发布需用户另行调用 `publish_article`；缺少写工具时（stdio 只读会话）指令要求 Agent 在对话中呈现结果而非持久化。缺失必填参数时 `prompts/get` 返回协议错误。验证：`go test ./internal/mcp/ -run TestMCPPromptsRoundTrip`。

@@ -29,6 +29,12 @@ Round 7 后续清理 + P0 收尾 + AI 原生起步：消除 AUDIT.md 剩余代�
 - `internal/mcp/resources.go`：内容类型作为具体资源（resources/list 枚举），文章通过 resource template `contentx://articles/{id}` 按 ID 读取，读取遵循 published-only 策略
 - `internal/mcp/resources_test.go`：协议往返测试（list + read 内容类型/文章 + 草稿拒绝）
 
+### Added — MCP Prompts（AI 写作工作流）
+- `internal/mcp/prompts.go`：4 个提示词模板 `write_article` / `improve_article` / `summarize_article` / `translate_article`，编排现有读写工具完成起草/改进/摘要/翻译；参数模板化 + 默认值，缺失必填参数返回协议错误
+- 安全约束内置于模板文本：产出一律存草稿、发布需另行 `publish_article`；只读会话（无写工具）自动降级为对话内呈现
+- `internal/mcp/prompts_test.go`：`TestMCPPromptsRoundTrip`（in-memory transport 真跑 prompts/list + prompts/get、参数模板化、默认值、必填校验）
+- README「AI / MCP」、SOP §8.4、PRD C8 文档同步
+
 ### Added — 文章列表/详情缓存（P1 工程强化）
 - `internal/services/article_cache.go`：为 ArticleService.List/Get 加入 cache.Driver 缓存（复用 Redis/内存），世代号失效列表 + 按 ID 精确失效详情，所有写路径自动 invalidate
 - `internal/handlers/routes.go`：`articleSvc.WithCache(cacheDriver, TTL)` 注入

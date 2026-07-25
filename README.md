@@ -131,7 +131,7 @@ reports/benchmarks/     压测原始结果与后续报告
 
 ## 当前边界
 
-- GraphQL 当前只读，写操作走 REST。
+- GraphQL 当前只读，写操作走 REST；查询深度上限 10 层（超出返回 400），单次执行超时 30 秒。
 - 内置搜索索引不跨实例共享，外部 MeiliSearch 驱动尚未完成。
 - **灾难恢复 CLI**：`docker exec contentx /app/contentx --restore <file>` 绕过 HTTP 认证直接恢复（Round 6 / F3）；restore 后异步重建内存搜索索引（F2）。
 - **Release 二进制不支持 SQLite**：CI Release 作业以 `CGO_ENABLED=0` 构建跨平台二进制，
@@ -189,6 +189,17 @@ Claude Desktop 配置示例（`claude_desktop_config.json`）：
 HTTP 模式额外提供**写工具** `create_article` / `update_article` / `publish_article`，按 API Token 的 `permissions` 授权（`articles.create` / `articles.edit` / `articles.edit_all` / `articles.publish`）并以 token 所属用户身份执行；AI 创建/修改默认存草稿，发布需单独调用 `publish_article`。stdio 模式无身份，仅暴露只读工具。
 
 **Resources**：支持 MCP resources 原语——内容类型作为具体资源可通过 `resources/list` 发现，文章通过 URI 模板 `contentx://articles/{id}` 按 ID 读取完整正文。
+
+**Prompts（AI 写作工作流）**：内置 4 个提示词模板，在支持 MCP prompts 的客户端（如 Claude Desktop 的 `+` 菜单）中直接选用，自动编排上述读写工具完成内容创作：
+
+| Prompt | 参数 | 工作流 |
+|---|---|---|
+| `write_article` | `topic`（必填）、`style`/`length`/`locale` | 先 `search_content` 查重 → 起草 Markdown → `create_article` 存草稿 |
+| `improve_article` | `article_id`（必填）、`focus` | `get_article` 拉取 → 按焦点改进 → `update_article` 保存修订 |
+| `summarize_article` | `article_id`（必填）、`max_words` | `get_article` → 生成摘要，仅在明确要求时写回 excerpt |
+| `translate_article` | `article_id`、`target_locale`（均必填） | `get_article` → 翻译 → `create_article` 存为新语种草稿 |
+
+所有模板均遵守安全约束：AI 产出一律存草稿、绝不自动发布；只读会话（stdio 无写工具）下自动降级为在对话中呈现草稿。
 
 ## 许可证
 

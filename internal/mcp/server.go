@@ -58,5 +58,6 @@ func NewServer(deps Deps, version string) *mcpsdk.Server {
 	}, nil)
 	registerTools(s, deps)
 	registerResources(s, deps)
+	registerPrompts(s)
 	return s
 }
