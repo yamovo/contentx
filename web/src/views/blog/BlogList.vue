@@ -130,11 +130,13 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch, nextTick } from 'vue'
 import { useRoute } from 'vue-router'
-import { animate } from 'animejs'
 import { stagger } from 'animejs/utils'
+import { useAnime } from '@/composables/useAnime'
 import { formatDate } from '@/utils'
 
 const route = useRoute()
+// Tracked animations are cancelled on unmount.
+const { animate } = useAnime()
 const articles = ref<any[]>([])
 const categories = ref<any[]>([])
 const tags = ref<any[]>([])
@@ -158,7 +160,10 @@ const headerDesc = computed(() => {
 })
 
 function truncate(s: string, n: number) { return !s ? '' : s.length > n ? s.slice(0, n) + '...' : s }
-function getCategory(id: number) { return categories.value.find(c => c.id === id) }
+
+// O(1) category lookup instead of a per-card linear scan in the template.
+const categoryMap = computed(() => new Map(categories.value.map(c => [c.id, c])))
+function getCategory(id: number) { return categoryMap.value.get(id) }
 
 function goPage(p: number) { page.value = p; fetchArticles(); window.scrollTo({ top: 0, behavior: 'smooth' }) }
 
@@ -205,7 +210,7 @@ onMounted(() => {
   fetchSidebar()
 })
 
-watch(() => route.params, () => { page.value = 1; fetchArticles() }, { deep: true })
+watch(() => route.params, () => { page.value = 1; fetchArticles() })
 </script>
 
 <style lang="scss" scoped>

@@ -31,7 +31,7 @@
             v-model="filters.type"
             placeholder="文件类型"
             clearable
-            @change="fetchMedia"
+            @change="applyFilters"
           >
             <el-option
               label="图片"
@@ -56,7 +56,7 @@
             v-model="filters.folder"
             placeholder="文件夹"
             clearable
-            @change="fetchMedia"
+            @change="applyFilters"
           >
             <el-option
               v-for="f in folders"
@@ -71,7 +71,8 @@
             v-model="filters.search"
             placeholder="搜索文件..."
             clearable
-            @clear="fetchMedia"
+            @clear="applyFilters"
+            @keyup.enter="applyFilters"
           />
         </el-form-item>
         <el-form-item>
@@ -105,6 +106,8 @@
             v-if="item.mime_type.startsWith('image/')"
             :src="item.url"
             :alt="item.alt"
+            loading="lazy"
+            decoding="async"
           >
           <div
             v-else
@@ -213,6 +216,19 @@
         </el-table-column>
       </el-table>
     </el-card>
+
+    <!-- Pagination (was missing: page/total state existed but users could
+         never navigate past page 1) -->
+    <div class="pagination-wrapper">
+      <el-pagination
+        v-model:current-page="page"
+        :page-size="pageSize"
+        :total="total"
+        layout="total, prev, pager, next"
+        background
+        @current-change="fetchMedia"
+      />
+    </div>
 
     <!-- Detail Sidebar -->
     <el-drawer
@@ -340,6 +356,7 @@ interface MediaStats {
 
 const mediaStats = ref<MediaStats | null>(null)
 const page = ref(1)
+const pageSize = 24
 const total = ref(0)
 
 const filters = reactive({ type: '', folder: '', search: '' })
@@ -352,14 +369,26 @@ const uploadHeaders = computed(() => ({
   Authorization: `Bearer ${authStore.token}`,
 }))
 
+// Monotonic sequence guard: out-of-order responses from rapid filter/page
+// changes must not overwrite newer results.
+let fetchSeq = 0
+
 async function fetchMedia() {
+  const seq = ++fetchSeq
   loading.value = true
   try {
-    const res = await mediaApi.list({ page: page.value, page_size: 50, ...filters })
+    const res = await mediaApi.list({ page: page.value, page_size: pageSize, ...filters })
+    if (seq !== fetchSeq) return
     media.value = res.items
     total.value = res.total
-  } catch { media.value = [] }
-  finally { loading.value = false }
+  } catch { if (seq === fetchSeq) media.value = [] }
+  finally { if (seq === fetchSeq) loading.value = false }
+}
+
+// Filter changes restart from page 1 so stale offsets never show empty pages.
+function applyFilters() {
+  page.value = 1
+  fetchMedia()
 }
 
 async function fetchFolders() {
@@ -413,6 +442,7 @@ onMounted(() => { fetchMedia(); fetchFolders(); fetchStats() })
     .header-actions { display: flex; gap: 8px; }
   }
   .filter-card { margin-bottom: 16px; }
+  .pagination-wrapper { display: flex; justify-content: flex-end; margin-top: 16px; }
   .media-grid {
     display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
     gap: 12px;

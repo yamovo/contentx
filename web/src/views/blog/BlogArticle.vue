@@ -147,11 +147,13 @@ import { ref, computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
-import { animate } from 'animejs'
+import { useAnime } from '@/composables/useAnime'
 import { formatDate } from '@/utils'
 import type { Article, Category, Comment } from '@/api'
 
 const route = useRoute()
+// Tracked animations are cancelled on unmount.
+const { animate } = useAnime()
 const article = ref<Article | null>(null)
 const category = ref<Category | null>(null)
 const tags = ref<Article['tags']>([])

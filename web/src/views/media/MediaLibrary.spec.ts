@@ -80,7 +80,7 @@ describe('MediaLibrary', () => {
     await flushPromises()
 
     expect(mediaApi.list).toHaveBeenCalledWith(
-      expect.objectContaining({ page: 1, page_size: 50 }),
+      expect.objectContaining({ page: 1, page_size: 24 }),
     )
     expect(mediaApi.folders).toHaveBeenCalled()
     expect(mediaApi.stats).toHaveBeenCalled()

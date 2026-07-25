@@ -108,12 +108,15 @@ import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { User, Lock } from '@element-plus/icons-vue'
 import { ElMessage, type FormInstance } from 'element-plus'
-import { animate } from 'animejs'
+import { useAnime } from '@/composables/useAnime'
 import { getApiError } from '@/utils'
 
 const router = useRouter()
 const route = useRoute()
 const authStore = useAuthStore()
+// Tracked animations are cancelled on unmount (loop animations would
+// otherwise keep running forever after leaving the page).
+const { animate } = useAnime()
 const formRef = ref<FormInstance>()
 const cardRef = ref<HTMLElement>()
 const logoRef = ref<HTMLElement>()

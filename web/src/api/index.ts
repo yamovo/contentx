@@ -212,6 +212,13 @@ export interface Revision {
 
 // ─── API Functions ───────────────────────────────────────
 
+// The backend wraps every response in an envelope: {code, message, data}.
+// Paginated list endpoints put the whole ListResponse inside `data`, so it
+// must be unwrapped here — views consume `res.items` / `res.total` directly.
+function getList<T>(url: string, params?: Record<string, unknown>): Promise<ListResponse<T>> {
+  return get<{ data: ListResponse<T> }>(url, params).then(r => r.data)
+}
+
 // Auth
 export const authApi = {
   login: (data: { username: string; password: string }) =>
@@ -230,7 +237,7 @@ export const authApi = {
 // Articles
 export const articleApi = {
   list: (params?: Record<string, unknown>) =>
-    get<ListResponse<Article>>('/articles', params),
+    getList<Article>('/articles', params),
   get: (id: number) => get<{ data: Article }>(`/articles/${id}`),
   getBySlug: (slug: string) => get<{ data: Article }>(`/articles/slug/${slug}`),
   create: (data: Partial<Article>) => post<{ data: Article }>('/articles', data),
@@ -257,7 +264,10 @@ export const categoryApi = {
 
 // Tags
 export const tagApi = {
-  list: (params?: Record<string, unknown>) => get<{ data: Tag[]; total: number }>('/tags', params),
+  // Backend shape: envelope.data = { data: Tag[], total } — unwrap one level
+  // so views keep reading `res.data` / `res.total`.
+  list: (params?: Record<string, unknown>) =>
+    get<{ data: { data: Tag[]; total: number } }>('/tags', params).then(r => r.data),
   get: (id: number) => get<{ data: Tag }>(`/tags/${id}`),
   create: (data: Partial<Tag>) => post<{ data: Tag }>('/tags', data),
   update: (id: number, data: Partial<Tag>) => put(`/tags/${id}`, data),
@@ -268,7 +278,7 @@ export const tagApi = {
 
 // Comments
 export const commentApi = {
-  list: (params?: Record<string, unknown>) => get<ListResponse<Comment>>('/comments', params),
+  list: (params?: Record<string, unknown>) => getList<Comment>('/comments', params),
   get: (id: number) => get<{ data: Comment }>(`/comments/${id}`),
   create: (data: Partial<Comment>) => post<{ data: Comment }>('/comments', data),
   update: (id: number, data: Partial<Comment>) => put(`/comments/${id}`, data),
@@ -282,7 +292,7 @@ export const commentApi = {
 
 // Media
 export const mediaApi = {
-  list: (params?: Record<string, unknown>) => get<ListResponse<Media>>('/media', params),
+  list: (params?: Record<string, unknown>) => getList<Media>('/media', params),
   get: (id: number) => get<{ data: Media }>(`/media/${id}`),
   upload: (formData: FormData) =>
     post<{ data: Media }>('/media/upload', formData),
@@ -295,7 +305,7 @@ export const mediaApi = {
 
 // Users
 export const userApi = {
-  list: (params?: Record<string, unknown>) => get<ListResponse<User>>('/users', params),
+  list: (params?: Record<string, unknown>) => getList<User>('/users', params),
   get: (id: number) => get<{ data: User }>(`/users/${id}`),
   create: (data: Partial<User> & { password: string }) => post<{ data: User }>('/users', data),
   update: (id: number, data: Partial<User>) => put(`/users/${id}`, data),
@@ -310,12 +320,16 @@ export const roleApi = {
   create: (data: Partial<Role>) => post('/roles', data),
   update: (id: number, data: Partial<Role>) => put(`/roles/${id}`, data),
   delete: (id: number) => del(`/roles/${id}`),
-  permissions: () => get<{ data: Permission[]; grouped: Record<string, Permission[]> }>('/roles/permissions'),
+  // Backend shape: envelope.data = { data: Permission[], grouped } — unwrap.
+  permissions: () =>
+    get<{ data: { data: Permission[]; grouped: Record<string, Permission[]> } }>('/roles/permissions').then(r => r.data),
 }
 
 // Settings
 export const settingsApi = {
-  list: (group?: string) => get<{ data: SiteSetting[]; grouped: Record<string, SiteSetting[]> }>('/settings', { group }),
+  // Backend shape: envelope.data = { data: SiteSetting[], grouped } — unwrap.
+  list: (group?: string) =>
+    get<{ data: { data: SiteSetting[]; grouped: Record<string, SiteSetting[]> } }>('/settings', { group }).then(r => r.data),
   get: (key: string) => get<{ data: SiteSetting }>(`/settings/${key}`),
   update: (data: Record<string, unknown>) => put('/settings', data),
   public: () => get<{ data: Record<string, string> }>('/settings/public'),
@@ -360,7 +374,7 @@ export interface DeviceBreakdownResponse {
 }
 
 export const analyticsApi = {
-  dashboard: () => get<{ stats: DashboardStats; recent_articles: Article[]; recent_comments: Comment[]; popular_articles: Article[] }>('/analytics/dashboard'),
+  dashboard: () => get<{ data: { stats: DashboardStats; recent_articles: Article[]; recent_comments: Comment[]; popular_articles: Article[] } }>('/analytics/dashboard'),
   viewsOverTime: (days?: number) => get<{ data: { date: string; views: number }[] }>('/analytics/views', { days }),
   topReferrers: () => get<{ data: { referrer: string; count: number }[] }>('/analytics/referrers'),
   deviceBreakdown: () => get<{ data: DeviceBreakdownResponse }>('/analytics/devices'),

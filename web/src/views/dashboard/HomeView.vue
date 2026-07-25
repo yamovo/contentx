@@ -63,9 +63,13 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted } from 'vue'
-import { animate } from 'animejs'
+import { onMounted, onUnmounted } from 'vue'
 import { stagger } from 'animejs/utils'
+import { useAnime } from '@/composables/useAnime'
+
+// Tracked animations are cancelled on unmount.
+const { animate } = useAnime()
+let featuresObserver: IntersectionObserver | null = null
 
 const features = [
   { title: '高性能', desc: 'Go 后端，编译型语言带来的极致性能', icon: 'Lightning', color: '#e6a23c' },
@@ -99,17 +103,8 @@ onMounted(() => {
     ease: 'outQuint',
   })
 
-  // Floating background circles
-  animate('.hero::before', {
-    scale: [1, 1.1],
-    duration: 4000,
-    loop: true,
-    alternate: true,
-    ease: 'inOutSine',
-  })
-
   // Feature cards stagger (triggered by scroll observer or just on mount)
-  const observer = new IntersectionObserver((entries) => {
+  featuresObserver = new IntersectionObserver((entries) => {
     entries.forEach(entry => {
       if (entry.isIntersecting) {
         animate('.feature-card', {
@@ -120,12 +115,18 @@ onMounted(() => {
           delay: stagger(100),
           ease: 'outQuint',
         })
-        observer.disconnect()
+        featuresObserver?.disconnect()
+        featuresObserver = null
       }
     })
   }, { threshold: 0.2 })
   const featEl = document.querySelector('.features')
-  if (featEl) observer.observe(featEl)
+  if (featEl) featuresObserver.observe(featEl)
+})
+
+onUnmounted(() => {
+  featuresObserver?.disconnect()
+  featuresObserver = null
 })
 
 function scrollToFeatures() {

@@ -1,4 +1,5 @@
-import { defineConfig } from 'vite'
+// defineConfig from vitest/config so the `test` block is properly typed.
+import { defineConfig } from 'vitest/config'
 import vue from '@vitejs/plugin-vue'
 import AutoImport from 'unplugin-auto-import/vite'
 import Components from 'unplugin-vue-components/vite'
@@ -67,10 +68,21 @@ export default defineConfig({
     sourcemap: false,
     rollupOptions: {
       output: {
-        manualChunks: {
-          'element-plus': ['element-plus'],
-          'echarts': ['echarts', 'vue-echarts'],
-          'vendor': ['vue', 'vue-router', 'pinia', 'axios'],
+        // IMPORTANT: do NOT assign element-plus (or other barrel-export
+        // libraries) to a manual chunk. Doing so marks the barrel module as a
+        // chunk entry and Rollup then keeps ALL of its exports (~940KB min),
+        // silently disabling tree-shaking (verified empirically: with the
+        // manual chunk the bundle contained ElCarousel/ElTransfer/etc.;
+        // without it they are shaken away and Element Plus code splits
+        // naturally across route chunks). echarts is already isolated by the
+        // route-level dynamic imports. Only the always-fully-used vue core
+        // stack is grouped for long-term caching.
+        manualChunks(id: string) {
+          if (!id.includes('node_modules')) return
+          if (
+            id.includes('/vue/') || id.includes('@vue/') ||
+            id.includes('vue-router') || id.includes('pinia') || id.includes('axios')
+          ) return 'vendor'
         },
       },
     },

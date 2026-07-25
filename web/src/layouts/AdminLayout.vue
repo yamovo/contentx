@@ -34,29 +34,32 @@
           >
             <!-- Single item -->
             <el-menu-item
-              v-if="!item.children"
-              v-show="hasPermission(item.permission)"
+              v-if="!item.children && hasPermission(item.permission)"
               :index="item.path"
             >
-              <el-icon><component :is="item.icon" /></el-icon>
+              <el-icon v-if="item.icon">
+                <component :is="item.icon" />
+              </el-icon>
               <template #title>
                 {{ item.title }}
               </template>
             </el-menu-item>
 
-            <!-- Submenu -->
+            <!-- Submenu (children are already permission-filtered in menuItems;
+                 v-if on the same node as v-for is invalid in Vue 3: v-if is
+                 evaluated first and cannot see the v-for variable) -->
             <el-sub-menu
-              v-else
-              v-show="hasAnyPermission(item.children)"
+              v-else-if="item.children && item.children.length"
               :index="item.path"
             >
               <template #title>
-                <el-icon><component :is="item.icon" /></el-icon>
+                <el-icon v-if="item.icon">
+                  <component :is="item.icon" />
+                </el-icon>
                 <span>{{ item.title }}</span>
               </template>
               <el-menu-item
                 v-for="child in item.children"
-                v-show="hasPermission(child.permission)"
                 :key="child.path"
                 :index="child.path"
               >
@@ -229,11 +232,15 @@ interface ResolvedMenuItem {
 const routeMetaMap = computed(() => {
   const map = new Map<string, { title?: string; icon?: string; permission?: string }>()
   for (const r of router.getRoutes()) {
-    if (r.path.startsWith('/admin')) {
+    // Only index routes that carry a menu title. Without this filter the
+    // parent layout route (path '/admin', empty meta) can overwrite the
+    // dashboard child route's entry, producing empty menu titles/icons
+    // (and an "invalid vnode type" warning from <component :is="''">).
+    if (r.path.startsWith('/admin') && r.meta?.title) {
       map.set(r.path, {
-        title: r.meta?.title as string | undefined,
-        icon: r.meta?.icon as string | undefined,
-        permission: r.meta?.permission as string | undefined,
+        title: r.meta.title as string,
+        icon: r.meta.icon as string | undefined,
+        permission: r.meta.permission as string | undefined,
       })
     }
   }
@@ -252,15 +259,19 @@ const menuItems = computed<ResolvedMenuItem[]>(() =>
         title: group.title || meta.title || '',
         path: group.path,
         icon: meta.icon || '',
-        children: group.children.map((childPath) => {
-          const childMeta = metaFor(childPath)
-          return {
-            title: childMeta.title || '',
-            path: childPath,
-            icon: childMeta.icon || '',
-            permission: childMeta.permission,
-          }
-        }),
+        // Permission filtering happens here (not in the template) so the
+        // rendered list is always consistent with the user's permissions.
+        children: group.children
+          .map((childPath) => {
+            const childMeta = metaFor(childPath)
+            return {
+              title: childMeta.title || '',
+              path: childPath,
+              icon: childMeta.icon || '',
+              permission: childMeta.permission,
+            }
+          })
+          .filter((child) => hasPermission(child.permission)),
       }
     }
     return {
@@ -275,11 +286,6 @@ const menuItems = computed<ResolvedMenuItem[]>(() =>
 function hasPermission(perm?: string): boolean {
   if (!perm) return true
   return authStore.hasPermission(perm)
-}
-
-function hasAnyPermission(children?: { permission?: string }[]): boolean {
-  if (!children) return true
-  return children.some(c => hasPermission(c.permission))
 }
 
 async function handleCommand(cmd: string) {

@@ -365,7 +365,12 @@ const filters = reactive({
   sort: 'newest',
 })
 
+// Monotonic sequence guard: rapid filter/pagination changes fire concurrent
+// requests; an out-of-order (older) response must not overwrite newer data.
+let fetchSeq = 0
+
 async function fetchArticles() {
+  const seq = ++fetchSeq
   loading.value = true
   try {
     const res = await articleApi.list({
@@ -374,12 +379,13 @@ async function fetchArticles() {
       post_type: postType,
       ...filters,
     })
+    if (seq !== fetchSeq) return
     articles.value = res.items
     total.value = res.total
   } catch {
-    articles.value = []
+    if (seq === fetchSeq) articles.value = []
   } finally {
-    loading.value = false
+    if (seq === fetchSeq) loading.value = false
   }
 }
 

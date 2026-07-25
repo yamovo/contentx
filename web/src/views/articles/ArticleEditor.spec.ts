@@ -233,6 +233,9 @@ describe('ArticleEditor', () => {
     const vm = wrapper.vm as any
     vm.form.content = '**hello**'
     await wrapper.vm.$nextTick()
+    // Preview rendering is debounced (300ms) to avoid re-running marked +
+    // DOMPurify on every keystroke; wait for the debounce window to elapse.
+    await new Promise((r) => setTimeout(r, 350))
     expect(vm.renderedContent).toContain('<strong>hello</strong>')
   })
 
@@ -243,6 +246,7 @@ describe('ArticleEditor', () => {
     const vm = wrapper.vm as any
     vm.form.content = '<script>alert(1)</script>'
     await wrapper.vm.$nextTick()
+    await new Promise((r) => setTimeout(r, 350))
     expect(vm.renderedContent).not.toContain('<script')
   })
 

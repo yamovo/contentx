@@ -53,6 +53,24 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
+  // In-flight /me request, shared so concurrent callers (store init + router
+  // guard) don't fire duplicate requests.
+  let userPromise: Promise<void> | null = null
+
+  // ensureUserLoaded resolves once user/permissions are available. The router
+  // guard awaits this before permission checks: on a hard refresh the store
+  // init fetch is still in flight, and checking permissions synchronously
+  // would always fail and bounce the user back to the dashboard.
+  function ensureUserLoaded(): Promise<void> {
+    if (!token.value || user.value) return Promise.resolve()
+    if (!userPromise) {
+      userPromise = fetchUser().finally(() => {
+        userPromise = null
+      })
+    }
+    return userPromise
+  }
+
   async function fetchPermissions() {
     try {
       const res = await authApi.me()
@@ -110,13 +128,13 @@ export const useAuthStore = defineStore('auth', () => {
 
   // Initialize: fetch user if token exists.
   if (token.value) {
-    fetchUser()
+    ensureUserLoaded()
   }
 
   return {
     user, token, refreshToken, permissions, loading,
     isAuthenticated, isAdmin, isEditor,
     login, register, fetchUser, fetchPermissions, refreshAccessToken,
-    setTokens, logout, clearAuth, hasPermission,
+    ensureUserLoaded, setTokens, logout, clearAuth, hasPermission,
   }
 })

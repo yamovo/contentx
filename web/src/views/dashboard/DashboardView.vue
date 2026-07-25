@@ -231,10 +231,14 @@ import { LineChart, PieChart } from 'echarts/charts'
 import { GridComponent, TooltipComponent, LegendComponent, TitleComponent } from 'echarts/components'
 import { analyticsApi, type DashboardStats, type Article, type Comment } from '@/api'
 import { formatDate } from '@/utils'
-import { animate } from 'animejs'
+import { useAnime } from '@/composables/useAnime'
 import { stagger } from 'animejs/utils'
 
 use([CanvasRenderer, LineChart, PieChart, GridComponent, TooltipComponent, LegendComponent, TitleComponent])
+
+// Tracked animations are cancelled on unmount so counter/entrance tweens
+// never outlive the page.
+const { animate } = useAnime()
 
 const stats = ref<DashboardStats>({
   total_articles: 0, published_articles: 0, total_comments: 0,
@@ -350,9 +354,10 @@ function animateEntrance() {
 async function fetchDashboard() {
   try {
     const res = await analyticsApi.dashboard()
-    stats.value = res.stats
-    recentArticles.value = res.recent_articles
-    recentComments.value = res.recent_comments
+    const data = res.data
+    stats.value = data.stats
+    recentArticles.value = data.recent_articles ?? []
+    recentComments.value = data.recent_comments ?? []
     await nextTick()
     animateCounters()
   } catch {

@@ -53,6 +53,7 @@
           <el-tab-pane
             label="预览"
             name="preview"
+            lazy
           >
             <div
               class="preview-pane"

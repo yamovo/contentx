@@ -37,6 +37,12 @@ import {
 describe('API module', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    // Default to a resolved envelope: several api functions chain .then() to
+    // unwrap the backend response envelope, so mocks must return promises.
+    mocks.get.mockResolvedValue({ data: {} })
+    mocks.post.mockResolvedValue({ data: {} })
+    mocks.put.mockResolvedValue({ data: {} })
+    mocks.del.mockResolvedValue({ data: {} })
   })
 
   describe('authApi', () => {

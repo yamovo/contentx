@@ -1,10 +1,12 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { setActivePinia, createPinia } from 'pinia'
 
-// Controllable auth state — the guard reads isAuthenticated and hasPermission.
+// Controllable auth state — the guard reads isAuthenticated and hasPermission,
+// and awaits ensureUserLoaded before permission checks.
 const mockAuth = {
   isAuthenticated: false,
   hasPermission: vi.fn(() => true),
+  ensureUserLoaded: vi.fn(() => Promise.resolve()),
 }
 
 vi.mock('@/stores/auth', () => ({

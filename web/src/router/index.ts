@@ -258,7 +258,7 @@ const router = createRouter({
 })
 
 // Navigation guards.
-router.beforeEach((to, _from, next) => {
+router.beforeEach(async (to, _from, next) => {
   NProgress.start()
 
   const authStore = useAuthStore()
@@ -273,8 +273,11 @@ router.beforeEach((to, _from, next) => {
     return
   }
 
-  // Check permissions.
+  // Check permissions. Wait for the (possibly in-flight) /me request first:
+  // on a hard refresh permissions arrive asynchronously, and checking them
+  // synchronously would always fail and redirect to the dashboard.
   if (to.meta.permission && authStore.isAuthenticated) {
+    await authStore.ensureUserLoaded()
     if (!authStore.hasPermission(to.meta.permission as string)) {
       next({ name: 'AdminDashboard' })
       return

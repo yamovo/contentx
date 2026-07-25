@@ -52,7 +52,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { articleApi, categoryApi, tagApi, type Article, type Category, type Tag } from '@/api'
 import { useAuthStore } from '@/stores/auth'
@@ -104,8 +104,22 @@ const form = reactive({
 
 const categoryTree = computed(() => buildTree(categories.value))
 
-const renderedContent = computed(() => {
-  try { return DOMPurify.sanitize(marked(form.content || '') as string) } catch { return form.content }
+// Preview HTML is rendered debounced instead of via computed: a computed
+// would re-run marked + DOMPurify synchronously on every keystroke once the
+// preview pane has been opened, which makes typing lag on long articles.
+const renderedContent = ref('')
+let previewTimer: ReturnType<typeof setTimeout> | null = null
+
+watch(() => form.content, (content) => {
+  if (previewTimer) clearTimeout(previewTimer)
+  previewTimer = setTimeout(() => {
+    previewTimer = null
+    try { renderedContent.value = DOMPurify.sanitize(marked(content || '') as string) } catch { renderedContent.value = content }
+  }, 300)
+}, { immediate: true })
+
+onUnmounted(() => {
+  if (previewTimer) clearTimeout(previewTimer)
 })
 
 const uploadHeaders = computed(() => ({
