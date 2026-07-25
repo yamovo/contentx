@@ -3,6 +3,8 @@ package handlers
 import (
 	"context"
 	"log/slog"
+	"path/filepath"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/yamovo/contentx/internal/auth"
@@ -10,6 +12,7 @@ import (
 	"github.com/yamovo/contentx/internal/cache"
 	"github.com/yamovo/contentx/internal/config"
 	"github.com/yamovo/contentx/internal/graphql"
+	"github.com/yamovo/contentx/internal/mcp"
 	"github.com/yamovo/contentx/internal/middleware"
 	"github.com/yamovo/contentx/internal/plugin"
 	"github.com/yamovo/contentx/internal/services"
@@ -73,6 +76,7 @@ func RegisterRoutes(
 	// create/update/delete/status-transition keeps the index in sync.
 	searchIdx := buildSearchIndexer(cfg)
 	articleSvc.SetSearchIndexer(searchIdx)
+	articleSvc.WithCache(cacheDriver, cfg.Cache.DefaultTTL)
 	if searchIdx.Name() != "noop" {
 		// Warm up the index from the database on startup (best-effort;
 		// failures are logged but non-fatal). Runs in a goroutine so it
@@ -169,6 +173,19 @@ func RegisterRoutes(
 			api.GET("/graphql", graphql.Handler(gqlSchema))
 			api.POST("/graphql", graphql.Handler(gqlSchema))
 		}
+	}
+
+	// ─── MCP over Streamable HTTP (opt-in; own API-token auth) ─────────────
+	// Reuses the same read-only services as the stdio MCP mode. Sits outside the
+	// JWT-protected group and enforces API-token auth in mcpTokenAuth.
+	if cfg.MCP.HTTPEnabled {
+		mountMCPHTTP(api, mcp.Deps{
+			Article:       articleSvc,
+			ContentType:   contentTypeSvc,
+			BaseURL:       cfg.Server.BaseURL,
+			IncludeDrafts: cfg.MCP.IncludeDrafts,
+		}, tokenSvc)
+		slog.Info("MCP HTTP endpoint enabled", "path", "/api/v1/mcp")
 	}
 
 	// ─── Protected API ─────────────────────────────────
@@ -413,8 +430,33 @@ func RegisterRoutes(
 	// Static file serving for uploads. Only relevant for the local driver
 	// path; when an S3 driver is in use, files are served from object storage
 	// and this route simply 404s (harmless).
-	r.Static(cfg.Upload.URLPrefix, cfg.Upload.StoragePath)
+	//
+	// Uploaded files are served with X-Content-Type-Options: nosniff, and any
+	// non-image/video file (HTML, SVG, PDF, ...) is forced to download via
+	// Content-Disposition: attachment so user-uploaded active content cannot
+	// execute in the application's origin (defense-in-depth against stored XSS).
+	uploads := r.Group(cfg.Upload.URLPrefix)
+	uploads.Use(func(c *gin.Context) {
+		c.Header("X-Content-Type-Options", "nosniff")
+		if !inlineSafeUpload(c.Request.URL.Path) {
+			c.Header("Content-Disposition", "attachment")
+		}
+	})
+	uploads.Static("/", cfg.Upload.StoragePath)
 	return rl
+}
+
+// inlineSafeUpload reports whether an uploaded file at the given path may be
+// served inline. Only raster images and common video containers are considered
+// safe; every other type (HTML, SVG, PDF, scripts, ...) is forced to download
+// so it cannot execute in the application's origin.
+func inlineSafeUpload(path string) bool {
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".jpg", ".jpeg", ".png", ".gif", ".webp", ".mp4", ".webm":
+		return true
+	default:
+		return false
+	}
 }
 
 // buildStorageDriver constructs a storage.Driver from the application config.
