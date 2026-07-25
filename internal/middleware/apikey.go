@@ -85,7 +85,12 @@ func RequireScope(scope string) gin.HandlerFunc {
 	}
 }
 
-// extractAPIKey gets the API key from header or query.
+// extractAPIKey gets the API key from a request header.
+//
+// The query-parameter fallback (?api_key=) is intentionally NOT supported:
+// keys placed in the URL leak into access logs, browser history, and Referer
+// headers. Callers must send the key via the X-API-Key header or
+// "Authorization: ApiKey <key>".
 func extractAPIKey(c *gin.Context) string {
 	// Check X-API-Key header.
 	if key := c.GetHeader("X-API-Key"); key != "" {
@@ -96,6 +101,5 @@ func extractAPIKey(c *gin.Context) string {
 	if strings.HasPrefix(auth, "ApiKey ") {
 		return auth[7:]
 	}
-	// Check query parameter.
-	return c.Query("api_key")
+	return ""
 }

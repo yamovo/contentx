@@ -3,6 +3,7 @@ package auth
 import (
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -139,15 +140,17 @@ func (m *JWTManager) RefreshAccessToken(refreshTokenStr string) (*TokenPair, err
 	return m.GenerateTokenPair(claims.UserID, claims.Username, claims.Email, claims.RoleSlug, claims.DisplayName)
 }
 
-// Blacklist is an in-memory token blacklist.
+// Blacklist is an in-memory token blacklist. It is safe for concurrent use.
 //
-// WARNING: This implementation is NOT suitable for production use.
-// Tokens are stored in memory only, so:
+// WARNING: This implementation is NOT suitable for multi-instance production
+// use. Tokens are stored in memory only, so:
 //   - Blacklisted tokens are lost on server restart.
 //   - Multiple server instances do not share the blacklist.
 //
-// For production, replace with a Redis-backed implementation.
+// For production, use the Redis-backed *RedisTokenStore. This type remains the
+// single-instance fallback used when Redis is unavailable.
 type Blacklist struct {
+	mu     sync.Mutex
 	tokens map[string]time.Time
 }
 
@@ -160,11 +163,16 @@ func NewBlacklist() *Blacklist {
 
 // Revoke adds a token to the blacklist.
 func (b *Blacklist) Revoke(tokenStr string, expiresAt time.Time) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
 	b.tokens[tokenStr] = expiresAt
 }
 
-// IsRevoked checks if a token has been revoked.
+// IsRevoked checks if a token has been revoked. Expired entries are dropped
+// lazily on lookup.
 func (b *Blacklist) IsRevoked(tokenStr string) bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
 	exp, ok := b.tokens[tokenStr]
 	if !ok {
 		return false
@@ -178,6 +186,8 @@ func (b *Blacklist) IsRevoked(tokenStr string) bool {
 
 // Cleanup removes expired tokens from the blacklist.
 func (b *Blacklist) Cleanup() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
 	now := time.Now()
 	for token, exp := range b.tokens {
 		if now.After(exp) {
