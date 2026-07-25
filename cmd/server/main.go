@@ -15,6 +15,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
+	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/yamovo/contentx/internal/auth"
 	"github.com/yamovo/contentx/internal/backup"
 	"github.com/yamovo/contentx/internal/cache"
@@ -23,6 +24,7 @@ import (
 	"github.com/yamovo/contentx/internal/database/migrations"
 	"github.com/yamovo/contentx/internal/handlers"
 	"github.com/yamovo/contentx/internal/logger"
+	"github.com/yamovo/contentx/internal/mcp"
 	"github.com/yamovo/contentx/internal/middleware"
 	"github.com/yamovo/contentx/internal/observability"
 	"github.com/yamovo/contentx/internal/services"
@@ -54,6 +56,7 @@ func main() {
 	migrateStatusFlag := flag.Bool("migrate-status", false, "show database migration status and exit")
 	seedFlag := flag.Bool("seed", false, "seed the database and exit")
 	restoreFlag := flag.String("restore", "", "restore database from a backup file (bypasses HTTP/auth; for disaster recovery)")
+	mcpFlag := flag.Bool("mcp", false, "run as an MCP (Model Context Protocol) server over stdio and exit")
 	flag.Parse()
 
 	// Load .env file (ignore error if not found).
@@ -171,6 +174,31 @@ func main() {
 			}
 		} else {
 			slog.Info("sqlite restore completed; restart the application to verify and rebuild search index")
+		}
+		return
+
+	case *mcpFlag:
+		// Run as an MCP server over stdio (AI-agent content backend). Reuses the
+		// read-only services in-process; assumes the DB is already migrated/seeded
+		// (same convention as --restore).
+		//
+		// MCP speaks JSON-RPC over stdout, so logs are redirected to stderr here to
+		// avoid corrupting the protocol stream.
+		slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn})))
+		mcpArticleSvc := services.NewArticleService(db, cfg.Server.BaseURL)
+		mcpArticleSvc.SetSearchIndexer(services.NewBuiltinIndexer())
+		if _, err := mcpArticleSvc.ReindexAll(context.Background()); err != nil {
+			slog.Warn("mcp: search index warmup failed", "error", err)
+		}
+		mcpServer := mcp.NewServer(mcp.Deps{
+			Article:       mcpArticleSvc,
+			ContentType:   services.NewContentTypeService(db),
+			BaseURL:       cfg.Server.BaseURL,
+			IncludeDrafts: cfg.MCP.IncludeDrafts,
+		}, version)
+		if err := mcpServer.Run(context.Background(), &mcpsdk.StdioTransport{}); err != nil {
+			slog.Error("mcp server failed", "error", err)
+			os.Exit(1)
 		}
 		return
 	}

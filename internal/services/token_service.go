@@ -106,20 +106,31 @@ func (s *TokenService) Delete(id uint) error {
 	return nil
 }
 
-// Validate checks if a token string is valid and has the required permission.
-func (s *TokenService) Validate(tokenStr string, requiredPerm string) (bool, uint, error) {
+// Resolve returns the active, non-expired API token for the given raw token
+// string, updating its last-used timestamp. Callers that need the token's full
+// permission set and owner (e.g. the MCP HTTP write tools) use this directly.
+func (s *TokenService) Resolve(tokenStr string) (*models.APIToken, error) {
 	token, err := s.repo.FindActiveByToken(tokenStr)
 	if err != nil {
-		return false, 0, errors.New("invalid token")
+		return nil, errors.New("invalid token")
 	}
 
 	// Check expiry.
 	if token.ExpiresAt != nil && token.ExpiresAt.Before(time.Now()) {
-		return false, 0, errors.New("token expired")
+		return nil, errors.New("token expired")
 	}
 
 	// Update last used (best-effort; ignore error).
 	_ = s.repo.UpdateUsage(token.ID, time.Now())
+	return token, nil
+}
+
+// Validate checks if a token string is valid and has the required permission.
+func (s *TokenService) Validate(tokenStr string, requiredPerm string) (bool, uint, error) {
+	token, err := s.Resolve(tokenStr)
+	if err != nil {
+		return false, 0, err
+	}
 
 	// Check permission (empty = full access).
 	if requiredPerm == "" {

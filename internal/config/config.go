@@ -32,6 +32,7 @@ type Config struct {
 	I18n      I18nConfig
 	Metrics   MetricsConfig
 	Tracing   TracingConfig
+	MCP       MCPConfig
 }
 
 // I18nConfig holds internationalization settings.
@@ -53,6 +54,18 @@ type TracingConfig struct {
 	Insecure    bool
 	SampleRatio float64
 	ServiceName string
+}
+
+// MCPConfig holds Model Context Protocol server settings.
+type MCPConfig struct {
+	// IncludeDrafts allows MCP read tools to return non-published content.
+	// Default false: only published content is exposed. Intended for trusted
+	// local (stdio) use only.
+	IncludeDrafts bool
+	// HTTPEnabled mounts the Streamable HTTP MCP endpoint at /api/v1/mcp.
+	// Default false: the network-exposed MCP surface is opt-in. When enabled it
+	// still requires a valid API token (models.APIToken).
+	HTTPEnabled bool
 }
 
 // ServerConfig holds HTTP server settings.
@@ -357,6 +370,10 @@ func Load() *Config {
 			Insecure:    envBool("OTEL_EXPORTER_OTLP_INSECURE", true),
 			SampleRatio: envFloat("OTEL_TRACE_SAMPLE_RATIO", 1.0),
 			ServiceName: envStr("OTEL_SERVICE_NAME", "contentx"),
+		},
+		MCP: MCPConfig{
+			IncludeDrafts: envBool("MCP_INCLUDE_DRAFTS", false),
+			HTTPEnabled:   envBool("MCP_HTTP_ENABLED", false),
 		},
 	}
 }
