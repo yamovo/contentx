@@ -27,16 +27,18 @@ type WebhookDispatcher interface {
 
 // WebhookService manages webhooks and dispatches events.
 type WebhookService struct {
-	repo   repository.WebhookRepository
-	client *http.Client
+	repo    repository.WebhookRepository
+	client  *http.Client
+	backoff func(attempt int) time.Duration // injectable for tests; defaults to webhookBackoff
 }
 
 // NewWebhookService creates a new WebhookService backed by a GORM repository.
 // Kept for backward compatibility with existing callers and tests.
 func NewWebhookService(db *gorm.DB) *WebhookService {
 	return &WebhookService{
-		repo:   repository.NewWebhookRepository(db),
-		client: &http.Client{Timeout: 10 * time.Second, Transport: otelhttp.NewTransport(http.DefaultTransport)},
+		repo:    repository.NewWebhookRepository(db),
+		client:  &http.Client{Timeout: 10 * time.Second, Transport: otelhttp.NewTransport(http.DefaultTransport)},
+		backoff: webhookBackoff,
 	}
 }
 
@@ -44,8 +46,9 @@ func NewWebhookService(db *gorm.DB) *WebhookService {
 // enabling unit tests to inject mocks.
 func NewWebhookServiceWithRepo(repo repository.WebhookRepository) *WebhookService {
 	return &WebhookService{
-		repo:   repo,
-		client: &http.Client{Timeout: 10 * time.Second, Transport: otelhttp.NewTransport(http.DefaultTransport)},
+		repo:    repo,
+		client:  &http.Client{Timeout: 10 * time.Second, Transport: otelhttp.NewTransport(http.DefaultTransport)},
+		backoff: webhookBackoff,
 	}
 }
 
@@ -138,6 +141,9 @@ func (s *WebhookService) Dispatch(event string, data interface{}) {
 	}
 }
 
+// maxWebhookRetries is the number of retry attempts after the initial delivery fails.
+const maxWebhookRetries = 3
+
 func (s *WebhookService) deliver(wh models.Webhook, payload WebhookPayload) {
 	body, err := json.Marshal(payload)
 	if err != nil {
@@ -145,52 +151,73 @@ func (s *WebhookService) deliver(wh models.Webhook, payload WebhookPayload) {
 		return
 	}
 
-	// Use a bounded context so deliveries can't hang indefinitely (the
-	// http.Client already has a 10s timeout; this adds an explicit upper
-	// bound and makes the operation cancelable during shutdown).
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, "POST", wh.URL, bytes.NewReader(body))
-	if err != nil {
-		slog.Error("webhook request failed", "webhook_id", wh.ID, "error", err)
-		return
+	var (
+		resp    *http.Response
+		lastErr error
+		retries int
+	)
+
+	for attempt := 0; ; attempt++ {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		req, reqErr := http.NewRequestWithContext(ctx, "POST", wh.URL, bytes.NewReader(body))
+		if reqErr != nil {
+			cancel()
+			slog.Error("webhook request creation failed", "webhook_id", wh.ID, "error", reqErr)
+			return
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-ContentX-Event", payload.Event)
+		if wh.Secret != "" {
+			sig := hmacSign([]byte(wh.Secret), body)
+			req.Header.Set("X-ContentX-Signature", "sha256="+sig)
+		}
+
+		resp, lastErr = s.client.Do(req)
+		cancel()
+
+		// Success or 4xx (permanent failure): stop retrying.
+		if lastErr == nil && resp.StatusCode < 500 {
+			break
+		}
+		if resp != nil {
+			_ = resp.Body.Close()
+		}
+		if attempt >= maxWebhookRetries {
+			break
+		}
+		retries++
+		time.Sleep(s.backoff(attempt))
 	}
 
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-ContentX-Event", payload.Event)
-
-	// HMAC signature if secret is set.
-	if wh.Secret != "" {
-		sig := hmacSign([]byte(wh.Secret), body)
-		req.Header.Set("X-ContentX-Signature", "sha256="+sig)
-	}
-
-	start := time.Now()
-	resp, err := s.client.Do(req)
-	duration := int(time.Since(start).Milliseconds())
-
+	duration := 0 // total duration not tracked per-attempt in retry mode
 	log := models.WebhookLog{
 		WebhookID: wh.ID,
 		Event:     payload.Event,
 		Payload:   string(body),
 		Duration:  duration,
+		Retries:   retries,
 	}
 
-	if err != nil {
+	if lastErr != nil {
 		log.Success = false
-		log.Error = err.Error()
-		slog.Warn("webhook delivery failed", "webhook_id", wh.ID, "url", wh.URL, "error", err)
+		log.Error = lastErr.Error()
+		slog.Warn("webhook delivery failed", "webhook_id", wh.ID, "url", wh.URL, "retries", retries, "error", lastErr)
 	} else {
 		log.Response = resp.StatusCode
 		log.Success = resp.StatusCode >= 200 && resp.StatusCode < 300
 		_ = resp.Body.Close()
 		if !log.Success {
-			slog.Warn("webhook returned non-2xx", "webhook_id", wh.ID, "status", resp.StatusCode)
+			slog.Warn("webhook returned non-2xx", "webhook_id", wh.ID, "status", resp.StatusCode, "retries", retries)
 		}
 	}
+
 	status := "success"
 	if !log.Success {
-		status = "failure"
+		if retries >= maxWebhookRetries {
+			status = "exhausted"
+		} else {
+			status = "failure"
+		}
 	}
 	observability.IncCounterWithLabels(
 		"webhook_dispatch_total",
@@ -199,6 +226,12 @@ func (s *WebhookService) deliver(wh models.Webhook, payload WebhookPayload) {
 	)
 
 	_ = s.repo.CreateLog(&log)
+}
+
+// webhookBackoff returns the sleep duration before the next retry attempt.
+// Exponential: 1s, 2s, 4s.
+func webhookBackoff(attempt int) time.Duration {
+	return time.Duration(1<<uint(attempt)) * time.Second
 }
 
 func hmacSign(secret, data []byte) string {

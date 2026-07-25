@@ -1,10 +1,13 @@
 package graphql
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/graphql-go/graphql"
@@ -347,7 +350,20 @@ func Handler(schema graphql.Schema) gin.HandlerFunc {
 			return
 		}
 
+		// Reject queries exceeding the max nesting depth.
+		if depth := queryDepth(query); depth > maxQueryDepth {
+			c.JSON(http.StatusBadRequest, gin.H{"errors": []map[string]string{
+				{"message": fmt.Sprintf("query depth %d exceeds maximum allowed depth of %d", depth, maxQueryDepth)},
+			}})
+			return
+		}
+
+		// Bound execution time to prevent slow/malicious queries from tying up resources.
+		ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
+		defer cancel()
+
 		result := graphql.Do(graphql.Params{
+			Context:        ctx,
 			Schema:         schema,
 			RequestString:  query,
 			VariableValues: variables,

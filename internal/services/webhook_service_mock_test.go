@@ -244,7 +244,7 @@ func TestMockWebhook_Deliver_Non2xxResponse(t *testing.T) {
 	defer srv.Close()
 
 	repo := &MockWebhookRepository{}
-	svc := NewWebhookServiceWithRepo(repo)
+	svc := zeroBackoff(NewWebhookServiceWithRepo(repo))
 
 	wh := models.Webhook{ID: 1, URL: srv.URL}
 	payload := WebhookPayload{Event: "article.created", Timestamp: time.Now(), Data: "x"}
@@ -265,7 +265,7 @@ func TestMockWebhook_Deliver_Non2xxResponse(t *testing.T) {
 func TestMockWebhook_Deliver_RequestError(t *testing.T) {
 	// Invalid URL → http.NewRequest succeeds but client.Do fails.
 	repo := &MockWebhookRepository{}
-	svc := NewWebhookServiceWithRepo(repo)
+	svc := zeroBackoff(NewWebhookServiceWithRepo(repo))
 
 	wh := models.Webhook{ID: 1, URL: "http://127.0.0.1:0/nonexistent"} // port 0 won't connect
 	payload := WebhookPayload{Event: "article.created", Timestamp: time.Now(), Data: "x"}

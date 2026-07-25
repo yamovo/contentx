@@ -26,6 +26,7 @@ type WebhookLog struct {
 	Duration  int       `json:"duration"` // milliseconds
 	Success   bool      `json:"success"`
 	Error     string    `gorm:"type:text" json:"error,omitempty"`
+	Retries   int       `gorm:"default:0" json:"retries"`
 	CreatedAt time.Time `json:"created_at"`
 }
 
