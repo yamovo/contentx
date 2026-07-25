@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/yamovo/contentx/internal/cache"
 	"github.com/yamovo/contentx/internal/errs"
 	"github.com/yamovo/contentx/internal/models"
 	"github.com/yamovo/contentx/internal/plugin"
@@ -18,11 +19,14 @@ import (
 
 // ArticleService handles business logic for articles.
 type ArticleService struct {
-	repo    repository.ArticleRepository
-	baseURL string
-	webhook WebhookDispatcher
-	plugins *plugin.Manager
-	search  SearchIndexer // optional; defaults to NoopIndexer when unset
+	repo     repository.ArticleRepository
+	baseURL  string
+	webhook  WebhookDispatcher
+	plugins  *plugin.Manager
+	search   SearchIndexer // optional; defaults to NoopIndexer when unset
+	cache    cache.Driver
+	cacheTTL time.Duration
+	cacheGen uint64
 }
 
 const (
@@ -241,6 +245,15 @@ func (s *ArticleService) List(filter ListArticlesFilter) (models.ListResponse, e
 		filter.Sort = "newest"
 	}
 
+	// Cache check.
+	var cacheKey string
+	if s.cache != nil {
+		cacheKey = s.listCacheKey(filter)
+		if cached, hit := s.cacheGetList(cacheKey); hit {
+			return cached, nil
+		}
+	}
+
 	articles, total, err := s.repo.List(repository.ArticleListFilter{
 		Page:       filter.Page,
 		PageSize:   filter.PageSize,
@@ -259,7 +272,9 @@ func (s *ArticleService) List(filter ListArticlesFilter) (models.ListResponse, e
 	}
 
 	paginate := models.Paginate{Page: filter.Page, PageSize: filter.PageSize, Total: total}
-	return models.NewListResponse(articles, paginate), nil
+	resp := models.NewListResponse(articles, paginate)
+	s.cacheSetList(cacheKey, resp)
+	return resp, nil
 }
 
 // Search runs a full-text query against the configured SearchIndexer and
@@ -309,7 +324,15 @@ func (s *ArticleService) ReindexAll(ctx context.Context) (int, error) {
 
 // Get returns a single article by ID.
 func (s *ArticleService) Get(id uint) (*models.Article, error) {
-	return s.repo.GetByID(id)
+	if a := s.cacheGetArticle(id); a != nil {
+		return a, nil
+	}
+	a, err := s.repo.GetByID(id)
+	if err != nil {
+		return nil, err
+	}
+	s.cacheSetArticle(a)
+	return a, nil
 }
 
 // GetBySlug returns a single published article by slug and increments its view count.
@@ -428,6 +451,7 @@ func (s *ArticleService) Create(req CreateArticleRequest, userID uint) (*models.
 		"user_id": userID,
 	})
 
+	s.invalidateArticle(article.ID)
 	return &article, nil
 }
 
@@ -582,6 +606,7 @@ func (s *ArticleService) Update(id uint, req UpdateArticleRequest, userID uint, 
 		"user_id": userID,
 	})
 
+	s.invalidateArticle(article.ID)
 	return article, nil
 }
 
@@ -676,6 +701,7 @@ func (s *ArticleService) Delete(id uint, userID uint, isEditor bool) error {
 		"article_id": id,
 		"user_id":    userID,
 	})
+	s.invalidateArticle(id)
 	return nil
 }
 
@@ -701,6 +727,7 @@ func (s *ArticleService) BulkAction(req BulkActionRequest) (int64, error) {
 			"count":  n,
 		})
 	}
+	s.invalidateArticle(req.ArticleIDs...)
 	return n, nil
 }
 
@@ -751,6 +778,7 @@ func (s *ArticleService) RestoreRevision(articleID uint, revisionID uint, userID
 	}
 	// Content changed: re-index with full preloaded metadata.
 	s.reindexByID(articleID)
+	s.invalidateArticle(articleID)
 	return nil
 }
 
@@ -789,6 +817,7 @@ func (s *ArticleService) transitionTo(id uint, target models.ArticleStatus, publ
 	// Status changes affect search visibility (e.g. draft→published makes the
 	// article publicly searchable). Re-index with full preloaded metadata.
 	s.reindexByID(id)
+	s.invalidateArticle(id)
 	return updated, nil
 }
 
@@ -892,6 +921,7 @@ func (s *ArticleService) PublishDueScheduled(now time.Time) (int, error) {
 	for _, id := range ids {
 		s.reindexByID(id)
 	}
+	s.invalidateArticle(ids...)
 	return int(n), nil
 }
 
