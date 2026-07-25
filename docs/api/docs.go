@@ -9068,6 +9068,9 @@ const docTemplate = `{
                 "response": {
                     "type": "integer"
                 },
+                "retries": {
+                    "type": "integer"
+                },
                 "success": {
                     "type": "boolean"
                 },
