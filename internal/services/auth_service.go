@@ -77,6 +77,7 @@ type AuthService struct {
 	guard             auth.LoginLimiter
 	totp              TOTPVerifier // optional second-factor hook
 	allowRegistration bool
+	audit             AuditLogger // business-level audit; defaults to NoopAuditLogger
 }
 
 // TOTPVerifier is the login-time second-factor hook. Implemented by
@@ -104,6 +105,7 @@ func NewAuthService(db *gorm.DB, jwtMgr *auth.JWTManager, blacklist auth.TokenSt
 		blacklist:         blacklist,
 		guard:             guard,
 		allowRegistration: registrationEnabled(authCfg),
+		audit:             NoopAuditLogger{},
 	}
 }
 
@@ -115,6 +117,15 @@ func NewAuthServiceWithRepo(repo repository.AuthRepository, jwtMgr *auth.JWTMana
 		blacklist:         blacklist,
 		guard:             guard,
 		allowRegistration: registrationEnabled(authCfg),
+		audit:             NoopAuditLogger{},
+	}
+}
+
+// SetAuditLogger wires the business-level audit logger. Must be called before
+// the service handles requests; defaults to NoopAuditLogger when unset.
+func (s *AuthService) SetAuditLogger(l AuditLogger) {
+	if l != nil {
+		s.audit = l
 	}
 }
 
@@ -138,6 +149,12 @@ func (s *AuthService) LoginWithTOTP(username, password, totpCode, clientIP, user
 	if s.guard != nil {
 		locked, remaining := s.guard.Check(username)
 		if locked {
+			s.audit.Log(AuditEvent{
+				Action: "login.locked", Entity: "user", EntityID: 0,
+				Details:   map[string]any{"username": username, "remaining_attempts": remaining},
+				IP:        clientIP,
+				UserAgent: userAgent,
+			})
 			return nil, nil, errs.ErrAccountLocked
 		}
 		_ = remaining
@@ -149,10 +166,23 @@ func (s *AuthService) LoginWithTOTP(username, password, totpCode, clientIP, user
 		if s.guard != nil {
 			s.guard.RecordFailed(username)
 		}
+		s.audit.Log(AuditEvent{
+			Action: "login.failed", Entity: "user", EntityID: 0,
+			Details:   map[string]any{"username": username, "reason": "user_not_found"},
+			IP:        clientIP,
+			UserAgent: userAgent,
+		})
 		return nil, nil, errs.ErrInvalidCreds
 	}
 
 	if !user.IsActive() {
+		s.audit.Log(AuditEvent{
+			UserID: &user.ID,
+			Action: "login.failed", Entity: "user", EntityID: user.ID,
+			Details:   map[string]any{"username": username, "reason": "account_disabled"},
+			IP:        clientIP,
+			UserAgent: userAgent,
+		})
 		return nil, nil, errs.ErrAccountDisabled
 	}
 
@@ -161,9 +191,23 @@ func (s *AuthService) LoginWithTOTP(username, password, totpCode, clientIP, user
 		if s.guard != nil {
 			locked, _ := s.guard.RecordFailed(username)
 			if locked {
+				s.audit.Log(AuditEvent{
+					UserID: &user.ID,
+					Action: "login.locked", Entity: "user", EntityID: user.ID,
+					Details:   map[string]any{"username": username, "reason": "max_password_attempts"},
+					IP:        clientIP,
+					UserAgent: userAgent,
+				})
 				return nil, nil, errs.ErrAccountLocked.WithMessage(fmt.Sprintf("account locked after %d failed attempts", s.guard.MaxAttempts()))
 			}
 		}
+		s.audit.Log(AuditEvent{
+			UserID: &user.ID,
+			Action: "login.failed", Entity: "user", EntityID: user.ID,
+			Details:   map[string]any{"username": username, "reason": "invalid_password"},
+			IP:        clientIP,
+			UserAgent: userAgent,
+		})
 		return nil, nil, errs.ErrInvalidCreds
 	}
 
@@ -182,15 +226,36 @@ func (s *AuthService) LoginWithTOTP(username, password, totpCode, clientIP, user
 		}
 		if required {
 			if totpCode == "" {
+				s.audit.Log(AuditEvent{
+					UserID: &user.ID,
+					Action: "login.failed", Entity: "user", EntityID: user.ID,
+					Details:   map[string]any{"username": username, "reason": "totp_required"},
+					IP:        clientIP,
+					UserAgent: userAgent,
+				})
 				return nil, nil, errs.ErrTOTPRequired
 			}
 			if err := s.totp.VerifyLogin(user.ID, totpCode); err != nil {
 				if s.guard != nil {
 					locked, _ := s.guard.RecordFailed(username)
 					if locked {
+						s.audit.Log(AuditEvent{
+							UserID: &user.ID,
+							Action: "login.locked", Entity: "user", EntityID: user.ID,
+							Details:   map[string]any{"username": username, "reason": "max_totp_attempts"},
+							IP:        clientIP,
+							UserAgent: userAgent,
+						})
 						return nil, nil, errs.ErrAccountLocked.WithMessage(fmt.Sprintf("account locked after %d failed attempts", s.guard.MaxAttempts()))
 					}
 				}
+				s.audit.Log(AuditEvent{
+					UserID: &user.ID,
+					Action: "login.failed", Entity: "user", EntityID: user.ID,
+					Details:   map[string]any{"username": username, "reason": "invalid_totp"},
+					IP:        clientIP,
+					UserAgent: userAgent,
+				})
 				return nil, nil, err
 			}
 		}
@@ -217,6 +282,13 @@ func (s *AuthService) LoginWithTOTP(username, password, totpCode, clientIP, user
 		Action:    "login",
 		Entity:    "user",
 		EntityID:  user.ID,
+		IP:        clientIP,
+		UserAgent: userAgent,
+	})
+	s.audit.Log(AuditEvent{
+		UserID: &user.ID,
+		Action: "login.success", Entity: "user", EntityID: user.ID,
+		Details:   map[string]any{"username": username},
 		IP:        clientIP,
 		UserAgent: userAgent,
 	})
@@ -291,6 +363,13 @@ func (s *AuthService) Register(req RegisterRequest, clientIP string) (*auth.Toke
 	if err != nil {
 		return nil, nil, errs.ErrInternal.Wrap(fmt.Errorf("user created but token generation failed: %w", err))
 	}
+
+	s.audit.Log(AuditEvent{
+		UserID: &userWithRole.ID,
+		Action: "user.register", Entity: "user", EntityID: userWithRole.ID,
+		Details: map[string]any{"username": userWithRole.Username, "email": userWithRole.Email},
+		IP:      clientIP,
+	})
 
 	return tokenPair, SanitizeUser(userWithRole), nil
 }
@@ -427,7 +506,17 @@ func (s *AuthService) ChangePassword(userID uint, oldPassword, newPassword strin
 		return err
 	}
 
-	return s.repo.UpdateUserPassword(userID, newHash)
+	if err := s.repo.UpdateUserPassword(userID, newHash); err != nil {
+		return err
+	}
+
+	uid := userID
+	s.audit.Log(AuditEvent{
+		UserID: &uid,
+		Action: "user.password_change", Entity: "user", EntityID: userID,
+		Details: map[string]any{"username": user.Username},
+	})
+	return nil
 }
 
 // ---------------------------------------------------------------------------

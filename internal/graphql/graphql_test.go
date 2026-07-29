@@ -206,7 +206,7 @@ func TestQuery_Articles_DefaultOnlyPublished(t *testing.T) {
 	}
 }
 
-func TestQuery_Articles_ExplicitStatus(t *testing.T) {
+func TestQuery_Articles_ExplicitDraftStatusStillOnlyReturnsPublished(t *testing.T) {
 	schema, _ := setupTestSchema(t)
 	q := `query { articles(status: "draft") { total items { id title status } } }`
 	res := graphql.Do(graphql.Params{Schema: schema, RequestString: q})
@@ -216,10 +216,44 @@ func TestQuery_Articles_ExplicitStatus(t *testing.T) {
 	conn := res.Data.(map[string]interface{})["articles"].(map[string]interface{})
 	items := conn["items"].([]interface{})
 	if len(items) != 1 {
-		t.Fatalf("expected 1 draft article, got %d", len(items))
+		t.Fatalf("expected 1 public published article, got %d", len(items))
 	}
-	if items[0].(map[string]interface{})["title"] != "Draft Post" {
-		t.Errorf("expected Draft Post, got %v", items[0].(map[string]interface{})["title"])
+	if items[0].(map[string]interface{})["title"] != "Hello World" {
+		t.Errorf("expected Hello World, got %v", items[0].(map[string]interface{})["title"])
+	}
+}
+
+func TestQuery_ArticleByID_HidesDraft(t *testing.T) {
+	schema, _ := setupTestSchema(t)
+	q := `query { article(id: "2") { id title status } }`
+	res := graphql.Do(graphql.Params{Schema: schema, RequestString: q})
+	if res.HasErrors() {
+		t.Fatalf("unexpected errors: %v", res.Errors)
+	}
+	if got := res.Data.(map[string]interface{})["article"]; got != nil {
+		t.Fatalf("expected draft article to be hidden, got %v", got)
+	}
+}
+
+func TestQuery_Articles_HidesPublishedPrivateContent(t *testing.T) {
+	schema, db := setupTestSchema(t)
+	privateArticle := models.Article{
+		Title: "Private", Slug: "private", AuthorID: 1,
+		Status: models.StatusPublished, PostType: models.PostTypePost,
+		Visibility: models.VisibilityPrivate,
+	}
+	if err := db.Create(&privateArticle).Error; err != nil {
+		t.Fatalf("create private article: %v", err)
+	}
+
+	q := `query { articles { total items { title } } }`
+	res := graphql.Do(graphql.Params{Schema: schema, RequestString: q})
+	if res.HasErrors() {
+		t.Fatalf("unexpected errors: %v", res.Errors)
+	}
+	conn := res.Data.(map[string]interface{})["articles"].(map[string]interface{})
+	if got := toInt(conn["total"]); got != 1 {
+		t.Fatalf("total = %d, want 1 public article", got)
 	}
 }
 

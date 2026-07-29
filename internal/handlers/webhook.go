@@ -61,7 +61,12 @@ func (h *WebhookHandler) Create(c *gin.Context) {
 		return
 	}
 
-	wh, err := h.svc.Create(req)
+	actor := getCurrentUser(c)
+	if actor == nil {
+		return
+	}
+
+	wh, err := h.svc.Create(req, actor.ID)
 	if err != nil {
 		handleServiceError(c, err)
 		return
@@ -91,7 +96,12 @@ func (h *WebhookHandler) Delete(c *gin.Context) {
 		return
 	}
 
-	if err := h.svc.Delete(uint(id)); err != nil {
+	actor := getCurrentUser(c)
+	if actor == nil {
+		return
+	}
+
+	if err := h.svc.Delete(uint(id), actor.ID); err != nil {
 		handleServiceError(c, err)
 		return
 	}

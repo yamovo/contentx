@@ -75,22 +75,30 @@ type UpdateRoleRequest struct {
 type UserService struct {
 	repo    repository.UserRepository
 	webhook WebhookDispatcher
+	audit   AuditLogger
 }
 
 // NewUserService creates a new UserService backed by a GORM repository.
 // Kept for backward compatibility with existing callers and tests.
 func NewUserService(db *gorm.DB) *UserService {
-	return &UserService{repo: repository.NewUserRepository(db)}
+	return &UserService{repo: repository.NewUserRepository(db), audit: NoopAuditLogger{}}
 }
 
 // NewUserServiceWithRepo builds a UserService with an explicit repository,
 // enabling unit tests to inject mocks.
 func NewUserServiceWithRepo(repo repository.UserRepository) *UserService {
-	return &UserService{repo: repo}
+	return &UserService{repo: repo, audit: NoopAuditLogger{}}
 }
 
 // SetWebhookDispatcher attaches a webhook dispatcher for event triggering.
 func (s *UserService) SetWebhookDispatcher(d WebhookDispatcher) { s.webhook = d }
+
+// SetAuditLogger wires the business-level audit logger.
+func (s *UserService) SetAuditLogger(l AuditLogger) {
+	if l != nil {
+		s.audit = l
+	}
+}
 
 // List returns a paginated, filtered list of users and the total count.
 func (s *UserService) List(params UserListParams) ([]models.User, int64, error) {
@@ -127,7 +135,7 @@ func (s *UserService) Get(id uint) (*models.User, error) {
 }
 
 // Create inserts a new user after hashing the password and applying defaults.
-func (s *UserService) Create(req CreateUserRequest) (*models.User, error) {
+func (s *UserService) Create(req CreateUserRequest, actorIDs ...uint) (*models.User, error) {
 	hashedPw, err := auth.HashPassword(req.Password)
 	if err != nil {
 		return nil, fmt.Errorf("hash password: %w", err)
@@ -160,13 +168,20 @@ func (s *UserService) Create(req CreateUserRequest) (*models.User, error) {
 	if s.webhook != nil {
 		s.webhook.Dispatch(models.WebhookEventUserCreate, result)
 	}
+	s.audit.Log(AuditEvent{
+		UserID: auditActor(actorIDs), Action: "user.create", Entity: "user", EntityID: result.ID,
+		Details: map[string]any{
+			"username": result.Username, "email": result.Email,
+			"role_id": result.RoleID, "status": string(result.Status),
+		},
+	})
 	return result, nil
 }
 
 // Update applies partial updates to a user and returns the refreshed record.
 // SEC-5 垂直越权防护：非 admin 操作者不得修改 admin 账户，也不得变更任何
 // 用户的角色（防止持有 users.edit 权限的自定义角色自我/他人提权）。
-func (s *UserService) Update(id uint, req UpdateUserRequest, actorIsAdmin bool) (*models.User, error) {
+func (s *UserService) Update(id uint, req UpdateUserRequest, actorIsAdmin bool, actorIDs ...uint) (*models.User, error) {
 	target, err := s.repo.GetByID(id)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -219,11 +234,30 @@ func (s *UserService) Update(id uint, req UpdateUserRequest, actorIsAdmin bool) 
 		}
 		return nil, fmt.Errorf("reload user: %w", err)
 	}
+
+	// Audit security-sensitive field changes (role/status). Other field
+	// changes (display_name, bio, ...) are not audited at the service layer
+	// to avoid noise; the HTTP-level middleware still records the mutation.
+	if req.RoleID != nil || req.Status != nil {
+		details := map[string]any{"username": target.Username}
+		if req.RoleID != nil {
+			details["role_id_from"] = target.RoleID
+			details["role_id_to"] = *req.RoleID
+		}
+		if req.Status != nil {
+			details["status_from"] = string(target.Status)
+			details["status_to"] = string(*req.Status)
+		}
+		s.audit.Log(AuditEvent{
+			UserID: auditActor(actorIDs), Action: "user.update", Entity: "user", EntityID: id, Details: details,
+		})
+	}
+
 	return user, nil
 }
 
 // Delete soft-deletes a user. Returns an error if the user is an admin.
-func (s *UserService) Delete(id uint) error {
+func (s *UserService) Delete(id uint, actorIDs ...uint) error {
 	user, err := s.repo.GetByID(id)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -239,12 +273,16 @@ func (s *UserService) Delete(id uint) error {
 	if err := s.repo.SoftDelete(user); err != nil {
 		return fmt.Errorf("delete user: %w", err)
 	}
+	s.audit.Log(AuditEvent{
+		UserID: auditActor(actorIDs), Action: "user.delete", Entity: "user", EntityID: id,
+		Details: map[string]any{"username": user.Username},
+	})
 	return nil
 }
 
 // ResetPassword hashes the new password and updates the user record.
 // SEC-5 垂直越权防护：非 admin 操作者不得重置 admin 账户密码（防账户接管）。
-func (s *UserService) ResetPassword(id uint, newPassword string, actorIsAdmin bool) error {
+func (s *UserService) ResetPassword(id uint, newPassword string, actorIsAdmin bool, actorIDs ...uint) error {
 	target, err := s.repo.GetByID(id)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -264,6 +302,10 @@ func (s *UserService) ResetPassword(id uint, newPassword string, actorIsAdmin bo
 	if err := s.repo.UpdatePassword(id, hashedPw); err != nil {
 		return fmt.Errorf("reset password: %w", err)
 	}
+	s.audit.Log(AuditEvent{
+		UserID: auditActor(actorIDs), Action: "user.password_reset", Entity: "user", EntityID: id,
+		Details: map[string]any{"username": target.Username, "admin_initiated": actorIsAdmin},
+	})
 	return nil
 }
 
@@ -271,19 +313,27 @@ func (s *UserService) ResetPassword(id uint, newPassword string, actorIsAdmin bo
 
 // RoleService provides role-related business logic.
 type RoleService struct {
-	repo repository.RoleRepository
+	repo  repository.RoleRepository
+	audit AuditLogger
 }
 
 // NewRoleService creates a new RoleService backed by a GORM repository.
 // Kept for backward compatibility with existing callers and tests.
 func NewRoleService(db *gorm.DB) *RoleService {
-	return &RoleService{repo: repository.NewRoleRepository(db)}
+	return &RoleService{repo: repository.NewRoleRepository(db), audit: NoopAuditLogger{}}
 }
 
 // NewRoleServiceWithRepo builds a RoleService with an explicit repository,
 // enabling unit tests to inject mocks.
 func NewRoleServiceWithRepo(repo repository.RoleRepository) *RoleService {
-	return &RoleService{repo: repo}
+	return &RoleService{repo: repo, audit: NoopAuditLogger{}}
+}
+
+// SetAuditLogger wires the business-level audit logger.
+func (s *RoleService) SetAuditLogger(l AuditLogger) {
+	if l != nil {
+		s.audit = l
+	}
 }
 
 // List returns all roles with permissions preloaded and user counts populated.
@@ -303,7 +353,7 @@ func (s *RoleService) List() ([]models.Role, error) {
 }
 
 // Create inserts a new role and assigns the given permission IDs.
-func (s *RoleService) Create(req CreateRoleRequest) (*models.Role, error) {
+func (s *RoleService) Create(req CreateRoleRequest, actorIDs ...uint) (*models.Role, error) {
 	role := models.Role{
 		Name:        req.Name,
 		Slug:        req.Slug,
@@ -324,11 +374,15 @@ func (s *RoleService) Create(req CreateRoleRequest) (*models.Role, error) {
 	if err != nil {
 		return &role, nil
 	}
+	s.audit.Log(AuditEvent{
+		UserID: auditActor(actorIDs), Action: "role.create", Entity: "role", EntityID: role.ID,
+		Details: map[string]any{"name": role.Name, "slug": role.Slug, "permission_ids": req.PermissionIDs},
+	})
 	return reloaded, nil
 }
 
 // Update modifies a role. System roles cannot be updated.
-func (s *RoleService) Update(id uint, req UpdateRoleRequest) (*models.Role, error) {
+func (s *RoleService) Update(id uint, req UpdateRoleRequest, actorIDs ...uint) (*models.Role, error) {
 	role, err := s.repo.FindByID(id)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -358,11 +412,22 @@ func (s *RoleService) Update(id uint, req UpdateRoleRequest) (*models.Role, erro
 	if err != nil {
 		return role, nil
 	}
+	details := map[string]any{"slug": role.Slug}
+	if req.Name != nil {
+		details["name_from"] = role.Name
+		details["name_to"] = *req.Name
+	}
+	if req.PermissionIDs != nil {
+		details["permission_ids"] = req.PermissionIDs
+	}
+	s.audit.Log(AuditEvent{
+		UserID: auditActor(actorIDs), Action: "role.update", Entity: "role", EntityID: id, Details: details,
+	})
 	return reloaded, nil
 }
 
 // Delete removes a role after checking it is not a system role and not in use.
-func (s *RoleService) Delete(id uint) error {
+func (s *RoleService) Delete(id uint, actorIDs ...uint) error {
 	role, err := s.repo.FindByID(id)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -387,6 +452,10 @@ func (s *RoleService) Delete(id uint) error {
 	if err := s.repo.Delete(role); err != nil {
 		return fmt.Errorf("delete role: %w", err)
 	}
+	s.audit.Log(AuditEvent{
+		UserID: auditActor(actorIDs), Action: "role.delete", Entity: "role", EntityID: id,
+		Details: map[string]any{"name": role.Name, "slug": role.Slug},
+	})
 	return nil
 }
 

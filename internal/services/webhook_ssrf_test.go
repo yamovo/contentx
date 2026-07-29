@@ -13,10 +13,8 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
-	"time"
 
 	"github.com/yamovo/contentx/internal/errs"
-	"github.com/yamovo/contentx/internal/models"
 )
 
 func TestWebhookSSRF_DisallowedIPTable(t *testing.T) {
@@ -44,62 +42,49 @@ func TestWebhookSSRF_DisallowedIPTable(t *testing.T) {
 	}
 }
 
-// TestWebhookSSRF_DeliverToLoopbackBlocked: 默认加固客户端投递到 loopback
-// httptest 服务器必须在 dial 层被拦截，目标服务器收不到任何请求。
-func TestWebhookSSRF_DeliverToLoopbackBlocked(t *testing.T) {
-	t.Setenv("WEBHOOK_ALLOW_PRIVATE_TARGETS", "")
-
+// TestWebhookSSRF_LoopbackBlockedAtDial: the hardened delivery client blocks
+// loopback targets at the dial layer — the target server must receive nothing.
+func TestWebhookSSRF_LoopbackBlockedAtDial(t *testing.T) {
 	var calls int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		atomic.AddInt32(&calls, 1)
 	}))
 	defer srv.Close()
 
-	repo := &MockWebhookRepository{}
-	svc := NewWebhookServiceWithRepo(repo) // hardened client
-	svc.backoff = func(int) time.Duration { return 0 }
-
-	wh := models.Webhook{ID: 1, URL: srv.URL}
-	svc.deliver(wh, WebhookPayload{Event: "article.created", Timestamp: time.Now(), Data: "x"})
-
+	client := newWebhookHTTPClient(false) // hardened (private targets blocked)
+	resp, err := client.Post(srv.URL, "application/json", strings.NewReader("{}"))
+	if resp != nil {
+		_ = resp.Body.Close()
+	}
+	if err == nil {
+		t.Fatal("expected dial-layer block error for loopback target")
+	}
 	if got := atomic.LoadInt32(&calls); got != 0 {
 		t.Fatalf("expected 0 requests to reach loopback target, got %d", got)
 	}
-	if len(repo.CreatedLogs) != 1 {
-		t.Fatalf("expected 1 log, got %d", len(repo.CreatedLogs))
-	}
-	log := repo.CreatedLogs[0]
-	if log.Success {
-		t.Error("expected success=false for blocked target")
-	}
-	if !strings.Contains(log.Error, "SSRF") {
-		t.Errorf("expected SSRF block error, got %q", log.Error)
+	if !strings.Contains(err.Error(), "SSRF") {
+		t.Errorf("expected SSRF block error, got %q", err.Error())
 	}
 }
 
-// TestWebhookSSRF_MetadataEndpointBlocked: 云元数据地址在 dial 前即被拒绝。
+// TestWebhookSSRF_MetadataEndpointBlocked: the cloud metadata address is
+// rejected at dial time (no request leaves the process).
 func TestWebhookSSRF_MetadataEndpointBlocked(t *testing.T) {
-	t.Setenv("WEBHOOK_ALLOW_PRIVATE_TARGETS", "")
-
-	repo := &MockWebhookRepository{}
-	svc := NewWebhookServiceWithRepo(repo)
-	svc.backoff = func(int) time.Duration { return 0 }
-
-	wh := models.Webhook{ID: 1, URL: "http://169.254.169.254/latest/meta-data/"}
-	svc.deliver(wh, WebhookPayload{Event: "article.created", Timestamp: time.Now(), Data: "x"})
-
-	if len(repo.CreatedLogs) != 1 {
-		t.Fatalf("expected 1 log, got %d", len(repo.CreatedLogs))
+	client := newWebhookHTTPClient(false)
+	resp, err := client.Post("http://169.254.169.254/latest/meta-data/", "application/json", strings.NewReader("{}"))
+	if resp != nil {
+		_ = resp.Body.Close()
 	}
-	if repo.CreatedLogs[0].Success {
-		t.Error("expected success=false for metadata endpoint")
+	if err == nil {
+		t.Fatal("expected error for metadata endpoint")
 	}
-	if !strings.Contains(repo.CreatedLogs[0].Error, "SSRF") {
-		t.Errorf("expected SSRF block error, got %q", repo.CreatedLogs[0].Error)
+	if !strings.Contains(err.Error(), "SSRF") {
+		t.Errorf("expected SSRF block error, got %q", err.Error())
 	}
 }
 
-// TestWebhookSSRF_RedirectNotFollowed: 3xx 不跟随，redirect 目标收不到请求。
+// TestWebhookSSRF_RedirectNotFollowed: 3xx is not followed, so a redirect to
+// an internal target never receives a request.
 func TestWebhookSSRF_RedirectNotFollowed(t *testing.T) {
 	var redirectTargetCalls int32
 	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -112,33 +97,24 @@ func TestWebhookSSRF_RedirectNotFollowed(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	repo := &MockWebhookRepository{}
-	// 放行 loopback 以便测试 redirect 行为本身。
-	svc := allowPrivateTargets(NewWebhookServiceWithRepo(repo))
-	svc.backoff = func(int) time.Duration { return 0 }
-
-	wh := models.Webhook{ID: 1, URL: srv.URL}
-	svc.deliver(wh, WebhookPayload{Event: "article.created", Timestamp: time.Now(), Data: "x"})
+	client := newWebhookHTTPClient(true) // allow loopback to exercise redirect behaviour
+	resp, err := client.Post(srv.URL, "application/json", strings.NewReader("{}"))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	defer resp.Body.Close()
 
 	if got := atomic.LoadInt32(&redirectTargetCalls); got != 0 {
 		t.Fatalf("expected redirect target not to be called, got %d calls", got)
 	}
-	if len(repo.CreatedLogs) != 1 {
-		t.Fatalf("expected 1 log, got %d", len(repo.CreatedLogs))
-	}
-	log := repo.CreatedLogs[0]
-	if log.Success {
-		t.Error("expected success=false for 302 response")
-	}
-	if log.Response != http.StatusFound {
-		t.Errorf("expected logged status 302, got %d", log.Response)
+	if resp.StatusCode != http.StatusFound {
+		t.Errorf("expected 302 (redirect not followed), got %d", resp.StatusCode)
 	}
 }
 
-// TestWebhookSSRF_AllowPrivateOptIn: 显式开启逃生开关后 loopback 可投递。
+// TestWebhookSSRF_AllowPrivateOptIn: with the escape hatch enabled, loopback
+// delivery succeeds.
 func TestWebhookSSRF_AllowPrivateOptIn(t *testing.T) {
-	t.Setenv("WEBHOOK_ALLOW_PRIVATE_TARGETS", "true")
-
 	var calls int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		atomic.AddInt32(&calls, 1)
@@ -146,17 +122,18 @@ func TestWebhookSSRF_AllowPrivateOptIn(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	repo := &MockWebhookRepository{}
-	svc := NewWebhookServiceWithRepo(repo) // env opt-in → permissive client
-
-	wh := models.Webhook{ID: 1, URL: srv.URL}
-	svc.deliver(wh, WebhookPayload{Event: "article.created", Timestamp: time.Now(), Data: "x"})
+	client := newWebhookHTTPClient(true) // opt-in → permissive
+	resp, err := client.Post(srv.URL, "application/json", strings.NewReader("{}"))
+	if err != nil {
+		t.Fatalf("unexpected error with opt-in: %v", err)
+	}
+	_ = resp.Body.Close()
 
 	if got := atomic.LoadInt32(&calls); got != 1 {
 		t.Fatalf("expected 1 request with opt-in, got %d", got)
 	}
-	if len(repo.CreatedLogs) != 1 || !repo.CreatedLogs[0].Success {
-		t.Fatal("expected successful delivery with opt-in")
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("expected 200, got %d", resp.StatusCode)
 	}
 }
 

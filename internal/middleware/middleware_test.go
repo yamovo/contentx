@@ -288,6 +288,42 @@ func TestRateLimiter_Stop(t *testing.T) {
 	rl.Stop() // idempotent, must not panic
 }
 
+func TestKeyRateLimiter_Allow(t *testing.T) {
+	rl := NewKeyRateLimiter(2)
+	defer rl.Stop()
+
+	if !rl.Allow("alice@example.com:1.2.3.4") {
+		t.Error("first Allow should succeed")
+	}
+	if !rl.Allow("alice@example.com:1.2.3.4") {
+		t.Error("second Allow should succeed (limit=2)")
+	}
+	if rl.Allow("alice@example.com:1.2.3.4") {
+		t.Error("third Allow should be rejected (limit exceeded)")
+	}
+}
+
+func TestKeyRateLimiter_DistinctKeys(t *testing.T) {
+	rl := NewKeyRateLimiter(1)
+	defer rl.Stop()
+
+	if !rl.Allow("a@x.com:1.1.1.1") {
+		t.Error("first key should be allowed")
+	}
+	if !rl.Allow("b@x.com:2.2.2.2") {
+		t.Error("second distinct key should be allowed (independent bucket)")
+	}
+	if rl.Allow("a@x.com:1.1.1.1") {
+		t.Error("first key should be rejected after limit")
+	}
+}
+
+func TestKeyRateLimiter_Stop(t *testing.T) {
+	rl := NewKeyRateLimiter(10)
+	rl.Stop()
+	rl.Stop() // idempotent
+}
+
 // ---------- LoggerMiddleware ----------
 
 func TestLoggerMiddleware(t *testing.T) {
@@ -354,7 +390,7 @@ func TestActivityLogger_SkipsGet(t *testing.T) {
 	}
 }
 
-func TestActivityLogger_SkipsAnonymousAndErrors(t *testing.T) {
+func TestActivityLogger_LogsFailedMutationAndSkipsAnonymousSuccess(t *testing.T) {
 	db := setupActivityTestDB(t)
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
@@ -372,8 +408,40 @@ func TestActivityLogger_SkipsAnonymousAndErrors(t *testing.T) {
 
 	var count int64
 	db.Model(&models.ActivityLog{}).Count(&count)
-	if count != 0 {
-		t.Fatalf("anonymous/error requests should not be logged, got %d", count)
+	if count != 1 {
+		t.Fatalf("expected only the authenticated failure to be logged, got %d", count)
+	}
+	var log models.ActivityLog
+	db.First(&log)
+	if log.Action != "request.failed" || log.UserID == nil || *log.UserID != 1 {
+		t.Fatalf("unexpected failed-request audit: %+v", log)
+	}
+	if !strings.Contains(log.Details, `"status":400`) {
+		t.Fatalf("failure details should contain status without request body, got %q", log.Details)
+	}
+}
+
+func TestActivityLogger_LogsPermissionDenialWithEntityID(t *testing.T) {
+	db := setupActivityTestDB(t)
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(ActivityLogger(db))
+	r.GET("/api/v1/users/:id", func(c *gin.Context) {
+		c.Set(ContextKeyUser, &models.User{BaseModel: models.BaseModel{ID: 7}})
+		c.Status(http.StatusForbidden)
+	})
+
+	doRequest(r, http.MethodGet, "/api/v1/users/42", nil)
+
+	var log models.ActivityLog
+	if err := db.First(&log).Error; err != nil {
+		t.Fatalf("read permission-denial audit: %v", err)
+	}
+	if log.Action != "request.denied" || log.EntityID != 42 {
+		t.Fatalf("unexpected permission-denial audit: %+v", log)
+	}
+	if log.UserID == nil || *log.UserID != 7 {
+		t.Fatalf("permission denial actor = %v, want 7", log.UserID)
 	}
 }
 

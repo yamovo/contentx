@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"fmt"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
@@ -11,11 +12,15 @@ import (
 
 // MediaHandler handles media upload and management.
 type MediaHandler struct {
-	svc *services.MediaService
+	svc               *services.MediaService
+	maxBulkActionSize int
 }
 
-func NewMediaHandler(svc *services.MediaService) *MediaHandler {
-	return &MediaHandler{svc: svc}
+func NewMediaHandler(svc *services.MediaService, maxBulkActionSize int) *MediaHandler {
+	if maxBulkActionSize <= 0 {
+		maxBulkActionSize = 100
+	}
+	return &MediaHandler{svc: svc, maxBulkActionSize: maxBulkActionSize}
 }
 
 // List returns media files with pagination and filters.
@@ -236,6 +241,11 @@ func (h *MediaHandler) BulkDelete(c *gin.Context) {
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		BadRequest(c, sanitizeBindErr(err))
+		return
+	}
+
+	if len(req.IDs) > h.maxBulkActionSize {
+		BadRequest(c, fmt.Sprintf("批量操作最多支持 %d 条，当前 %d 条", h.maxBulkActionSize, len(req.IDs)))
 		return
 	}
 

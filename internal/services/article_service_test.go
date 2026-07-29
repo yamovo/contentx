@@ -2,9 +2,12 @@ package services
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
+	"time"
 
+	"github.com/yamovo/contentx/internal/errs"
 	"github.com/yamovo/contentx/internal/models"
 )
 
@@ -67,15 +70,52 @@ func TestArticleService_Create(t *testing.T) {
 	if article.AuthorID != user.ID {
 		t.Errorf("AuthorID = %d, want %d", article.AuthorID, user.ID)
 	}
-	if article.Status != "published" {
-		t.Errorf("Status = %q, want %q", article.Status, "published")
+	if article.Status != models.StatusDraft {
+		t.Errorf("Status = %q, want %q", article.Status, models.StatusDraft)
 	}
-	if article.PublishedAt == nil {
-		t.Error("PublishedAt should be set for published articles")
+	if article.PublishedAt != nil {
+		t.Error("PublishedAt must remain nil until the dedicated publish operation succeeds")
 	}
 	if article.ReadingTime < 1 {
 		t.Error("ReadingTime should be >= 1")
 	}
+}
+
+func TestArticleService_Update_IgnoresLifecycleAndPostTypeFields(t *testing.T) {
+	db := setupTestDB(t)
+	svc := NewArticleService(db, "http://localhost:8080")
+	user := createTestUser(t, db, "immutable-fields-author", "author")
+	article := createTestArticle(t, db, user.ID, "Immutable Fields")
+
+	status := string(models.StatusArchived)
+	postType := string(models.PostTypePage)
+	now := time.Now()
+	updated, err := svc.Update(article.ID, UpdateArticleRequest{
+		Status:       &status,
+		PostType:     &postType,
+		PublishedAt:  &now,
+		ScheduledAt:  &now,
+		RevisionNote: "attempt lifecycle bypass",
+	}, user.ID, false)
+	if err != nil {
+		t.Fatalf("Update() error: %v", err)
+	}
+	if updated.Status != article.Status {
+		t.Errorf("status changed through ordinary update: %q", updated.Status)
+	}
+	if updated.PostType != article.PostType {
+		t.Errorf("post_type changed through ordinary update: %q", updated.PostType)
+	}
+	if !sameTime(updated.PublishedAt, article.PublishedAt) || !sameTime(updated.ScheduledAt, article.ScheduledAt) {
+		t.Error("lifecycle timestamps changed through ordinary update")
+	}
+}
+
+func sameTime(left, right *time.Time) bool {
+	if left == nil || right == nil {
+		return left == right
+	}
+	return left.Equal(*right)
 }
 
 func TestArticleService_Create_SlugGeneration(t *testing.T) {
@@ -209,6 +249,58 @@ func TestArticleService_Update_Forbidden(t *testing.T) {
 	_, err := svc.Update(article.ID, UpdateArticleRequest{Title: &newTitle}, other.ID, false)
 	if err == nil {
 		t.Error("Update() should return forbidden for non-owner, non-editor")
+	}
+}
+
+func TestArticleService_Update_OptimisticLock_Conflict(t *testing.T) {
+	db := setupTestDB(t)
+	svc := NewArticleService(db, "http://localhost:8080")
+	author := createTestUser(t, db, "lock-author", "author")
+	article := createTestArticle(t, db, author.ID, "Lock Test")
+
+	// 第一次更新：传入正确的 version=1 → 成功。
+	v1 := 1
+	firstTitle := "Saved by Editor A"
+	_, err := svc.Update(article.ID, UpdateArticleRequest{
+		Title:           &firstTitle,
+		ExpectedVersion: &v1,
+	}, author.ID, true)
+	if err != nil {
+		t.Fatalf("first update should succeed: %v", err)
+	}
+
+	// 第二次更新：用过期的 version=1 → 返回 ErrConcurrentModification。
+	staleTitle := "Stale edit by Editor B"
+	_, err = svc.Update(article.ID, UpdateArticleRequest{
+		Title:           &staleTitle,
+		ExpectedVersion: &v1, // 过期的 version
+	}, author.ID, true)
+	if err == nil {
+		t.Fatal("expected ErrConcurrentModification, got nil")
+	}
+	if !errors.Is(err, errs.ErrConcurrentModification) {
+		t.Fatalf("expected ErrConcurrentModification, got %v", err)
+	}
+}
+
+func TestArticleService_Update_OptimisticLock_CoversTagOnlyChanges(t *testing.T) {
+	db := setupTestDB(t)
+	svc := NewArticleService(db, "http://localhost:8080")
+	author := createTestUser(t, db, "tag-lock-author", "author")
+	article := createTestArticle(t, db, author.ID, "Tag Lock Test")
+
+	v1 := article.Version
+	if _, err := svc.Update(article.ID, UpdateArticleRequest{
+		TagIDs:          []uint{},
+		ExpectedVersion: &v1,
+	}, author.ID, true); err != nil {
+		t.Fatalf("first tag-only update should succeed: %v", err)
+	}
+	if _, err := svc.Update(article.ID, UpdateArticleRequest{
+		TagIDs:          []uint{},
+		ExpectedVersion: &v1,
+	}, author.ID, true); !errors.Is(err, errs.ErrConcurrentModification) {
+		t.Fatalf("stale tag-only update = %v, want concurrent modification", err)
 	}
 }
 

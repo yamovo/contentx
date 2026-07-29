@@ -111,7 +111,7 @@ func TestArticleRepository_Update_PartialFieldsAndRevision(t *testing.T) {
 		"title":   "Updated Title",
 		"content": "updated content",
 	}
-	if err := repo.Update(article, updates, nil, "edit", author.ID); err != nil {
+	if err := repo.Update(article, updates, nil, "edit", author.ID, nil); err != nil {
 		t.Fatalf("Update: %v", err)
 	}
 
@@ -126,6 +126,76 @@ func TestArticleRepository_Update_PartialFieldsAndRevision(t *testing.T) {
 	}
 	if revisions[0].Version != 2 {
 		t.Fatalf("expected latest version 2, got %d", revisions[0].Version)
+	}
+}
+
+func TestArticleRepository_Update_OptimisticLock_Success(t *testing.T) {
+	db := setupTestDB(t)
+	repo := NewArticleRepository(db)
+	author := createTestUser(t, db, "lock-author1", "author")
+
+	article := &models.Article{
+		Title:    "Lock Test",
+		Slug:     "lock-test",
+		Content:  "v1",
+		AuthorID: author.ID,
+		Status:   models.StatusDraft,
+	}
+	if err := repo.Create(article, nil, "", author.ID); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if article.Version != 1 {
+		t.Fatalf("expected initial version 1, got %d", article.Version)
+	}
+
+	// 更新时传入正确的 expectedVersion=1 → 成功，version 自增到 2。
+	v1 := 1
+	updates := map[string]interface{}{"title": "v2"}
+	if err := repo.Update(article, updates, nil, "edit", author.ID, &v1); err != nil {
+		t.Fatalf("Update with correct version: %v", err)
+	}
+
+	// 重新加载确认 version 已自增。
+	updated, _ := repo.FindByID(article.ID)
+	if updated.Version != 2 {
+		t.Fatalf("expected version 2 after update, got %d", updated.Version)
+	}
+}
+
+func TestArticleRepository_Update_OptimisticLock_Conflict(t *testing.T) {
+	db := setupTestDB(t)
+	repo := NewArticleRepository(db)
+	author := createTestUser(t, db, "lock-author2", "author")
+
+	article := &models.Article{
+		Title:    "Conflict Test",
+		Slug:     "conflict-test",
+		Content:  "v1",
+		AuthorID: author.ID,
+		Status:   models.StatusDraft,
+	}
+	if err := repo.Create(article, nil, "", author.ID); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	// 模拟另一个编辑器已经保存了一次（version 从 1 变为 2）。
+	staleVersion := 1
+	updates := map[string]interface{}{"title": "intermediate"}
+	if err := repo.Update(article, updates, nil, "first edit", author.ID, &staleVersion); err != nil {
+		t.Fatalf("first Update: %v", err)
+	}
+
+	// 现在用过期的 version=1 再次更新 → 应返回 ErrConcurrentModification。
+	updates2 := map[string]interface{}{"title": "stale edit"}
+	err := repo.Update(article, updates2, nil, "stale edit", author.ID, &staleVersion)
+	if err != ErrConcurrentModification {
+		t.Fatalf("expected ErrConcurrentModification, got %v", err)
+	}
+
+	// 确认标题没被覆写为 stale edit。
+	current, _ := repo.FindByID(article.ID)
+	if current.Title != "intermediate" {
+		t.Fatalf("title should be 'intermediate', got %q", current.Title)
 	}
 }
 
@@ -149,7 +219,7 @@ func TestArticleRepository_Update_ReplaceTags(t *testing.T) {
 	}
 
 	// Replace tags: remove tag1, keep tag2, add tag3.
-	if err := repo.Update(article, nil, []uint{tag2.ID, tag3.ID}, "retag", author.ID); err != nil {
+	if err := repo.Update(article, nil, []uint{tag2.ID, tag3.ID}, "retag", author.ID, nil); err != nil {
 		t.Fatalf("Update: %v", err)
 	}
 	if len(article.Tags) != 2 {
@@ -363,7 +433,7 @@ func TestArticleRepository_RestoreRevision(t *testing.T) {
 	if err := repo.Update(article, map[string]interface{}{
 		"title":   "v2",
 		"content": "v2 content",
-	}, nil, "v2 edit", author.ID); err != nil {
+	}, nil, "v2 edit", author.ID, nil); err != nil {
 		t.Fatalf("Update: %v", err)
 	}
 

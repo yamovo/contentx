@@ -30,6 +30,36 @@ type WebhookLog struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+// Webhook delivery queue statuses. A delivery is created as pending, claimed
+// into delivering by the worker, and ends in exactly one terminal state.
+const (
+	WebhookDeliveryPending    = "pending"    // awaiting an attempt (initial or rescheduled retry)
+	WebhookDeliveryDelivering = "delivering" // claimed by a worker, attempt in flight
+	WebhookDeliverySuccess    = "success"    // terminal: endpoint returned 2xx
+	WebhookDeliveryFailed     = "failed"     // terminal: permanent failure (4xx, webhook deleted)
+	WebhookDeliveryExhausted  = "exhausted"  // terminal: retry budget used up (5xx/network)
+)
+
+// WebhookDelivery is one persistent queue entry for delivering an event to a
+// webhook endpoint. WebhookService.Dispatch enqueues rows; WebhookWorker
+// claims due rows, performs a single HTTP attempt per claim, and either
+// resolves the row to a terminal state or reschedules it with backoff.
+// Persistence makes deliveries survive process restarts (at-least-once).
+type WebhookDelivery struct {
+	ID           uint       `gorm:"primarykey" json:"id"`
+	WebhookID    uint       `gorm:"index;not null" json:"webhook_id"`
+	Event        string     `gorm:"size:64;not null" json:"event"`
+	Payload      string     `gorm:"type:text;not null" json:"payload"`
+	Status       string     `gorm:"size:16;not null;default:pending;index" json:"status"`
+	Attempts     int        `gorm:"not null;default:0" json:"attempts"`
+	NextRetryAt  time.Time  `gorm:"not null;index" json:"next_retry_at"`
+	ResponseCode int        `json:"response_code"`
+	LastError    string     `gorm:"type:text" json:"last_error,omitempty"`
+	CreatedAt    time.Time  `json:"created_at"`
+	UpdatedAt    time.Time  `json:"updated_at"`
+	CompletedAt  *time.Time `json:"completed_at,omitempty"`
+}
+
 // Webhook event constants.
 const (
 	WebhookEventEntryCreate    = "entry.create"

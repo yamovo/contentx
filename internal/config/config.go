@@ -208,12 +208,13 @@ type AnalyticsConfig struct {
 
 // LimitsConfig holds rate limiting and resource limits.
 type LimitsConfig struct {
-	APIRateLimit    int // requests per minute
-	UploadRateLimit int
-	MaxPageSize     int
-	DefaultPageSize int
-	MaxCommentDepth int
-	MaxMenuDepth    int
+	APIRateLimit      int // requests per minute
+	UploadRateLimit   int
+	MaxPageSize       int
+	DefaultPageSize   int
+	MaxCommentDepth   int
+	MaxMenuDepth      int
+	MaxBulkActionSize int // max items per bulk operation (e.g. bulk publish/delete)
 }
 
 // CORSConfig holds CORS settings.
@@ -344,12 +345,13 @@ func Load() *Config {
 			SampleRate: envFloat("ANALYTICS_SAMPLE_RATE", 1.0),
 		},
 		Limits: LimitsConfig{
-			APIRateLimit:    envInt("LIMITS_API_RATE", 300),
-			UploadRateLimit: envInt("LIMITS_UPLOAD_RATE", 10),
-			MaxPageSize:     envInt("LIMITS_MAX_PAGE_SIZE", 100),
-			DefaultPageSize: envInt("LIMITS_DEFAULT_PAGE_SIZE", 20),
-			MaxCommentDepth: envInt("LIMITS_MAX_COMMENT_DEPTH", 5),
-			MaxMenuDepth:    envInt("LIMITS_MAX_MENU_DEPTH", 4),
+			APIRateLimit:      envInt("LIMITS_API_RATE", 300),
+			UploadRateLimit:   envInt("LIMITS_UPLOAD_RATE", 10),
+			MaxPageSize:       envInt("LIMITS_MAX_PAGE_SIZE", 100),
+			DefaultPageSize:   envInt("LIMITS_DEFAULT_PAGE_SIZE", 20),
+			MaxCommentDepth:   envInt("LIMITS_MAX_COMMENT_DEPTH", 5),
+			MaxMenuDepth:      envInt("LIMITS_MAX_MENU_DEPTH", 4),
+			MaxBulkActionSize: envInt("LIMITS_MAX_BULK_ACTION_SIZE", 100),
 		},
 		CORS: CORSConfig{
 			AllowedOrigins:   envSlice("CORS_ALLOWED_ORIGINS", []string{"http://localhost:3000", "http://localhost:8080"}),

@@ -2,10 +2,12 @@ package middleware
 
 import (
 	"crypto/sha256"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"runtime/debug"
+	"strconv"
 	"sync"
 	"time"
 
@@ -174,38 +176,70 @@ func ContentTypeJSON() gin.HandlerFunc {
 	}
 }
 
-// ActivityLogger logs mutation requests (POST, PUT, DELETE) to the activity log.
+// ActivityLogger logs mutations and access denials without ever inspecting the
+// request body. Business services add richer entity-level events; this layer
+// guarantees that failed writes and permission denials are not silently lost.
 func ActivityLogger(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		c.Next()
 
 		method := c.Request.Method
-		if method == "GET" || method == "HEAD" || method == "OPTIONS" {
+		status := c.Writer.Status()
+		isMutation := method != http.MethodGet && method != http.MethodHead && method != http.MethodOptions
+		isDenied := status == http.StatusUnauthorized || status == http.StatusForbidden
+		if !isMutation && !isDenied {
 			return
 		}
 
-		// Only log successful mutations.
-		if c.Writer.Status() >= 400 {
-			return
-		}
-
+		var userID *uint
 		user, exists := c.Get(ContextKeyUser)
-		if !exists {
+		if exists {
+			if u, ok := user.(*models.User); ok && u != nil {
+				id := u.ID
+				userID = &id
+			}
+		}
+		// Anonymous successful mutations are not expected and are skipped.
+		// Anonymous failures remain useful security and abuse evidence.
+		if userID == nil && status < 400 {
 			return
 		}
 
-		u, ok := user.(*models.User)
-		if !ok {
-			return
+		action := method
+		outcome := "success"
+		if status >= 400 {
+			action = "request.failed"
+			outcome = "failed"
+			if isDenied {
+				action = "request.denied"
+				outcome = "denied"
+			}
 		}
+
+		entityID := uint(0)
+		for _, key := range []string{"id", "article_id", "user_id", "role_id", "webhook_id"} {
+			if raw := c.Param(key); raw != "" {
+				if parsed, err := strconv.ParseUint(raw, 10, 64); err == nil {
+					entityID = uint(parsed)
+					break
+				}
+			}
+		}
+		details, _ := json.Marshal(map[string]any{
+			"method": method, "status": status, "outcome": outcome,
+		})
 		log := models.ActivityLog{
-			UserID:    &u.ID,
-			Action:    method,
+			UserID:    userID,
+			Action:    action,
 			Entity:    c.FullPath(),
+			EntityID:  entityID,
+			Details:   string(details),
 			IP:        c.ClientIP(),
 			UserAgent: c.Request.UserAgent(),
 		}
-		db.Create(&log)
+		if err := db.Create(&log).Error; err != nil {
+			slog.Warn("request audit log write failed", "error", err, "action", action, "entity", log.Entity)
+		}
 	}
 }
 
@@ -442,6 +476,88 @@ func GroupRateLimit(rl *IPRateLimit, group string) gin.HandlerFunc {
 		s.mu.Unlock()
 		c.Next()
 	}
+}
+
+// KeyRateLimiter provides rate limiting by arbitrary keys (e.g. email, email+IP).
+// Unlike IPRateLimit which keys on c.ClientIP() inside middleware, KeyRateLimiter
+// exposes an Allow(key) method so handlers can rate-limit by request-body fields
+// such as the email on the registration endpoint. This prevents attackers from
+// bypassing IP-only limits by rotating IPs while targeting a single account.
+type KeyRateLimiter struct {
+	requestsPerMinute int
+	shards            []*rlShard
+	stop              chan struct{}
+	once              sync.Once
+}
+
+// NewKeyRateLimiter creates a stoppable KeyRateLimiter. Call Stop to release
+// the background cleanup goroutine.
+func NewKeyRateLimiter(requestsPerMinute int) *KeyRateLimiter {
+	const numShards = 16
+	shards := make([]*rlShard, numShards)
+	for i := range shards {
+		shards[i] = &rlShard{buckets: make(map[string]*rlBucket)}
+	}
+	rl := &KeyRateLimiter{
+		requestsPerMinute: requestsPerMinute,
+		shards:            shards,
+		stop:              make(chan struct{}),
+	}
+	go func() {
+		ticker := time.NewTicker(5 * time.Minute)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-rl.stop:
+				return
+			case <-ticker.C:
+				now := time.Now()
+				for _, s := range rl.shards {
+					s.mu.Lock()
+					for k, b := range s.buckets {
+						if now.Sub(b.lastSeen) > 10*time.Minute {
+							delete(s.buckets, k)
+						}
+					}
+					s.mu.Unlock()
+				}
+			}
+		}
+	}()
+	return rl
+}
+
+// Allow checks and decrements the bucket for the given key. Returns false if
+// the rate limit has been exceeded (caller should return 429).
+func (rl *KeyRateLimiter) Allow(key string) bool {
+	h := sha256.Sum256([]byte(key))
+	s := rl.shards[h[0]%uint8(len(rl.shards))]
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	b, exists := s.buckets[key]
+	if !exists {
+		b = &rlBucket{tokens: rl.requestsPerMinute, lastReset: time.Now(), lastSeen: time.Now()}
+		s.buckets[key] = b
+	}
+	b.lastSeen = time.Now()
+
+	if time.Since(b.lastReset) > time.Minute {
+		b.tokens = rl.requestsPerMinute
+		b.lastReset = time.Now()
+	}
+
+	if b.tokens <= 0 {
+		return false
+	}
+	b.tokens--
+	return true
+}
+
+// Stop terminates the background cleanup goroutine. Safe to call multiple times.
+func (rl *KeyRateLimiter) Stop() {
+	rl.once.Do(func() { close(rl.stop) })
 }
 
 // Helper functions.

@@ -132,19 +132,27 @@ type DeviceBreakdownData struct {
 
 // SettingsService provides site settings operations.
 type SettingsService struct {
-	repo repository.SettingsRepository
+	repo  repository.SettingsRepository
+	audit AuditLogger
 }
 
 // NewSettingsService creates a new SettingsService backed by a GORM repository.
 // Kept for backward compatibility with existing callers and tests.
 func NewSettingsService(db *gorm.DB) *SettingsService {
-	return &SettingsService{repo: repository.NewSettingsRepository(db)}
+	return &SettingsService{repo: repository.NewSettingsRepository(db), audit: NoopAuditLogger{}}
 }
 
 // NewSettingsServiceWithRepo builds a SettingsService with an explicit repository,
 // enabling unit tests to inject mocks.
 func NewSettingsServiceWithRepo(repo repository.SettingsRepository) *SettingsService {
-	return &SettingsService{repo: repo}
+	return &SettingsService{repo: repo, audit: NoopAuditLogger{}}
+}
+
+// SetAuditLogger wires the business-level audit logger.
+func (s *SettingsService) SetAuditLogger(l AuditLogger) {
+	if l != nil {
+		s.audit = l
+	}
 }
 
 // List returns all settings, optionally filtered by group, plus a grouped map.
@@ -168,7 +176,7 @@ func (s *SettingsService) Get(key string) (*models.SiteSetting, error) {
 }
 
 // Update upserts multiple settings at once.
-func (s *SettingsService) Update(settings map[string]interface{}) error {
+func (s *SettingsService) Update(settings map[string]interface{}, actorIDs ...uint) error {
 	for key, value := range settings {
 		strValue := stringifyValue(value)
 		rowsAffected, err := s.repo.UpdateValue(key, strValue)
@@ -186,7 +194,34 @@ func (s *SettingsService) Update(settings map[string]interface{}) error {
 			}
 		}
 	}
+	// Audit config changes with redacted values. Sensitive keys (e.g. those
+	// containing secret/token/password/api_key) record only the key name.
+	redacted := make(map[string]any, len(settings))
+	for k, v := range settings {
+		if isSensitiveSetting(k) {
+			redacted[k] = "***"
+		} else {
+			redacted[k] = v
+		}
+	}
+	s.audit.Log(AuditEvent{
+		UserID: auditActor(actorIDs), Action: "system.config_update", Entity: "system", EntityID: 0,
+		Details: redacted,
+	})
 	return nil
+}
+
+// isSensitiveSetting reports whether a settings key holds a secret. The check
+// is intentionally broad (substring match) to avoid accidentally logging
+// credentials introduced under new key names.
+func isSensitiveSetting(key string) bool {
+	k := strings.ToLower(key)
+	for _, secret := range []string{"secret", "token", "password", "api_key", "apikey", "private_key", "passwd"} {
+		if strings.Contains(k, secret) {
+			return true
+		}
+	}
+	return false
 }
 
 // PublicSettings returns public settings as a flat key-value map.

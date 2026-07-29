@@ -206,11 +206,24 @@ func TestTOTP_Login_RequiresCodeWhenEnabled(t *testing.T) {
 
 	authSvc := NewAuthService(db, newTestJWTManager(), nil, nil)
 	authSvc.SetTOTPVerifier(totpSvc)
+	audit := &captureAuditLogger{}
+	authSvc.SetAuditLogger(audit)
 
 	// Missing code → TOTP_REQUIRED, no tokens issued.
 	_, _, err := authSvc.LoginWithTOTP(user.Username, "TestPass1", "", "127.0.0.1", "test")
 	if err != errs.ErrTOTPRequired {
 		t.Fatalf("expected ErrTOTPRequired, got %v", err)
+	}
+	ev := audit.findAction("login.failed")
+	if ev == nil {
+		t.Fatalf("expected login.failed audit event, got: %+v", audit.Events())
+	}
+	details, ok := ev.Details.(map[string]any)
+	if !ok || details["reason"] != "totp_required" {
+		t.Fatalf("login.failed reason = %v, want totp_required", ev.Details)
+	}
+	if ev.UserID == nil || *ev.UserID != user.ID {
+		t.Fatalf("login.failed UserID = %v, want %d", ev.UserID, user.ID)
 	}
 
 	// Wrong code → TOTP_INVALID.

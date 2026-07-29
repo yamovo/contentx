@@ -28,9 +28,12 @@ func TestArticleCache_ListHitAndInvalidate(t *testing.T) {
 	}
 
 	// Create a new published article (invalidates list cache).
-	_, err = svc.Create(CreateArticleRequest{Title: "New One", Status: "published"}, user.ID)
+	created, err := svc.Create(CreateArticleRequest{Title: "New One", Status: "published"}, user.ID)
 	if err != nil {
 		t.Fatalf("Create: %v", err)
+	}
+	if _, err = svc.Publish(created.ID); err != nil {
+		t.Fatalf("Publish: %v", err)
 	}
 
 	// List again: should see 2 articles (cache was invalidated by Create).

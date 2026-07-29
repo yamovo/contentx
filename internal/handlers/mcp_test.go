@@ -335,7 +335,7 @@ func TestMCPWriteTools(t *testing.T) {
 		csB := mcpConnect(t, ctx, endpoint, tokEditB)
 		resB, err := csB.CallTool(ctx, &mcpsdk.CallToolParams{
 			Name:      "update_article",
-			Arguments: map[string]any{"id": otherID, "title": "hijacked"},
+			Arguments: map[string]any{"id": otherID, "expected_version": 1, "title": "hijacked"},
 		})
 		_ = csB.Close()
 		if err != nil {
@@ -350,7 +350,7 @@ func TestMCPWriteTools(t *testing.T) {
 		defer func() { _ = csB2.Close() }()
 		resB2, err := csB2.CallTool(ctx, &mcpsdk.CallToolParams{
 			Name:      "update_article",
-			Arguments: map[string]any{"id": otherID, "title": "edited by editor"},
+			Arguments: map[string]any{"id": otherID, "expected_version": 1, "title": "edited by editor"},
 		})
 		if err != nil {
 			t.Fatalf("update: %v", err)

@@ -40,6 +40,7 @@ type SystemRepository interface {
 	ListActivityLogs(filter ActivityLogListFilter) ([]models.ActivityLog, int64, error)
 	CountActiveUsers() (int64, error)
 	CountArticlesByStatus(status string) (int64, error)
+	CountPendingWebhookDeliveries() (int64, error)
 	DBConnectionsInUse() (int, error)
 }
 
@@ -191,6 +192,17 @@ func (r *gormSystemRepository) CountActiveUsers() (int64, error) {
 func (r *gormSystemRepository) CountArticlesByStatus(status string) (int64, error) {
 	var count int64
 	if err := r.db.Model(&models.Article{}).Where("status = ?", status).Count(&count).Error; err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
+// CountPendingWebhookDeliveries reports the current webhook queue depth.
+func (r *gormSystemRepository) CountPendingWebhookDeliveries() (int64, error) {
+	var count int64
+	if err := r.db.Model(&models.WebhookDelivery{}).
+		Where("status = ?", models.WebhookDeliveryPending).
+		Count(&count).Error; err != nil {
 		return 0, err
 	}
 	return count, nil

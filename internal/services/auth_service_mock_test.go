@@ -289,7 +289,7 @@ func TestMockAuth_Register_Disabled(t *testing.T) {
 	repo := &MockAuthRepository{
 		Setting: &models.SiteSetting{Key: "enable_registration", Value: "false"},
 	}
-	svc := NewAuthServiceWithRepo(repo, newTestJWTManager(), auth.NewBlacklist(), nil)
+	svc := NewAuthServiceWithRepo(repo, newTestJWTManager(), auth.NewBlacklist(), nil, config.AuthConfig{AllowRegistration: true})
 
 	_, _, err := svc.Register(RegisterRequest{
 		Username: "newuser", Email: "new@example.com", Password: "Password1",
@@ -304,7 +304,7 @@ func TestMockAuth_Register_DuplicateUser(t *testing.T) {
 		FindSettingErr:         gorm.ErrRecordNotFound, // registration enabled (setting not configured)
 		CountByUsernameOrEmail: 1,
 	}
-	svc := NewAuthServiceWithRepo(repo, newTestJWTManager(), auth.NewBlacklist(), nil)
+	svc := NewAuthServiceWithRepo(repo, newTestJWTManager(), auth.NewBlacklist(), nil, config.AuthConfig{AllowRegistration: true})
 
 	_, _, err := svc.Register(RegisterRequest{
 		Username: "alice", Email: "alice@example.com", Password: "Password1",
@@ -327,7 +327,7 @@ func TestMockAuth_Register_DefaultRoleFallback(t *testing.T) {
 			Role:        models.Role{Slug: "subscriber"},
 		},
 	}
-	svc := NewAuthServiceWithRepo(repo, newTestJWTManager(), auth.NewBlacklist(), nil)
+	svc := NewAuthServiceWithRepo(repo, newTestJWTManager(), auth.NewBlacklist(), nil, config.AuthConfig{AllowRegistration: true})
 
 	pair, safe, err := svc.Register(RegisterRequest{
 		Username: "newuser", Email: "new@example.com", Password: "Password1",
@@ -349,7 +349,7 @@ func TestMockAuth_Register_NoDefaultRole(t *testing.T) {
 		FindDefaultRoleErr: gorm.ErrRecordNotFound,
 		FindRoleBySlugErr:  gorm.ErrRecordNotFound,
 	}
-	svc := NewAuthServiceWithRepo(repo, newTestJWTManager(), auth.NewBlacklist(), nil)
+	svc := NewAuthServiceWithRepo(repo, newTestJWTManager(), auth.NewBlacklist(), nil, config.AuthConfig{AllowRegistration: true})
 
 	_, _, err := svc.Register(RegisterRequest{
 		Username: "newuser", Email: "new@example.com", Password: "Password1",
@@ -369,7 +369,7 @@ func TestMockAuth_Register_CreateUserError(t *testing.T) {
 		DefaultRole:    &models.Role{BaseModel: models.BaseModel{ID: 5}, Slug: "subscriber"},
 		CreateUserErr:  gorm.ErrInvalidDB,
 	}
-	svc := NewAuthServiceWithRepo(repo, newTestJWTManager(), auth.NewBlacklist(), nil)
+	svc := NewAuthServiceWithRepo(repo, newTestJWTManager(), auth.NewBlacklist(), nil, config.AuthConfig{AllowRegistration: true})
 
 	_, _, err := svc.Register(RegisterRequest{
 		Username: "newuser", Email: "new@example.com", Password: "Password1",
@@ -391,7 +391,7 @@ func TestMockAuth_Register_Success(t *testing.T) {
 			Role:        models.Role{Slug: "subscriber"},
 		},
 	}
-	svc := NewAuthServiceWithRepo(repo, newTestJWTManager(), auth.NewBlacklist(), nil)
+	svc := NewAuthServiceWithRepo(repo, newTestJWTManager(), auth.NewBlacklist(), nil, config.AuthConfig{AllowRegistration: true})
 
 	pair, safe, err := svc.Register(RegisterRequest{
 		Username: "newuser", Email: "new@example.com", Password: "Password1", DisplayName: "New User",

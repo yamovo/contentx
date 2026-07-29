@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"fmt"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
@@ -11,11 +12,15 @@ import (
 
 // CommentHandler handles comment operations.
 type CommentHandler struct {
-	svc *services.CommentService
+	svc               *services.CommentService
+	maxBulkActionSize int
 }
 
-func NewCommentHandler(svc *services.CommentService) *CommentHandler {
-	return &CommentHandler{svc: svc}
+func NewCommentHandler(svc *services.CommentService, maxBulkActionSize int) *CommentHandler {
+	if maxBulkActionSize <= 0 {
+		maxBulkActionSize = 100
+	}
+	return &CommentHandler{svc: svc, maxBulkActionSize: maxBulkActionSize}
 }
 
 // List returns comments with pagination and filters.
@@ -257,6 +262,11 @@ func (h *CommentHandler) BulkAction(c *gin.Context) {
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		BadRequest(c, sanitizeBindErr(err))
+		return
+	}
+
+	if len(req.CommentIDs) > h.maxBulkActionSize {
+		BadRequest(c, fmt.Sprintf("批量操作最多支持 %d 条，当前 %d 条", h.maxBulkActionSize, len(req.CommentIDs)))
 		return
 	}
 

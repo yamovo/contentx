@@ -16,10 +16,31 @@ import (
 	"github.com/yamovo/contentx/internal/middleware"
 	"github.com/yamovo/contentx/internal/permissions"
 	"github.com/yamovo/contentx/internal/plugin"
+	"github.com/yamovo/contentx/internal/repository"
 	"github.com/yamovo/contentx/internal/services"
 	"github.com/yamovo/contentx/internal/storage"
 	"gorm.io/gorm"
 )
+
+// RateLimiters bundles all background-cleanup rate limiters created by
+// RegisterRoutes so the caller can shut them down together on exit.
+type RateLimiters struct {
+	IP       *middleware.IPRateLimit
+	Register *middleware.KeyRateLimiter
+}
+
+// Shutdown stops all background cleanup goroutines. Safe to call multiple times.
+func (rl *RateLimiters) Shutdown() {
+	if rl == nil {
+		return
+	}
+	if rl.IP != nil {
+		rl.IP.Shutdown()
+	}
+	if rl.Register != nil {
+		rl.Register.Stop()
+	}
+}
 
 // RegisterRoutes sets up all API routes. The backupMgr is created by the caller
 // (cmd/server/main.go) so that the backup scheduler and the HTTP handler share
@@ -34,7 +55,7 @@ func RegisterRoutes(
 	cacheDriver cache.Driver,
 	backupMgr *backup.Manager,
 	promCollector *middleware.PrometheusCollector,
-) *middleware.IPRateLimit {
+) *RateLimiters {
 	// Create services.
 	articleSvc := services.NewArticleService(db, cfg.Server.BaseURL)
 	authSvc := services.NewAuthService(db, jwtMgr, blacklist, guard, cfg.Auth)
@@ -68,6 +89,18 @@ func RegisterRoutes(
 	commentSvc.SetWebhookDispatcher(webhookSvc)
 	mediaSvc.SetWebhookDispatcher(webhookSvc)
 	userSvc.SetWebhookDispatcher(webhookSvc)
+
+	// ─── Audit Logger: service-layer business audit with EntityID/Details.
+	// Complements the HTTP-level ActivityLogger middleware (which only
+	// captures method/route/IP/UA) by recording entity IDs and structured
+	// details for security-sensitive operations.
+	auditLogger := services.NewAuditLogger(repository.NewActivityLogRepository(db))
+	articleSvc.SetAuditLogger(auditLogger)
+	authSvc.SetAuditLogger(auditLogger)
+	userSvc.SetAuditLogger(auditLogger)
+	roleSvc.SetAuditLogger(auditLogger)
+	webhookSvc.SetAuditLogger(auditLogger)
+	settingsSvc.SetAuditLogger(auditLogger)
 
 	// ─── Plugin Manager: register built-in plugins and inject into services.
 	pluginMgr := plugin.NewManager(db)
@@ -107,11 +140,11 @@ func RegisterRoutes(
 	// Create handlers.
 	authH := NewAuthHandler(authSvc)
 	totpH := NewTOTPHandler(totpSvc)
-	articleH := NewArticleHandler(articleSvc)
+	articleH := NewArticleHandler(articleSvc, cfg.Limits.MaxBulkActionSize)
 	categoryH := NewCategoryHandler(categorySvc)
 	tagH := NewTagHandler(tagSvc)
-	commentH := NewCommentHandler(commentSvc)
-	mediaH := NewMediaHandler(mediaSvc)
+	commentH := NewCommentHandler(commentSvc, cfg.Limits.MaxBulkActionSize)
+	mediaH := NewMediaHandler(mediaSvc, cfg.Limits.MaxBulkActionSize)
 	userH := NewUserHandler(userSvc)
 	roleH := NewRoleHandler(roleSvc)
 	settingsH := NewSettingsHandler(settingsSvc)
@@ -125,18 +158,25 @@ func RegisterRoutes(
 	contentTypeH := NewContentTypeHandler(contentTypeSvc)
 	webhookH := NewWebhookHandler(webhookSvc)
 	searchH := NewSearchHandler(articleSvc)
-	backupH := NewBackupHandler(backupMgr, articleSvc)
+	backupH := NewBackupHandler(backupMgr, articleSvc, auditLogger)
 
 	// Rate limiter for specific groups (requests per minute).
 	const (
-		rateLimitAuth    = 10
-		rateLimitUpload  = 20
-		rateLimitComment = 30
+		rateLimitAuth     = 10
+		rateLimitUpload   = 20
+		rateLimitComment  = 30
+		rateLimitRegister = 3 // per email+IP — prevents targeted registration spam
 	)
 	rl := middleware.NewIPRateLimit()
 	rl.Add("auth", rateLimitAuth)
 	rl.Add("upload", rateLimitUpload)
 	rl.Add("comment", rateLimitComment)
+
+	// Account-dimension rate limiter for sensitive endpoints (P1-5).
+	// Keyed by email+IP on the registration endpoint to complement the
+	// IP-only auth group limit above.
+	registerLimiter := middleware.NewKeyRateLimiter(rateLimitRegister)
+	authH.SetRegisterRateLimiter(registerLimiter)
 
 	// ─── Public API ────────────────────────────────────
 	api := r.Group("/api/v1")
@@ -450,7 +490,7 @@ func RegisterRoutes(
 		}
 	})
 	uploads.Static("/", cfg.Upload.StoragePath)
-	return rl
+	return &RateLimiters{IP: rl, Register: registerLimiter}
 }
 
 // inlineSafeUpload reports whether an uploaded file at the given path may be

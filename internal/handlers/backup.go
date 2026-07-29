@@ -19,12 +19,28 @@ import (
 type BackupHandler struct {
 	mgr        *backup.Manager
 	articleSvc *services.ArticleService
+	audit      services.AuditLogger
 }
 
 // NewBackupHandler creates a BackupHandler backed by the given Manager.
 // articleSvc is used to rebuild the search index after a DB restore (Round 6 / F2).
-func NewBackupHandler(mgr *backup.Manager, articleSvc *services.ArticleService) *BackupHandler {
-	return &BackupHandler{mgr: mgr, articleSvc: articleSvc}
+func NewBackupHandler(mgr *backup.Manager, articleSvc *services.ArticleService, audit ...services.AuditLogger) *BackupHandler {
+	logger := services.AuditLogger(services.NoopAuditLogger{})
+	if len(audit) > 0 && audit[0] != nil {
+		logger = audit[0]
+	}
+	return &BackupHandler{mgr: mgr, articleSvc: articleSvc, audit: logger}
+}
+
+func (h *BackupHandler) auditSuccess(c *gin.Context, action string, details map[string]any) {
+	user := getCurrentUser(c)
+	if user == nil {
+		return
+	}
+	h.audit.Log(services.AuditEvent{
+		UserID: &user.ID, Action: action, Entity: "backup",
+		Details: details, IP: c.ClientIP(), UserAgent: c.Request.UserAgent(),
+	})
 }
 
 // Create triggers a backup.
@@ -47,6 +63,7 @@ func (h *BackupHandler) Create(c *gin.Context) {
 			handleBackupErr(c, err)
 			return
 		}
+		h.auditSuccess(c, "backup.create", map[string]any{"type": "db", "file": filepath.Base(path)})
 		Success(c, gin.H{"type": "db", "path": filepath.Base(path)})
 	case "media":
 		path, err := h.mgr.BackupMedia()
@@ -54,6 +71,7 @@ func (h *BackupHandler) Create(c *gin.Context) {
 			handleBackupErr(c, err)
 			return
 		}
+		h.auditSuccess(c, "backup.create", map[string]any{"type": "media", "file": filepath.Base(path)})
 		Success(c, gin.H{"type": "media", "path": filepath.Base(path)})
 	case "all":
 		dbPath, mediaPath, err := h.mgr.BackupAll()
@@ -65,6 +83,9 @@ func (h *BackupHandler) Create(c *gin.Context) {
 		if mediaPath != "" {
 			resp["media"] = filepath.Base(mediaPath)
 		}
+		h.auditSuccess(c, "backup.create", map[string]any{
+			"type": "all", "db": filepath.Base(dbPath), "media": filepath.Base(mediaPath),
+		})
 		Success(c, resp)
 	default:
 		BadRequest(c, "type must be db, media, or all")
@@ -133,6 +154,7 @@ func (h *BackupHandler) Restore(c *gin.Context) {
 			handleBackupErr(c, err)
 			return
 		}
+		h.auditSuccess(c, "backup.restore", map[string]any{"type": "media", "file": name})
 		Success(c, gin.H{"type": "media", "restored": name})
 		return
 	}
@@ -185,6 +207,7 @@ func (h *BackupHandler) Restore(c *gin.Context) {
 		resp["search_index"] = "rebuilding"
 	}
 
+	h.auditSuccess(c, "backup.restore", map[string]any{"type": "db", "file": name})
 	Success(c, resp)
 }
 
@@ -231,5 +254,6 @@ func (h *BackupHandler) Delete(c *gin.Context) {
 		Error(c, 500, "DELETE_FAILED", err.Error())
 		return
 	}
+	h.auditSuccess(c, "backup.delete", map[string]any{"file": filepath.Base(name)})
 	Success(c, gin.H{"deleted": filepath.Base(name)})
 }

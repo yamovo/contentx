@@ -76,7 +76,7 @@ func TestAuthService_Register_Success(t *testing.T) {
 		Secret: "test-secret", AccessTokenTTL: 15 * time.Minute, RefreshTokenTTL: 7 * 24 * time.Hour, Issuer: "test",
 	})
 	blacklist := auth.NewBlacklist()
-	svc := NewAuthService(db, jwtMgr, blacklist, nil)
+	svc := NewAuthService(db, jwtMgr, blacklist, nil, config.AuthConfig{AllowRegistration: true})
 
 	req := RegisterRequest{
 		Username: "newuser",
@@ -106,7 +106,7 @@ func TestAuthService_Register_Duplicate(t *testing.T) {
 		Secret: "test-secret", AccessTokenTTL: 15 * time.Minute, RefreshTokenTTL: 7 * 24 * time.Hour, Issuer: "test",
 	})
 	blacklist := auth.NewBlacklist()
-	svc := NewAuthService(db, jwtMgr, blacklist, nil)
+	svc := NewAuthService(db, jwtMgr, blacklist, nil, config.AuthConfig{AllowRegistration: true})
 
 	req := RegisterRequest{
 		Username: "dupuser",

@@ -1,20 +1,17 @@
 package services
 
 import (
-	"bytes"
-	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"log/slog"
-	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/yamovo/contentx/internal/errs"
 	"github.com/yamovo/contentx/internal/models"
-	"github.com/yamovo/contentx/internal/observability"
 	"github.com/yamovo/contentx/internal/repository"
 	"gorm.io/gorm"
 )
@@ -25,20 +22,20 @@ type WebhookDispatcher interface {
 	Dispatch(event string, data interface{})
 }
 
-// WebhookService manages webhooks and dispatches events.
+// WebhookService manages webhooks and enqueues delivery jobs. Actual HTTP
+// delivery is performed asynchronously by WebhookWorker draining the
+// persistent webhook_deliveries queue.
 type WebhookService struct {
-	repo    repository.WebhookRepository
-	client  *http.Client
-	backoff func(attempt int) time.Duration // injectable for tests; defaults to webhookBackoff
+	repo  repository.WebhookRepository
+	audit AuditLogger
 }
 
 // NewWebhookService creates a new WebhookService backed by a GORM repository.
 // Kept for backward compatibility with existing callers and tests.
 func NewWebhookService(db *gorm.DB) *WebhookService {
 	return &WebhookService{
-		repo:    repository.NewWebhookRepository(db),
-		client:  newWebhookHTTPClient(allowPrivateWebhookTargets()),
-		backoff: webhookBackoff,
+		repo:  repository.NewWebhookRepository(db),
+		audit: NoopAuditLogger{},
 	}
 }
 
@@ -46,9 +43,15 @@ func NewWebhookService(db *gorm.DB) *WebhookService {
 // enabling unit tests to inject mocks.
 func NewWebhookServiceWithRepo(repo repository.WebhookRepository) *WebhookService {
 	return &WebhookService{
-		repo:    repo,
-		client:  newWebhookHTTPClient(allowPrivateWebhookTargets()),
-		backoff: webhookBackoff,
+		repo:  repo,
+		audit: NoopAuditLogger{},
+	}
+}
+
+// SetAuditLogger wires the business-level audit logger.
+func (s *WebhookService) SetAuditLogger(l AuditLogger) {
+	if l != nil {
+		s.audit = l
 	}
 }
 
@@ -64,7 +67,7 @@ type CreateWebhookRequest struct {
 }
 
 // Create creates a new webhook.
-func (s *WebhookService) Create(req CreateWebhookRequest) (*models.Webhook, error) {
+func (s *WebhookService) Create(req CreateWebhookRequest, actorIDs ...uint) (*models.Webhook, error) {
 	// SEC-1: reject unsafe target URLs early (scheme + literal internal IPs).
 	if err := validateWebhookURL(req.URL); err != nil {
 		return nil, errs.ErrBadRequest.WithMessage(err.Error())
@@ -80,6 +83,10 @@ func (s *WebhookService) Create(req CreateWebhookRequest) (*models.Webhook, erro
 	if err := s.repo.Create(&wh); err != nil {
 		return nil, errors.New("failed to create webhook")
 	}
+	s.audit.Log(AuditEvent{
+		UserID: auditActor(actorIDs), Action: "webhook.create", Entity: "webhook", EntityID: wh.ID,
+		Details: map[string]any{"name": wh.Name, "url": auditWebhookURL(wh.URL), "events": wh.Events},
+	})
 	return &wh, nil
 }
 
@@ -98,7 +105,8 @@ func (s *WebhookService) Get(id uint) (*models.Webhook, error) {
 }
 
 // Delete deletes a webhook.
-func (s *WebhookService) Delete(id uint) error {
+func (s *WebhookService) Delete(id uint, actorIDs ...uint) error {
+	wh, _ := s.repo.GetByID(id) // best-effort for audit details
 	rowsAffected, err := s.repo.Delete(id)
 	if err != nil {
 		return err
@@ -106,7 +114,27 @@ func (s *WebhookService) Delete(id uint) error {
 	if rowsAffected == 0 {
 		return errors.New("webhook not found")
 	}
+	details := map[string]any{}
+	if wh != nil {
+		details["name"] = wh.Name
+		details["url"] = auditWebhookURL(wh.URL)
+	}
+	s.audit.Log(AuditEvent{
+		UserID: auditActor(actorIDs), Action: "webhook.delete", Entity: "webhook", EntityID: id, Details: details,
+	})
 	return nil
+}
+
+func auditWebhookURL(raw string) string {
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return "[invalid URL]"
+	}
+	parsed.User = nil
+	parsed.RawQuery = ""
+	parsed.ForceQuery = false
+	parsed.Fragment = ""
+	return parsed.String()
 }
 
 // GetLogs returns delivery logs for a webhook.
@@ -123,7 +151,9 @@ type WebhookPayload struct {
 	Data      interface{} `json:"data"`
 }
 
-// Dispatch sends an event to all matching webhooks (async).
+// Dispatch enqueues an event for all matching webhooks. Deliveries are
+// persisted as pending webhook_deliveries rows and drained asynchronously by
+// WebhookWorker, so dispatch is fast, bounded, and survives restarts.
 func (s *WebhookService) Dispatch(event string, data interface{}) {
 	webhooks, err := s.repo.ListActive()
 	if err != nil {
@@ -131,111 +161,34 @@ func (s *WebhookService) Dispatch(event string, data interface{}) {
 		return
 	}
 
-	payload := WebhookPayload{
+	body, err := json.Marshal(WebhookPayload{
 		Event:     event,
 		Timestamp: time.Now(),
 		Data:      data,
+	})
+	if err != nil {
+		slog.Error("webhook marshal failed", "event", event, "error", err)
+		return
 	}
 
+	now := time.Now()
 	for _, wh := range webhooks {
 		if !wh.Events.Has(event) {
 			continue
 		}
-		go s.deliver(wh, payload)
-	}
-}
-
-// maxWebhookRetries is the number of retry attempts after the initial delivery fails.
-const maxWebhookRetries = 3
-
-func (s *WebhookService) deliver(wh models.Webhook, payload WebhookPayload) {
-	body, err := json.Marshal(payload)
-	if err != nil {
-		slog.Error("webhook marshal failed", "webhook_id", wh.ID, "error", err)
-		return
-	}
-
-	var (
-		resp    *http.Response
-		lastErr error
-		retries int
-	)
-
-	for attempt := 0; ; attempt++ {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		req, reqErr := http.NewRequestWithContext(ctx, "POST", wh.URL, bytes.NewReader(body))
-		if reqErr != nil {
-			cancel()
-			slog.Error("webhook request creation failed", "webhook_id", wh.ID, "error", reqErr)
-			return
+		d := models.WebhookDelivery{
+			WebhookID:   wh.ID,
+			Event:       event,
+			Payload:     string(body),
+			Status:      models.WebhookDeliveryPending,
+			NextRetryAt: now, // immediately due for the next worker tick
 		}
-		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("X-ContentX-Event", payload.Event)
-		if wh.Secret != "" {
-			sig := hmacSign([]byte(wh.Secret), body)
-			req.Header.Set("X-ContentX-Signature", "sha256="+sig)
-		}
-
-		resp, lastErr = s.client.Do(req)
-		cancel()
-
-		// Success or 4xx (permanent failure): stop retrying.
-		if lastErr == nil && resp.StatusCode < 500 {
-			break
-		}
-		if resp != nil {
-			_ = resp.Body.Close()
-		}
-		if attempt >= maxWebhookRetries {
-			break
-		}
-		retries++
-		time.Sleep(s.backoff(attempt))
-	}
-
-	duration := 0 // total duration not tracked per-attempt in retry mode
-	log := models.WebhookLog{
-		WebhookID: wh.ID,
-		Event:     payload.Event,
-		Payload:   string(body),
-		Duration:  duration,
-		Retries:   retries,
-	}
-
-	if lastErr != nil {
-		log.Success = false
-		log.Error = lastErr.Error()
-		slog.Warn("webhook delivery failed", "webhook_id", wh.ID, "url", wh.URL, "retries", retries, "error", lastErr)
-	} else {
-		log.Response = resp.StatusCode
-		log.Success = resp.StatusCode >= 200 && resp.StatusCode < 300
-		_ = resp.Body.Close()
-		if !log.Success {
-			slog.Warn("webhook returned non-2xx", "webhook_id", wh.ID, "status", resp.StatusCode, "retries", retries)
+		if err := s.repo.EnqueueDelivery(&d); err != nil {
+			// Best-effort: a failed enqueue must not break the business
+			// operation that triggered the event (same contract as before).
+			slog.Error("webhook enqueue failed", "webhook_id", wh.ID, "event", event, "error", err)
 		}
 	}
-
-	status := "success"
-	if !log.Success {
-		if retries >= maxWebhookRetries {
-			status = "exhausted"
-		} else {
-			status = "failure"
-		}
-	}
-	observability.IncCounterWithLabels(
-		"webhook_dispatch_total",
-		"Total webhook delivery attempts",
-		map[string]string{"event": payload.Event, "status": status},
-	)
-
-	_ = s.repo.CreateLog(&log)
-}
-
-// webhookBackoff returns the sleep duration before the next retry attempt.
-// Exponential: 1s, 2s, 4s.
-func webhookBackoff(attempt int) time.Duration {
-	return time.Duration(1<<uint(attempt)) * time.Second
 }
 
 func hmacSign(secret, data []byte) string {

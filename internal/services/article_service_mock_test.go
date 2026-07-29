@@ -126,7 +126,7 @@ func TestMockArticle_Create_Defaults(t *testing.T) {
 	}
 }
 
-func TestMockArticle_Create_PublishSetsPublishedAt(t *testing.T) {
+func TestMockArticle_Create_CannotPublishThroughCreatePayload(t *testing.T) {
 	svc, _ := newMockArticleService()
 	status := "published"
 	req := CreateArticleRequest{
@@ -139,8 +139,11 @@ func TestMockArticle_Create_PublishSetsPublishedAt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if article.PublishedAt == nil {
-		t.Fatal("PublishedAt should be set when status is published")
+	if article.Status != models.StatusDraft {
+		t.Fatalf("status = %q, want draft", article.Status)
+	}
+	if article.PublishedAt != nil {
+		t.Fatal("PublishedAt must remain nil until the dedicated publish operation")
 	}
 }
 

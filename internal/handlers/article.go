@@ -13,12 +13,16 @@ import (
 
 // ArticleHandler handles article-related HTTP requests.
 type ArticleHandler struct {
-	svc *services.ArticleService
+	svc               *services.ArticleService
+	maxBulkActionSize int
 }
 
 // NewArticleHandler creates a new article handler.
-func NewArticleHandler(svc *services.ArticleService) *ArticleHandler {
-	return &ArticleHandler{svc: svc}
+func NewArticleHandler(svc *services.ArticleService, maxBulkActionSize int) *ArticleHandler {
+	if maxBulkActionSize <= 0 {
+		maxBulkActionSize = 100
+	}
+	return &ArticleHandler{svc: svc, maxBulkActionSize: maxBulkActionSize}
 }
 
 // List returns a paginated list of articles.
@@ -171,6 +175,7 @@ func (h *ArticleHandler) Create(c *gin.Context) {
 //	@Failure      401   {object}  APIResponse
 //	@Failure      403   {object}  APIResponse
 //	@Failure      404   {object}  APIResponse
+//	@Failure      409   {object}  APIResponse
 //	@Router       /articles/{id} [put]
 func (h *ArticleHandler) Update(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
@@ -240,6 +245,11 @@ func (h *ArticleHandler) BulkAction(c *gin.Context) {
 	var req services.BulkActionRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		BadRequest(c, sanitizeBindErr(err))
+		return
+	}
+
+	if len(req.ArticleIDs) > h.maxBulkActionSize {
+		BadRequest(c, fmt.Sprintf("批量操作最多支持 %d 条，当前 %d 条", h.maxBulkActionSize, len(req.ArticleIDs)))
 		return
 	}
 
@@ -383,7 +393,11 @@ func (h *ArticleHandler) Publish(c *gin.Context) {
 		BadRequest(c, "Invalid article ID")
 		return
 	}
-	article, err := h.svc.Publish(uint(id))
+	user := getCurrentUser(c)
+	if user == nil {
+		return
+	}
+	article, err := h.svc.PublishAs(uint(id), user.ID)
 	if err != nil {
 		handleServiceError(c, err)
 		return
@@ -413,7 +427,11 @@ func (h *ArticleHandler) Unpublish(c *gin.Context) {
 		BadRequest(c, "Invalid article ID")
 		return
 	}
-	article, err := h.svc.Unpublish(uint(id))
+	user := getCurrentUser(c)
+	if user == nil {
+		return
+	}
+	article, err := h.svc.UnpublishAs(uint(id), user.ID)
 	if err != nil {
 		handleServiceError(c, err)
 		return
@@ -443,7 +461,11 @@ func (h *ArticleHandler) SubmitForReview(c *gin.Context) {
 		BadRequest(c, "Invalid article ID")
 		return
 	}
-	article, err := h.svc.SubmitForReview(uint(id))
+	user := getCurrentUser(c)
+	if user == nil {
+		return
+	}
+	article, err := h.svc.SubmitForReviewAs(uint(id), user.ID)
 	if err != nil {
 		handleServiceError(c, err)
 		return
@@ -473,7 +495,11 @@ func (h *ArticleHandler) Approve(c *gin.Context) {
 		BadRequest(c, "Invalid article ID")
 		return
 	}
-	article, err := h.svc.Approve(uint(id))
+	user := getCurrentUser(c)
+	if user == nil {
+		return
+	}
+	article, err := h.svc.ApproveAs(uint(id), user.ID)
 	if err != nil {
 		handleServiceError(c, err)
 		return
@@ -515,7 +541,11 @@ func (h *ArticleHandler) Schedule(c *gin.Context) {
 		BadRequest(c, "Invalid scheduled_at: "+err.Error())
 		return
 	}
-	article, err := h.svc.Schedule(uint(id), at)
+	user := getCurrentUser(c)
+	if user == nil {
+		return
+	}
+	article, err := h.svc.ScheduleAs(uint(id), at, user.ID)
 	if err != nil {
 		handleServiceError(c, err)
 		return
@@ -531,7 +561,11 @@ func (h *ArticleHandler) Archive(c *gin.Context) {
 		BadRequest(c, "Invalid article ID")
 		return
 	}
-	article, err := h.svc.Archive(uint(id))
+	user := getCurrentUser(c)
+	if user == nil {
+		return
+	}
+	article, err := h.svc.ArchiveAs(uint(id), user.ID)
 	if err != nil {
 		handleServiceError(c, err)
 		return

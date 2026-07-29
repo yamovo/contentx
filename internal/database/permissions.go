@@ -106,8 +106,8 @@ func syncDefaultRoleMatrix(db *gorm.DB, canonicalBySlug map[string]models.Permis
 		if err := db.Model(&role).Updates(map[string]interface{}{
 			"name":        definition.Name,
 			"description": definition.Description,
-			"is_default": definition.IsDefault,
-			"is_system":  true,
+			"is_default":  definition.IsDefault,
+			"is_system":   true,
 		}).Error; err != nil {
 			return fmt.Errorf("update role %s: %w", definition.Slug, err)
 		}

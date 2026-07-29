@@ -44,12 +44,14 @@ func setupAuthTestRouter(t *testing.T) (*gin.Engine, *gorm.DB, *auth.JWTManager)
 	cfg.JWT.RefreshTokenTTL = 86400000000000
 	cfg.JWT.Issuer = "contentx-test"
 	cfg.Server.BaseURL = "http://localhost:8080"
+	// Register 测试需要显式开启公开注册（生产默认关闭）。
+	cfg.Auth.AllowRegistration = true
 
 	jwtMgr := auth.NewJWTManager(cfg.JWT)
 	blacklist := auth.NewBlacklist()
 	guard := auth.NewLoginGuard()
 
-	authSvc := services.NewAuthService(db, jwtMgr, blacklist, guard)
+	authSvc := services.NewAuthService(db, jwtMgr, blacklist, guard, cfg.Auth)
 
 	r := gin.New()
 	api := r.Group("/api/v1")

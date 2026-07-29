@@ -35,8 +35,8 @@ import (
 )
 
 // @title           ContentX API
-// @version         1.0
-// @description     High-performance Headless CMS - API-first content platform
+// @version         1.3.0
+// @description     ContentX API-first Headless CMS REST API
 // @host            localhost:8080
 // @BasePath        /api/v1
 // @schemes         http https
@@ -320,6 +320,20 @@ func main() {
 
 	publishScheduler.Start()
 	defer publishScheduler.Stop()
+
+	// Start the webhook delivery worker. Dispatch (wired into content/media/
+	// comment/user services in RegisterRoutes) only enqueues persistent rows;
+	// this worker drains them with bounded concurrency and backoff-scheduled
+	// retries, so deliveries survive restarts and bursts can't fan out
+	// unbounded goroutines. Queue behaviour reuses cfg.Queue (QUEUE_*).
+	webhookWorker := services.NewWebhookWorker(db, cfg.Queue)
+	webhookWorker.Start()
+	defer webhookWorker.Stop()
+	slog.Info("webhook worker started",
+		"concurrency", cfg.Queue.MaxWorkers,
+		"max_retries", cfg.Queue.MaxRetries,
+		"retry_delay", cfg.Queue.RetryDelay,
+	)
 
 	// Start the scheduled-backup worker. It runs BackupAll on the cron
 	// schedule from cfg.Backup.Schedule (default "0 3 * * *" = 3am daily).

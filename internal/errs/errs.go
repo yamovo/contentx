@@ -141,6 +141,8 @@ var (
 	// 409 Conflict
 	ErrConflict      = &AppError{Code: "CONFLICT", Message: "Resource already exists", Status: http.StatusConflict}
 	ErrDuplicateUser = &AppError{Code: "DUPLICATE_USER", Message: "Username or email already exists", Status: http.StatusConflict}
+	// ErrConcurrentModification: 乐观锁版本不匹配，资源已被其他用户修改。
+	ErrConcurrentModification = &AppError{Code: "CONCURRENT_MODIFICATION", Message: "Resource was modified by another user, please refresh and retry", Status: http.StatusConflict}
 
 	// 429 Too Many Requests
 	ErrRateLimitExceeded = &AppError{Code: "RATE_LIMIT_EXCEEDED", Message: "Too many requests", Status: http.StatusTooManyRequests}

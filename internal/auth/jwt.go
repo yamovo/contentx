@@ -12,9 +12,9 @@ import (
 )
 
 var (
-	ErrInvalidToken = errors.New("invalid or expired token")
-	ErrTokenExpired = errors.New("token has expired")
-	ErrTokenRevoked = errors.New("token has been revoked")
+	ErrInvalidToken  = errors.New("invalid or expired token")
+	ErrTokenExpired  = errors.New("token has expired")
+	ErrTokenRevoked  = errors.New("token has been revoked")
 	ErrWrongTokenUse = errors.New("token cannot be used for this operation")
 )
 

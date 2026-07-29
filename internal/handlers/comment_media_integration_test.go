@@ -46,8 +46,8 @@ func setupCommentMediaRouter(t *testing.T) (*gin.Engine, *gorm.DB, string) {
 	// Seed an article so comments have a valid article_id.
 	createTestArticleDB(t, db, user.ID, "Commentable Post")
 
-	commentH := NewCommentHandler(services.NewCommentService(db))
-	mediaH := NewMediaHandler(services.NewMediaService(db, cfg.Upload))
+	commentH := NewCommentHandler(services.NewCommentService(db), 0)
+	mediaH := NewMediaHandler(services.NewMediaService(db, cfg.Upload), 0)
 
 	r := gin.New()
 	// Public.

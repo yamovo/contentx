@@ -29,6 +29,7 @@ type ArticleService struct {
 	cacheTTL time.Duration
 	cacheGen uint64
 	flight   singleflight.Group // SEC-9: collapses concurrent cache-miss loads
+	audit    AuditLogger        // business-level audit; defaults to NoopAuditLogger
 }
 
 const (
@@ -41,17 +42,24 @@ const (
 // NewArticleService creates a new ArticleService backed by a GORM repository.
 // Kept for backward compatibility with existing callers and tests.
 func NewArticleService(db *gorm.DB, baseURL string) *ArticleService {
-	return &ArticleService{repo: repository.NewArticleRepository(db), baseURL: baseURL}
+	return &ArticleService{repo: repository.NewArticleRepository(db), baseURL: baseURL, audit: NoopAuditLogger{}}
 }
 
 // NewArticleServiceWithRepo builds an ArticleService with an explicit repository,
 // enabling unit tests to inject mocks.
 func NewArticleServiceWithRepo(repo repository.ArticleRepository, baseURL string) *ArticleService {
-	return &ArticleService{repo: repo, baseURL: baseURL}
+	return &ArticleService{repo: repo, baseURL: baseURL, audit: NoopAuditLogger{}}
 }
 
 // SetWebhookDispatcher attaches a webhook dispatcher for event triggering.
 func (s *ArticleService) SetWebhookDispatcher(d WebhookDispatcher) { s.webhook = d }
+
+// SetAuditLogger wires the business-level audit logger.
+func (s *ArticleService) SetAuditLogger(l AuditLogger) {
+	if l != nil {
+		s.audit = l
+	}
+}
 
 // SetPluginManager attaches a plugin manager for hook dispatch.
 func (s *ArticleService) SetPluginManager(m *plugin.Manager) { s.plugins = m }
@@ -158,7 +166,7 @@ type CreateArticleRequest struct {
 	CategoryID    *uint      `json:"category_id"`
 	TagIDs        []uint     `json:"tag_ids"`
 	FeaturedImage string     `json:"featured_image"`
-	Status        string     `json:"status"`
+	Status        string     `json:"-"`
 	PostType      string     `json:"post_type"`
 	Format        string     `json:"format"`
 	Visibility    string     `json:"visibility"`
@@ -166,8 +174,8 @@ type CreateArticleRequest struct {
 	IsPinned      bool       `json:"is_pinned"`
 	IsFeatured    bool       `json:"is_featured"`
 	AllowComment  *bool      `json:"allow_comment"`
-	PublishedAt   *time.Time `json:"published_at"`
-	ScheduledAt   *time.Time `json:"scheduled_at"`
+	PublishedAt   *time.Time `json:"-"`
+	ScheduledAt   *time.Time `json:"-"`
 	MetaTitle     string     `json:"meta_title"`
 	MetaDesc      string     `json:"meta_desc"`
 	MetaKeywords  string     `json:"meta_keywords"`
@@ -182,32 +190,33 @@ type CreateArticleRequest struct {
 
 // UpdateArticleRequest is the payload for updating an article.
 type UpdateArticleRequest struct {
-	Title         *string    `json:"title"`
-	Slug          *string    `json:"slug"`
-	Content       *string    `json:"content"`
-	Excerpt       *string    `json:"excerpt"`
-	CategoryID    *uint      `json:"category_id"`
-	TagIDs        []uint     `json:"tag_ids"`
-	FeaturedImage *string    `json:"featured_image"`
-	Status        *string    `json:"status"`
-	PostType      *string    `json:"post_type"`
-	Format        *string    `json:"format"`
-	Visibility    *string    `json:"visibility"`
-	Password      *string    `json:"password"`
-	IsPinned      *bool      `json:"is_pinned"`
-	IsFeatured    *bool      `json:"is_featured"`
-	AllowComment  *bool      `json:"allow_comment"`
-	PublishedAt   *time.Time `json:"published_at"`
-	ScheduledAt   *time.Time `json:"scheduled_at"`
-	MetaTitle     *string    `json:"meta_title"`
-	MetaDesc      *string    `json:"meta_desc"`
-	MetaKeywords  *string    `json:"meta_keywords"`
-	CanonicalURL  *string    `json:"canonical_url"`
-	RobotsIndex   *bool      `json:"robots_index"`
-	RobotsFollow  *bool      `json:"robots_follow"`
-	OGImage       *string    `json:"og_image"`
-	Template      *string    `json:"template"`
-	RevisionNote  string     `json:"revision_note"`
+	Title           *string    `json:"title"`
+	Slug            *string    `json:"slug"`
+	Content         *string    `json:"content"`
+	Excerpt         *string    `json:"excerpt"`
+	CategoryID      *uint      `json:"category_id"`
+	TagIDs          []uint     `json:"tag_ids"`
+	FeaturedImage   *string    `json:"featured_image"`
+	Status          *string    `json:"-"`
+	PostType        *string    `json:"-"`
+	Format          *string    `json:"format"`
+	Visibility      *string    `json:"visibility"`
+	Password        *string    `json:"password"`
+	IsPinned        *bool      `json:"is_pinned"`
+	IsFeatured      *bool      `json:"is_featured"`
+	AllowComment    *bool      `json:"allow_comment"`
+	PublishedAt     *time.Time `json:"-"`
+	ScheduledAt     *time.Time `json:"-"`
+	MetaTitle       *string    `json:"meta_title"`
+	MetaDesc        *string    `json:"meta_desc"`
+	MetaKeywords    *string    `json:"meta_keywords"`
+	CanonicalURL    *string    `json:"canonical_url"`
+	RobotsIndex     *bool      `json:"robots_index"`
+	RobotsFollow    *bool      `json:"robots_follow"`
+	OGImage         *string    `json:"og_image"`
+	Template        *string    `json:"template"`
+	RevisionNote    string     `json:"revision_note"`
+	ExpectedVersion *int       `json:"expected_version" binding:"required,min=1"` // 乐观锁：客户端读取时的 version，不匹配返回 409
 }
 
 // ListArticlesFilter holds query parameters for listing articles.
@@ -215,6 +224,7 @@ type ListArticlesFilter struct {
 	Page       int
 	PageSize   int
 	Status     string
+	Visibility string
 	PostType   string
 	CategoryID string
 	TagSlug    string
@@ -267,7 +277,11 @@ func (s *ArticleService) List(filter ListArticlesFilter) (models.ListResponse, e
 	if err != nil {
 		return models.ListResponse{}, err
 	}
-	return v.(models.ListResponse), nil
+	resp, ok := v.(models.ListResponse)
+	if !ok {
+		return models.ListResponse{}, fmt.Errorf("article service: unexpected singleflight type %T", v)
+	}
+	return resp, nil
 }
 
 // listUncached queries the repository directly and (when cacheKey is
@@ -277,6 +291,7 @@ func (s *ArticleService) listUncached(filter ListArticlesFilter, cacheKey string
 		Page:       filter.Page,
 		PageSize:   filter.PageSize,
 		Status:     filter.Status,
+		Visibility: filter.Visibility,
 		PostType:   filter.PostType,
 		CategoryID: filter.CategoryID,
 		TagSlug:    filter.TagSlug,
@@ -364,7 +379,11 @@ func (s *ArticleService) Get(id uint) (*models.Article, error) {
 	if err != nil {
 		return nil, err
 	}
-	return v.(*models.Article), nil
+	article, ok := v.(*models.Article)
+	if !ok {
+		return nil, fmt.Errorf("article service: unexpected singleflight type %T", v)
+	}
+	return article, nil
 }
 
 // GetBySlug returns a single published article by slug and increments its view count.
@@ -395,8 +414,6 @@ func (s *ArticleService) Create(req CreateArticleRequest, userID uint) (*models.
 		Password:      req.Password,
 		IsPinned:      req.IsPinned,
 		IsFeatured:    req.IsFeatured,
-		PublishedAt:   req.PublishedAt,
-		ScheduledAt:   req.ScheduledAt,
 		MetaTitle:     req.MetaTitle,
 		MetaDesc:      req.MetaDesc,
 		MetaKeywords:  req.MetaKeywords,
@@ -416,11 +433,9 @@ func (s *ArticleService) Create(req CreateArticleRequest, userID uint) (*models.
 	} else {
 		article.Locale = "en"
 	}
-	if req.Status != "" {
-		article.Status = models.ArticleStatus(req.Status)
-	} else {
-		article.Status = models.StatusDraft
-	}
+	// Creation always produces a draft. Publishing and scheduling are
+	// privileged lifecycle operations exposed through dedicated endpoints.
+	article.Status = models.StatusDraft
 	if req.Visibility == "" {
 		article.Visibility = models.VisibilityPublic
 	}
@@ -459,12 +474,6 @@ func (s *ArticleService) Create(req CreateArticleRequest, userID uint) (*models.
 	// Calculate reading time & excerpt.
 	article.CalcReadingTime()
 	article.MakeExcerpt(defaultExcerptLength)
-
-	// Set publish time if publishing.
-	if article.Status == models.StatusPublished && article.PublishedAt == nil {
-		now := time.Now()
-		article.PublishedAt = &now
-	}
 
 	if err := s.repo.Create(&article, req.TagIDs, req.RevisionNote, userID); err != nil {
 		return nil, err
@@ -602,6 +611,14 @@ func (s *ArticleService) CreateTranslation(sourceID uint, locale string, req Cre
 	if s.webhook != nil {
 		s.webhook.Dispatch(models.WebhookEventEntryCreate, &article)
 	}
+	uid := userID
+	s.audit.Log(AuditEvent{
+		UserID: &uid, Action: "article.create", Entity: "article", EntityID: article.ID,
+		Details: map[string]any{
+			"title": article.Title, "slug": article.Slug,
+			"post_type": string(article.PostType), "status": string(article.Status),
+		},
+	})
 	s.indexArticle(&article)
 	return &article, nil
 }
@@ -623,7 +640,10 @@ func (s *ArticleService) Update(id uint, req UpdateArticleRequest, userID uint, 
 		return nil, err
 	}
 
-	if err := s.repo.Update(article, updates, tagIDs, req.RevisionNote, userID); err != nil {
+	if err := s.repo.Update(article, updates, tagIDs, req.RevisionNote, userID, req.ExpectedVersion); err != nil {
+		if errors.Is(err, repository.ErrConcurrentModification) {
+			return nil, errs.ErrConcurrentModification
+		}
 		return nil, err
 	}
 
@@ -638,6 +658,13 @@ func (s *ArticleService) Update(id uint, req UpdateArticleRequest, userID uint, 
 		"user_id": userID,
 	})
 
+	uid := userID
+	s.audit.Log(AuditEvent{
+		UserID: &uid, Action: "article.update", Entity: "article", EntityID: article.ID,
+		Details: map[string]any{
+			"title": article.Title, "slug": article.Slug, "version": article.Version,
+		},
+	})
 	s.invalidateArticle(article.ID)
 	return article, nil
 }
@@ -658,30 +685,18 @@ func (s *ArticleService) buildUpdateMap(article *models.Article, req UpdateArtic
 		}
 		updates["slug"] = uniqueSlug
 	}
-	if req.Status != nil {
-		target := models.ArticleStatus(*req.Status)
-		if !models.AllowedTransition(article.Status, target) {
-			return nil, nil, errs.ErrBadRequest.WithMessage(
-				fmt.Sprintf("illegal status transition: %s → %s", article.Status, target))
-		}
-		updates["status"] = *req.Status
-	}
-
 	// Simple nullable fields — copy through when present.
 	setIf(updates, "title", req.Title)
 	setIf(updates, "content", req.Content)
 	setIf(updates, "excerpt", req.Excerpt)
 	setIf(updates, "category_id", req.CategoryID)
 	setIf(updates, "featured_image", req.FeaturedImage)
-	setIf(updates, "post_type", req.PostType)
 	setIf(updates, "format", req.Format)
 	setIf(updates, "visibility", req.Visibility)
 	setIf(updates, "password", req.Password)
 	setIf(updates, "is_pinned", req.IsPinned)
 	setIf(updates, "is_featured", req.IsFeatured)
 	setIf(updates, "allow_comment", req.AllowComment)
-	setIf(updates, "published_at", req.PublishedAt)
-	setIf(updates, "scheduled_at", req.ScheduledAt)
 	setIf(updates, "meta_title", req.MetaTitle)
 	setIf(updates, "meta_desc", req.MetaDesc)
 	setIf(updates, "meta_keywords", req.MetaKeywords)
@@ -732,6 +747,12 @@ func (s *ArticleService) Delete(id uint, userID uint, isEditor bool) error {
 	s.fireAction("article.afterDelete", map[string]interface{}{
 		"article_id": id,
 		"user_id":    userID,
+	})
+	uid := userID
+	s.audit.Log(AuditEvent{
+		UserID: &uid,
+		Action: "article.delete", Entity: "article", EntityID: id,
+		Details: map[string]any{"title": article.Title, "slug": article.Slug},
 	})
 	s.invalidateArticle(id)
 	return nil
@@ -861,6 +882,15 @@ func (s *ArticleService) transitionTo(id uint, target models.ArticleStatus, publ
 // Publish flips an article to published status, recording the publish time if
 // it has none. Triggers the entry.publish webhook event.
 func (s *ArticleService) Publish(id uint) (*models.Article, error) {
+	return s.publish(id, nil)
+}
+
+// PublishAs publishes an article and records the authenticated actor.
+func (s *ArticleService) PublishAs(id, userID uint) (*models.Article, error) {
+	return s.publish(id, &userID)
+}
+
+func (s *ArticleService) publish(id uint, userID *uint) (*models.Article, error) {
 	// Only set PublishedAt if the article doesn't already have one. We need
 	// to inspect the current article to decide, so load it first.
 	current, err := s.repo.FindByID(id)
@@ -879,12 +909,25 @@ func (s *ArticleService) Publish(id uint) (*models.Article, error) {
 	if s.webhook != nil {
 		s.webhook.Dispatch(models.WebhookEventEntryPublish, updated)
 	}
+	s.audit.Log(AuditEvent{
+		UserID: userID, Action: "article.publish", Entity: "article", EntityID: id,
+		Details: map[string]any{"title": updated.Title, "slug": updated.Slug, "from": string(current.Status), "to": string(models.StatusPublished)},
+	})
 	return updated, nil
 }
 
 // Unpublish reverts a published/scheduled article back to draft. Triggers the
 // entry.unpublish webhook event.
 func (s *ArticleService) Unpublish(id uint) (*models.Article, error) {
+	return s.unpublish(id, nil)
+}
+
+// UnpublishAs unpublishes an article and records the authenticated actor.
+func (s *ArticleService) UnpublishAs(id, userID uint) (*models.Article, error) {
+	return s.unpublish(id, &userID)
+}
+
+func (s *ArticleService) unpublish(id uint, userID *uint) (*models.Article, error) {
 	updated, err := s.transitionTo(id, models.StatusDraft, nil, nil)
 	if err != nil {
 		return nil, err
@@ -892,12 +935,33 @@ func (s *ArticleService) Unpublish(id uint) (*models.Article, error) {
 	if s.webhook != nil {
 		s.webhook.Dispatch(models.WebhookEventEntryUnpublish, updated)
 	}
+	s.audit.Log(AuditEvent{
+		UserID: userID, Action: "article.unpublish", Entity: "article", EntityID: id,
+		Details: map[string]any{"title": updated.Title, "slug": updated.Slug, "to": string(models.StatusDraft)},
+	})
 	return updated, nil
 }
 
 // SubmitForReview moves a draft into the pending (review) queue.
 func (s *ArticleService) SubmitForReview(id uint) (*models.Article, error) {
-	return s.transitionTo(id, models.StatusPending, nil, nil)
+	return s.submitForReview(id, nil)
+}
+
+// SubmitForReviewAs records who submitted the article for review.
+func (s *ArticleService) SubmitForReviewAs(id, userID uint) (*models.Article, error) {
+	return s.submitForReview(id, &userID)
+}
+
+func (s *ArticleService) submitForReview(id uint, userID *uint) (*models.Article, error) {
+	updated, err := s.transitionTo(id, models.StatusPending, nil, nil)
+	if err != nil {
+		return nil, err
+	}
+	s.audit.Log(AuditEvent{
+		UserID: userID, Action: "article.submit_review", Entity: "article", EntityID: id,
+		Details: map[string]any{"title": updated.Title, "slug": updated.Slug, "to": string(models.StatusPending)},
+	})
+	return updated, nil
 }
 
 // Approve marks a pending article as published, recording the publish time if
@@ -906,10 +970,24 @@ func (s *ArticleService) Approve(id uint) (*models.Article, error) {
 	return s.Publish(id) // pending → published reuses the Publish path
 }
 
+// ApproveAs approves an article and records the authenticated reviewer.
+func (s *ArticleService) ApproveAs(id, userID uint) (*models.Article, error) {
+	return s.PublishAs(id, userID)
+}
+
 // Schedule marks an article for automatic publication at the given time. The
 // article stays non-public (status=scheduled) until the PublishScheduler flips
 // it. Triggers the entry.schedule webhook event.
 func (s *ArticleService) Schedule(id uint, at time.Time) (*models.Article, error) {
+	return s.schedule(id, at, nil)
+}
+
+// ScheduleAs schedules an article and records the authenticated actor.
+func (s *ArticleService) ScheduleAs(id uint, at time.Time, userID uint) (*models.Article, error) {
+	return s.schedule(id, at, &userID)
+}
+
+func (s *ArticleService) schedule(id uint, at time.Time, userID *uint) (*models.Article, error) {
 	if at.IsZero() {
 		return nil, errs.ErrBadRequest.WithMessage("scheduled_at is required")
 	}
@@ -920,12 +998,33 @@ func (s *ArticleService) Schedule(id uint, at time.Time) (*models.Article, error
 	if s.webhook != nil {
 		s.webhook.Dispatch(models.WebhookEventEntrySchedule, updated)
 	}
+	s.audit.Log(AuditEvent{
+		UserID: userID, Action: "article.schedule", Entity: "article", EntityID: id,
+		Details: map[string]any{"title": updated.Title, "slug": updated.Slug, "scheduled_at": at},
+	})
 	return updated, nil
 }
 
 // Archive moves an article out of the active lifecycle.
 func (s *ArticleService) Archive(id uint) (*models.Article, error) {
-	return s.transitionTo(id, models.StatusArchived, nil, nil)
+	return s.archive(id, nil)
+}
+
+// ArchiveAs archives an article and records the authenticated actor.
+func (s *ArticleService) ArchiveAs(id, userID uint) (*models.Article, error) {
+	return s.archive(id, &userID)
+}
+
+func (s *ArticleService) archive(id uint, userID *uint) (*models.Article, error) {
+	updated, err := s.transitionTo(id, models.StatusArchived, nil, nil)
+	if err != nil {
+		return nil, err
+	}
+	s.audit.Log(AuditEvent{
+		UserID: userID, Action: "article.archive", Entity: "article", EntityID: id,
+		Details: map[string]any{"title": updated.Title, "slug": updated.Slug, "to": string(models.StatusArchived)},
+	})
+	return updated, nil
 }
 
 // PublishDueScheduled publishes all scheduled articles whose ScheduledAt is at

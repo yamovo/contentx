@@ -110,6 +110,7 @@ func AllModels() []interface{} {
 		// Webhooks
 		&models.Webhook{},
 		&models.WebhookLog{},
+		&models.WebhookDelivery{},
 	}
 }
 

@@ -233,6 +233,10 @@ func (s *SystemService) SnapshotMetrics() {
 		}
 	}
 
+	if pending, err := s.repo.CountPendingWebhookDeliveries(); err == nil {
+		s.gauges.SetGauge("webhook_queue_pending", "Current number of pending webhook deliveries in the queue", float64(pending))
+	}
+
 	if inUse, err := s.repo.DBConnectionsInUse(); err == nil {
 		s.gauges.SetGauge("db_connections_in_use", "Database connections currently in use", float64(inUse))
 	}

@@ -51,16 +51,16 @@ func setupArticleTestRouter(t *testing.T) (*gin.Engine, *gorm.DB, *auth.JWTManag
 	r := gin.New()
 	api := r.Group("/api/v1")
 	{
-		api.GET("/articles/slug/:slug", NewArticleHandler(articleSvc).GetBySlug)
+		api.GET("/articles/slug/:slug", NewArticleHandler(articleSvc, 0).GetBySlug)
 	}
 	protected := api.Group("")
 	protected.Use(mockAuthMiddleware(jwtMgr, db))
 	{
-		protected.GET("/articles", NewArticleHandler(articleSvc).List)
-		protected.GET("/articles/:id", NewArticleHandler(articleSvc).Get)
-		protected.POST("/articles", NewArticleHandler(articleSvc).Create)
-		protected.PUT("/articles/:id", NewArticleHandler(articleSvc).Update)
-		protected.DELETE("/articles/:id", NewArticleHandler(articleSvc).Delete)
+		protected.GET("/articles", NewArticleHandler(articleSvc, 0).List)
+		protected.GET("/articles/:id", NewArticleHandler(articleSvc, 0).Get)
+		protected.POST("/articles", NewArticleHandler(articleSvc, 0).Create)
+		protected.PUT("/articles/:id", NewArticleHandler(articleSvc, 0).Update)
+		protected.DELETE("/articles/:id", NewArticleHandler(articleSvc, 0).Delete)
 	}
 
 	return r, db, jwtMgr
@@ -359,7 +359,7 @@ func TestArticle_Update_Success(t *testing.T) {
 	article := createTestArticleDB(t, db, user.ID, "Original Title")
 	token := generateTestJWT(t, jwtMgr, *user)
 
-	body := `{"title":"Updated Title"}`
+	body := `{"title":"Updated Title","expected_version":1}`
 	req := httptest.NewRequest(http.MethodPut, "/api/v1/articles/"+formatUint(article.ID), strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+token)
@@ -376,6 +376,65 @@ func TestArticle_Update_Success(t *testing.T) {
 	if data["title"] != "Updated Title" {
 		t.Fatalf("expected 'Updated Title', got '%v'", data["title"])
 	}
+	if data["version"] != float64(2) {
+		t.Fatalf("expected version 2, got '%v'", data["version"])
+	}
+}
+
+func TestArticle_Update_RequiresExpectedVersion(t *testing.T) {
+	r, db, jwtMgr := setupArticleTestRouter(t)
+	user := createTestUserDB(t, db, "author", "admin")
+	article := createTestArticleDB(t, db, user.ID, "Original Title")
+	token := generateTestJWT(t, jwtMgr, *user)
+
+	body := `{"title":"Update Without Version"}`
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/articles/"+formatUint(article.ID), strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("missing expected_version should return 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestArticle_Update_StaleVersionReturnsConflict(t *testing.T) {
+	r, db, jwtMgr := setupArticleTestRouter(t)
+	user := createTestUserDB(t, db, "author", "admin")
+	article := createTestArticleDB(t, db, user.ID, "Original Title")
+	token := generateTestJWT(t, jwtMgr, *user)
+
+	update := func(body string) *httptest.ResponseRecorder {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodPut, "/api/v1/articles/"+formatUint(article.ID), strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+token)
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		return w
+	}
+
+	first := update(`{"title":"Editor A","expected_version":1}`)
+	if first.Code != http.StatusOK {
+		t.Fatalf("first update should succeed, got %d: %s", first.Code, first.Body.String())
+	}
+
+	stale := update(`{"title":"Editor B stale","expected_version":1}`)
+	if stale.Code != http.StatusConflict {
+		t.Fatalf("stale update should return 409, got %d: %s", stale.Code, stale.Body.String())
+	}
+	if !strings.Contains(stale.Body.String(), `"err_code":"CONCURRENT_MODIFICATION"`) {
+		t.Fatalf("stale update should expose CONCURRENT_MODIFICATION, got: %s", stale.Body.String())
+	}
+
+	var current models.Article
+	if err := db.First(&current, article.ID).Error; err != nil {
+		t.Fatalf("reload article: %v", err)
+	}
+	if current.Title != "Editor A" {
+		t.Fatalf("stale update overwrote the article: title = %q", current.Title)
+	}
 }
 
 func TestArticle_Update_NotFound(t *testing.T) {
@@ -383,7 +442,7 @@ func TestArticle_Update_NotFound(t *testing.T) {
 	user := createTestUserDB(t, db, "author", "admin")
 	token := generateTestJWT(t, jwtMgr, *user)
 
-	body := `{"title":"Ghost"}`
+	body := `{"title":"Ghost","expected_version":1}`
 	req := httptest.NewRequest(http.MethodPut, "/api/v1/articles/99999", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+token)

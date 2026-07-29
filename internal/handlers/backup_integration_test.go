@@ -15,6 +15,9 @@ import (
 	"github.com/yamovo/contentx/internal/config"
 	"github.com/yamovo/contentx/internal/database"
 	"github.com/yamovo/contentx/internal/middleware"
+	"github.com/yamovo/contentx/internal/models"
+	"github.com/yamovo/contentx/internal/repository"
+	"github.com/yamovo/contentx/internal/services"
 )
 
 // setupBackupRouter builds a test engine with the backup routes registered
@@ -51,7 +54,8 @@ func setupBackupRouter(t *testing.T) (*gin.Engine, *gorm.DB, string, string, *ba
 	authorToken := generateTestJWT(t, jwtMgr, *authorUser)
 
 	mgr := backup.NewManager(cfg.Backup, cfg.Database, "", db)
-	backupH := NewBackupHandler(mgr, nil) // nil articleSvc: reindex skipped in tests
+	audit := services.NewAuditLogger(repository.NewActivityLogRepository(db))
+	backupH := NewBackupHandler(mgr, nil, audit) // nil articleSvc: reindex skipped in tests
 
 	r := gin.New()
 	api := r.Group("/api/v1")
@@ -94,7 +98,7 @@ func TestBackupHandler_NonAdmin_Forbidden(t *testing.T) {
 }
 
 func TestBackupHandler_Admin_CreateListDownload(t *testing.T) {
-	r, _, adminToken, _, _ := setupBackupRouter(t)
+	r, db, adminToken, _, _ := setupBackupRouter(t)
 
 	// 1. Create db backup.
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/backup?type=db", nil)
@@ -103,6 +107,13 @@ func TestBackupHandler_Admin_CreateListDownload(t *testing.T) {
 	r.ServeHTTP(w, req)
 	if w.Code != http.StatusOK {
 		t.Fatalf("create: expected 200, got %d (body=%s)", w.Code, w.Body.String())
+	}
+	var auditLog models.ActivityLog
+	if err := db.Where("action = ?", "backup.create").First(&auditLog).Error; err != nil {
+		t.Fatalf("backup creation should be audited: %v", err)
+	}
+	if auditLog.UserID == nil {
+		t.Fatal("backup audit should include the authenticated actor")
 	}
 	// Extract the db filename from the response body ({"path":"db-..."}).
 	body := w.Body.String()

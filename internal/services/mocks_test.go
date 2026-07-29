@@ -142,7 +142,7 @@ func (m *MockArticleRepository) Create(article *models.Article, tagIDs []uint, r
 	return nil
 }
 
-func (m *MockArticleRepository) Update(article *models.Article, updates map[string]interface{}, tagIDs []uint, revisionNote string, userID uint) error {
+func (m *MockArticleRepository) Update(article *models.Article, updates map[string]interface{}, tagIDs []uint, revisionNote string, userID uint, expectedVersion *int) error {
 	if m.UpdateErr != nil {
 		return m.UpdateErr
 	}
@@ -578,9 +578,10 @@ type MockWebhookRepository struct {
 	DeleteRows int64
 
 	// 调用追踪
-	CreatedWebhooks []*models.Webhook
-	CreatedLogs     []*models.WebhookLog
-	ListActiveCalls int
+	CreatedWebhooks    []*models.Webhook
+	CreatedLogs        []*models.WebhookLog
+	EnqueuedDeliveries []*models.WebhookDelivery
+	ListActiveCalls    int
 }
 
 func (m *MockWebhookRepository) Create(wh *models.Webhook) error {
@@ -637,6 +638,29 @@ func (m *MockWebhookRepository) ListActive() ([]models.Webhook, error) {
 	}
 	return m.ActiveWebhooks, nil
 }
+
+// ─── Persistent delivery queue (recording stubs) ─────────────────────────────
+// The mock records queue calls but does not implement claim/complete state
+// transitions — worker behaviour is verified against a real SQLite DB in
+// webhook_worker_test.go. These stubs exist so the type satisfies the
+// extended WebhookRepository interface for the mock-based service tests.
+
+func (m *MockWebhookRepository) EnqueueDelivery(d *models.WebhookDelivery) error {
+	m.EnqueuedDeliveries = append(m.EnqueuedDeliveries, d)
+	return nil
+}
+
+func (m *MockWebhookRepository) ClaimDueDeliveries(_ time.Time, _ int) ([]models.WebhookDelivery, error) {
+	return nil, nil
+}
+
+func (m *MockWebhookRepository) CompleteDelivery(_ uint, _ repository.DeliveryOutcome) error {
+	return nil
+}
+
+func (m *MockWebhookRepository) RequeueStaleDeliveries() (int64, error) { return 0, nil }
+
+func (m *MockWebhookRepository) CountPendingDeliveries() (int64, error) { return 0, nil }
 
 // ---------- MockMediaRepository ----------
 

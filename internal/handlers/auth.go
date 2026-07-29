@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"net/http"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -10,12 +11,20 @@ import (
 
 // AuthHandler handles authentication-related requests.
 type AuthHandler struct {
-	svc *services.AuthService
+	svc             *services.AuthService
+	registerLimiter *middleware.KeyRateLimiter
 }
 
 // NewAuthHandler creates a new auth handler.
 func NewAuthHandler(svc *services.AuthService) *AuthHandler {
 	return &AuthHandler{svc: svc}
+}
+
+// SetRegisterRateLimiter wires an account-dimension rate limiter for the
+// registration endpoint. When set, Register enforces a per email+IP limit
+// in addition to the shared IP-only auth group limit.
+func (h *AuthHandler) SetRegisterRateLimiter(rl *middleware.KeyRateLimiter) {
+	h.registerLimiter = rl
 }
 
 // Login authenticates a user and returns tokens.
@@ -67,6 +76,19 @@ func (h *AuthHandler) Register(c *gin.Context) {
 	if err := c.ShouldBindJSON(&req); err != nil {
 		BadRequest(c, sanitizeBindErr(err))
 		return
+	}
+
+	// Account-dimension rate limit: prevent an attacker from flooding a
+	// specific email with registration attempts by rotating IPs. Keyed by
+	// email+IP so legitimate users behind NAT are not collateral-damaged.
+	if h.registerLimiter != nil {
+		key := strings.ToLower(req.Email) + ":" + c.ClientIP()
+		if !h.registerLimiter.Allow(key) {
+			c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{
+				"error": "注册请求过于频繁，请稍后再试",
+			})
+			return
+		}
 	}
 
 	tokenPair, user, err := h.svc.Register(req, c.ClientIP())

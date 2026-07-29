@@ -168,3 +168,29 @@ func TestIndexMigrations_DownIdempotent(t *testing.T) {
 		}
 	}
 }
+
+func TestArticleVersionMigration_UpgradesLegacyTable(t *testing.T) {
+	db := newMigrationTestDB(t)
+	if err := db.Exec("CREATE TABLE articles (id integer primary key, title text)").Error; err != nil {
+		t.Fatalf("create legacy articles table: %v", err)
+	}
+	if err := db.Exec("INSERT INTO articles (id, title) VALUES (1, 'legacy')").Error; err != nil {
+		t.Fatalf("insert legacy article: %v", err)
+	}
+
+	mig := findMigration(t, 7)
+	if err := mig.Up(db); err != nil {
+		t.Fatalf("migration 007 Up() error: %v", err)
+	}
+	if !db.Migrator().HasColumn(&models.Article{}, "Version") {
+		t.Fatal("articles.version should exist after migration 007")
+	}
+
+	var version int
+	if err := db.Table("articles").Select("version").Where("id = ?", 1).Scan(&version).Error; err != nil {
+		t.Fatalf("read migrated version: %v", err)
+	}
+	if version != 1 {
+		t.Fatalf("migrated article version = %d, want 1", version)
+	}
+}

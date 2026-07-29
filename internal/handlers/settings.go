@@ -88,7 +88,12 @@ func (h *SettingsHandler) Update(c *gin.Context) {
 		return
 	}
 
-	if err := h.svc.Update(req); err != nil {
+	actor := getCurrentUser(c)
+	if actor == nil {
+		return
+	}
+
+	if err := h.svc.Update(req, actor.ID); err != nil {
 		handleServiceError(c, err)
 		return
 	}

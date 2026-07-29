@@ -4,15 +4,11 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
-	"io"
-	"net/http"
-	"net/http/httptest"
-	"strings"
-	"sync"
 	"testing"
 	"time"
 
 	"github.com/yamovo/contentx/internal/models"
+	"github.com/yamovo/contentx/internal/repository"
 	"gorm.io/gorm"
 )
 
@@ -164,6 +160,9 @@ func TestMockWebhook_Dispatch_NoActiveWebhooks(t *testing.T) {
 	if repo.ListActiveCalls != 1 {
 		t.Errorf("expected 1 ListActive call, got %d", repo.ListActiveCalls)
 	}
+	if len(repo.EnqueuedDeliveries) != 0 {
+		t.Errorf("expected 0 enqueued deliveries, got %d", len(repo.EnqueuedDeliveries))
+	}
 }
 
 func TestMockWebhook_Dispatch_EventNotMatching(t *testing.T) {
@@ -175,165 +174,38 @@ func TestMockWebhook_Dispatch_EventNotMatching(t *testing.T) {
 	svc := NewWebhookServiceWithRepo(repo)
 
 	svc.Dispatch("article.created", map[string]string{"id": "1"})
-	// Give goroutines a moment (none should fire since event doesn't match).
-	time.Sleep(50 * time.Millisecond)
-	// No logs should be created since no webhook matched.
-	if len(repo.CreatedLogs) != 0 {
-		t.Errorf("expected 0 logs for non-matching event, got %d", len(repo.CreatedLogs))
+
+	// Dispatch is synchronous and only enqueues for matching events.
+	if len(repo.EnqueuedDeliveries) != 0 {
+		t.Errorf("expected 0 enqueued deliveries for non-matching event, got %d", len(repo.EnqueuedDeliveries))
 	}
 }
 
-// ---------- deliver (direct call) ----------
-
-func TestMockWebhook_Deliver_Success(t *testing.T) {
-	var (
-		mu      sync.Mutex
-		gotBody string
-		gotHdr  http.Header
-	)
-
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		mu.Lock()
-		defer mu.Unlock()
-		body, _ := io.ReadAll(r.Body)
-		gotBody = string(body)
-		gotHdr = r.Header.Clone()
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer srv.Close()
-
-	repo := &MockWebhookRepository{}
-	svc := allowPrivateTargets(NewWebhookServiceWithRepo(repo))
-
-	wh := models.Webhook{ID: 1, URL: srv.URL, Events: models.StringSlice{"article.created"}}
-	payload := WebhookPayload{Event: "article.created", Timestamp: time.Now(), Data: map[string]string{"id": "1"}}
-
-	svc.deliver(wh, payload)
-
-	if len(repo.CreatedLogs) != 1 {
-		t.Fatalf("expected 1 log created, got %d", len(repo.CreatedLogs))
+func TestMockWebhook_Dispatch_EnqueuesForMatchingWebhooks(t *testing.T) {
+	repo := &MockWebhookRepository{
+		ActiveWebhooks: []models.Webhook{
+			{ID: 1, URL: "http://localhost:1/a", Events: models.StringSlice{"article.created"}},
+			{ID: 2, URL: "http://localhost:1/b", Events: models.StringSlice{"article.created"}},
+			{ID: 3, URL: "http://localhost:1/c", Events: models.StringSlice{"comment.created"}},
+		},
 	}
-	log := repo.CreatedLogs[0]
-	if !log.Success {
-		t.Errorf("expected success=true, got false (error: %s)", log.Error)
-	}
-	if log.Response != http.StatusOK {
-		t.Errorf("expected response 200, got %d", log.Response)
-	}
-	if log.Event != "article.created" {
-		t.Errorf("expected event article.created, got %s", log.Event)
-	}
-
-	mu.Lock()
-	defer mu.Unlock()
-	if !strings.Contains(gotBody, `"event":"article.created"`) {
-		t.Errorf("expected body to contain event, got: %s", gotBody)
-	}
-	if gotHdr.Get("X-ContentX-Event") != "article.created" {
-		t.Errorf("expected X-ContentX-Event header, got %s", gotHdr.Get("X-ContentX-Event"))
-	}
-	if gotHdr.Get("Content-Type") != "application/json" {
-		t.Errorf("expected Content-Type application/json, got %s", gotHdr.Get("Content-Type"))
-	}
-}
-
-func TestMockWebhook_Deliver_Non2xxResponse(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusInternalServerError)
-	}))
-	defer srv.Close()
-
-	repo := &MockWebhookRepository{}
-	svc := zeroBackoff(NewWebhookServiceWithRepo(repo))
-
-	wh := models.Webhook{ID: 1, URL: srv.URL}
-	payload := WebhookPayload{Event: "article.created", Timestamp: time.Now(), Data: "x"}
-
-	svc.deliver(wh, payload)
-
-	if len(repo.CreatedLogs) != 1 {
-		t.Fatalf("expected 1 log, got %d", len(repo.CreatedLogs))
-	}
-	if repo.CreatedLogs[0].Success {
-		t.Error("expected success=false for 500 response")
-	}
-	if repo.CreatedLogs[0].Response != http.StatusInternalServerError {
-		t.Errorf("expected response 500, got %d", repo.CreatedLogs[0].Response)
-	}
-}
-
-func TestMockWebhook_Deliver_RequestError(t *testing.T) {
-	// Invalid URL → http.NewRequest succeeds but client.Do fails.
-	repo := &MockWebhookRepository{}
-	svc := zeroBackoff(NewWebhookServiceWithRepo(repo))
-
-	wh := models.Webhook{ID: 1, URL: "http://127.0.0.1:0/nonexistent"} // port 0 won't connect
-	payload := WebhookPayload{Event: "article.created", Timestamp: time.Now(), Data: "x"}
-
-	svc.deliver(wh, payload)
-
-	if len(repo.CreatedLogs) != 1 {
-		t.Fatalf("expected 1 log, got %d", len(repo.CreatedLogs))
-	}
-	if repo.CreatedLogs[0].Success {
-		t.Error("expected success=false on request error")
-	}
-	if repo.CreatedLogs[0].Error == "" {
-		t.Error("expected non-empty error message")
-	}
-}
-
-func TestMockWebhook_Deliver_HMACSignature(t *testing.T) {
-	var gotSig string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotSig = r.Header.Get("X-ContentX-Signature")
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer srv.Close()
-
-	repo := &MockWebhookRepository{}
-	svc := allowPrivateTargets(NewWebhookServiceWithRepo(repo))
-
-	wh := models.Webhook{
-		ID:     1,
-		URL:    srv.URL,
-		Secret: "my-secret",
-	}
-	payload := WebhookPayload{Event: "article.created", Timestamp: time.Now(), Data: "x"}
-
-	svc.deliver(wh, payload)
-
-	// Verify the signature header was set and matches expected HMAC.
-	if gotSig == "" {
-		t.Fatal("expected non-empty X-ContentX-Signature header")
-	}
-	if !strings.HasPrefix(gotSig, "sha256=") {
-		t.Fatalf("expected sig to start with sha256=, got %s", gotSig)
-	}
-	// Recompute expected sig from the log payload (which holds the marshaled body).
-	if len(repo.CreatedLogs) != 1 {
-		t.Fatalf("expected 1 log, got %d", len(repo.CreatedLogs))
-	}
-	h := hmac.New(sha256.New, []byte("my-secret"))
-	h.Write([]byte(repo.CreatedLogs[0].Payload))
-	expected := "sha256=" + hex.EncodeToString(h.Sum(nil))
-	if gotSig != expected {
-		t.Errorf("expected sig %s, got %s", expected, gotSig)
-	}
-}
-
-func TestMockWebhook_Deliver_BadURL(t *testing.T) {
-	// Malformed URL → http.NewRequest returns error.
-	repo := &MockWebhookRepository{}
 	svc := NewWebhookServiceWithRepo(repo)
 
-	wh := models.Webhook{ID: 1, URL: "://bad-url"}
-	payload := WebhookPayload{Event: "article.created", Timestamp: time.Now(), Data: "x"}
+	svc.Dispatch("article.created", map[string]string{"id": "1"})
 
-	svc.deliver(wh, payload)
-	// No log should be created since request creation failed.
-	if len(repo.CreatedLogs) != 0 {
-		t.Errorf("expected 0 logs on bad URL, got %d", len(repo.CreatedLogs))
+	if len(repo.EnqueuedDeliveries) != 2 {
+		t.Fatalf("expected 2 enqueued deliveries (matching webhooks), got %d", len(repo.EnqueuedDeliveries))
+	}
+	for _, d := range repo.EnqueuedDeliveries {
+		if d.Status != models.WebhookDeliveryPending {
+			t.Errorf("expected pending status, got %s", d.Status)
+		}
+		if d.Event != "article.created" {
+			t.Errorf("expected event article.created, got %s", d.Event)
+		}
+		if d.Payload == "" {
+			t.Error("expected non-empty payload")
+		}
 	}
 }
 
@@ -373,3 +245,16 @@ func (z *zeroDeleteWebhookRepo) ListLogs(_ uint, _ int) ([]models.WebhookLog, er
 }
 func (z *zeroDeleteWebhookRepo) CreateLog(_ *models.WebhookLog) error  { return nil }
 func (z *zeroDeleteWebhookRepo) ListActive() ([]models.Webhook, error) { return nil, nil }
+
+// Queue stubs (not exercised by this mock).
+func (z *zeroDeleteWebhookRepo) EnqueueDelivery(_ *models.WebhookDelivery) error {
+	return nil
+}
+func (z *zeroDeleteWebhookRepo) ClaimDueDeliveries(_ time.Time, _ int) ([]models.WebhookDelivery, error) {
+	return nil, nil
+}
+func (z *zeroDeleteWebhookRepo) CompleteDelivery(_ uint, _ repository.DeliveryOutcome) error {
+	return nil
+}
+func (z *zeroDeleteWebhookRepo) RequeueStaleDeliveries() (int64, error) { return 0, nil }
+func (z *zeroDeleteWebhookRepo) CountPendingDeliveries() (int64, error) { return 0, nil }

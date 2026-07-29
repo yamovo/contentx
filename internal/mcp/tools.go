@@ -139,6 +139,7 @@ type listArticlesInput struct {
 
 type articleSummary struct {
 	ID          uint       `json:"id"`
+	Version     int        `json:"version"`
 	Title       string     `json:"title"`
 	Slug        string     `json:"slug"`
 	Excerpt     string     `json:"excerpt"`
@@ -189,6 +190,7 @@ func (t *toolset) listArticles(_ context.Context, _ *mcpsdk.CallToolRequest, in 
 func (t *toolset) summarize(a *models.Article) articleSummary {
 	s := articleSummary{
 		ID:          a.ID,
+		Version:     a.Version,
 		Title:       a.Title,
 		Slug:        a.Slug,
 		Excerpt:     a.Excerpt,
@@ -214,6 +216,7 @@ type getArticleInput struct {
 
 type articleDetail struct {
 	ID          uint       `json:"id"`
+	Version     int        `json:"version"`
 	Title       string     `json:"title"`
 	Slug        string     `json:"slug"`
 	Excerpt     string     `json:"excerpt"`
@@ -240,6 +243,7 @@ func (t *toolset) getArticle(_ context.Context, _ *mcpsdk.CallToolRequest, in ge
 	}
 	d := articleDetail{
 		ID:          a.ID,
+		Version:     a.Version,
 		Title:       a.Title,
 		Slug:        a.Slug,
 		Excerpt:     a.Excerpt,

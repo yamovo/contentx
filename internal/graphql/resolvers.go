@@ -34,13 +34,23 @@ type Resolver struct {
 
 // ---------- Top-level Query resolvers ----------
 
-// article returns a single article by ID (any status).
+// article returns a single publicly visible, published article by ID.
 func (r *Resolver) article(p graphql.ResolveParams) (interface{}, error) {
 	id, err := parseID(p, "id")
 	if err != nil {
 		return nil, err
 	}
-	return r.Article.Get(id)
+	article, err := r.Article.Get(id)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	if article.Status != models.StatusPublished || article.Visibility != models.VisibilityPublic {
+		return nil, nil
+	}
+	return article, nil
 }
 
 // articleBySlug returns a single published article by slug and increments
@@ -58,24 +68,19 @@ func (r *Resolver) articleBySlug(p graphql.ResolveParams) (interface{}, error) {
 	return article, nil
 }
 
-// articles returns a paginated, filtered list of articles. Only published
-// articles are exposed when status is empty (public headless-CMS surface);
-// authenticated callers can pass status explicitly if needed.
+// articles returns a paginated list from the public delivery surface.
 func (r *Resolver) articles(p graphql.ResolveParams) (interface{}, error) {
 	filter := services.ListArticlesFilter{
 		Page:       intArg(p, "page"),
 		PageSize:   intArg(p, "pageSize"),
-		Status:     strArg(p, "status"),
+		Status:     string(models.StatusPublished),
+		Visibility: string(models.VisibilityPublic),
 		PostType:   strArg(p, "postType"),
 		CategoryID: strArg(p, "categoryId"),
 		TagSlug:    strArg(p, "tagSlug"),
 		Search:     strArg(p, "search"),
 		Sort:       strArg(p, "sort"),
 		AuthorID:   strArg(p, "authorId"),
-	}
-	// 默认只返回已发布文章（公共查询面）。调用方显式传 status 时尊重其选择。
-	if filter.Status == "" {
-		filter.Status = string(models.StatusPublished)
 	}
 	// 仅当客户端在 items 子选择中请求 content 字段时才加载正文，
 	// 避免撤销列表精简优化（repository 在 Full=false 时 Omit Content）。

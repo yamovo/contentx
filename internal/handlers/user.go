@@ -115,7 +115,12 @@ func (h *UserHandler) Create(c *gin.Context) {
 		return
 	}
 
-	user, err := h.svc.Create(req)
+	actor := getCurrentUser(c)
+	if actor == nil {
+		return
+	}
+
+	user, err := h.svc.Create(req, actor.ID)
 	if err != nil {
 		handleServiceError(c, err)
 		return
@@ -159,7 +164,7 @@ func (h *UserHandler) Update(c *gin.Context) {
 		return
 	}
 
-	user, err := h.svc.Update(uint(id), req, actor.IsAdmin())
+	user, err := h.svc.Update(uint(id), req, actor.IsAdmin(), actor.ID)
 	if err != nil {
 		handleServiceError(c, err)
 		return
@@ -190,7 +195,12 @@ func (h *UserHandler) Delete(c *gin.Context) {
 		return
 	}
 
-	if err := h.svc.Delete(uint(id)); err != nil {
+	actor := getCurrentUser(c)
+	if actor == nil {
+		return
+	}
+
+	if err := h.svc.Delete(uint(id), actor.ID); err != nil {
 		handleServiceError(c, err)
 		return
 	}
@@ -235,7 +245,7 @@ func (h *UserHandler) ResetPassword(c *gin.Context) {
 		return
 	}
 
-	if err := h.svc.ResetPassword(uint(id), req.NewPassword, actor.IsAdmin()); err != nil {
+	if err := h.svc.ResetPassword(uint(id), req.NewPassword, actor.IsAdmin(), actor.ID); err != nil {
 		handleServiceError(c, err)
 		return
 	}
@@ -298,7 +308,12 @@ func (h *RoleHandler) Create(c *gin.Context) {
 		return
 	}
 
-	role, err := h.svc.Create(req)
+	actor := getCurrentUser(c)
+	if actor == nil {
+		return
+	}
+
+	role, err := h.svc.Create(req, actor.ID)
 	if err != nil {
 		handleServiceError(c, err)
 		return
@@ -337,7 +352,12 @@ func (h *RoleHandler) Update(c *gin.Context) {
 		return
 	}
 
-	role, err := h.svc.Update(uint(id), req)
+	actor := getCurrentUser(c)
+	if actor == nil {
+		return
+	}
+
+	role, err := h.svc.Update(uint(id), req, actor.ID)
 	if err != nil {
 		handleServiceError(c, err)
 		return
@@ -368,7 +388,12 @@ func (h *RoleHandler) Delete(c *gin.Context) {
 		return
 	}
 
-	if err := h.svc.Delete(uint(id)); err != nil {
+	actor := getCurrentUser(c)
+	if actor == nil {
+		return
+	}
+
+	if err := h.svc.Delete(uint(id), actor.ID); err != nil {
 		handleServiceError(c, err)
 		return
 	}

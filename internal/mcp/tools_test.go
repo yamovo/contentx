@@ -112,6 +112,9 @@ func TestListArticles_PublishedOnlyByDefault(t *testing.T) {
 		if it.URL == "" || it.URL[:4] != "http" {
 			t.Errorf("expected absolute URL, got %q", it.URL)
 		}
+		if it.Version < 1 {
+			t.Errorf("expected optimistic-lock version in list output, got %d", it.Version)
+		}
 	}
 }
 
@@ -137,6 +140,9 @@ func TestGetArticle_PublishedReturnsContent(t *testing.T) {
 	}
 	if out.Author != "MCP Author" {
 		t.Errorf("author = %q, want display name", out.Author)
+	}
+	if out.Version < 1 {
+		t.Errorf("expected optimistic-lock version in detail output, got %d", out.Version)
 	}
 }
 

@@ -93,12 +93,13 @@ func (t *toolset) createArticle(_ context.Context, req *mcpsdk.CallToolRequest, 
 // ─── update_article ────────────────────────────────────────────────────────
 
 type updateArticleInput struct {
-	ID         uint    `json:"id" jsonschema:"the article ID to update (required)"`
-	Title      *string `json:"title,omitempty" jsonschema:"new title"`
-	Content    *string `json:"content,omitempty" jsonschema:"new body"`
-	Excerpt    *string `json:"excerpt,omitempty" jsonschema:"new excerpt"`
-	CategoryID *uint   `json:"category_id,omitempty" jsonschema:"new category ID"`
-	TagIDs     []uint  `json:"tag_ids,omitempty" jsonschema:"replacement tag IDs"`
+	ID              uint    `json:"id" jsonschema:"the article ID to update (required)"`
+	ExpectedVersion int     `json:"expected_version" jsonschema:"the version returned by get_article or list_articles (required)"`
+	Title           *string `json:"title,omitempty" jsonschema:"new title"`
+	Content         *string `json:"content,omitempty" jsonschema:"new body"`
+	Excerpt         *string `json:"excerpt,omitempty" jsonschema:"new excerpt"`
+	CategoryID      *uint   `json:"category_id,omitempty" jsonschema:"new category ID"`
+	TagIDs          []uint  `json:"tag_ids,omitempty" jsonschema:"replacement tag IDs"`
 }
 
 func (t *toolset) updateArticle(_ context.Context, req *mcpsdk.CallToolRequest, in updateArticleInput) (*mcpsdk.CallToolResult, articleSummary, error) {
@@ -112,15 +113,19 @@ func (t *toolset) updateArticle(_ context.Context, req *mcpsdk.CallToolRequest, 
 	if in.ID == 0 {
 		return nil, articleSummary{}, fmt.Errorf("id is required")
 	}
+	if in.ExpectedVersion < 1 {
+		return nil, articleSummary{}, fmt.Errorf("expected_version is required")
+	}
 	// articles.update_all lets the token edit articles it does not own; otherwise
 	// the service enforces ownership. Status is not touched here (no publish).
 	canUpdateAll := permitted(id.Permissions, permissions.ArticlesUpdateAll)
 	article, err := t.deps.Article.Update(in.ID, services.UpdateArticleRequest{
-		Title:      in.Title,
-		Content:    in.Content,
-		Excerpt:    in.Excerpt,
-		CategoryID: in.CategoryID,
-		TagIDs:     in.TagIDs,
+		Title:           in.Title,
+		Content:         in.Content,
+		Excerpt:         in.Excerpt,
+		CategoryID:      in.CategoryID,
+		TagIDs:          in.TagIDs,
+		ExpectedVersion: &in.ExpectedVersion,
 	}, id.UserID, canUpdateAll)
 	if err != nil {
 		return nil, articleSummary{}, err

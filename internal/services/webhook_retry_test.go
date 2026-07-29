@@ -7,27 +7,59 @@ import (
 	"testing"
 	"time"
 
+	"github.com/yamovo/contentx/internal/config"
 	"github.com/yamovo/contentx/internal/models"
 )
 
-// allowPrivateTargets swaps in a delivery client without the SSRF blocklist
-// so tests can target local httptest servers (loopback is blocked by default).
-func allowPrivateTargets(svc *WebhookService) *WebhookService {
-	svc.client = newWebhookHTTPClient(true)
-	return svc
+// ──────────────────────────────────────────────────────────────────────────────
+// Webhook 队列重试调度语义测试（接续旧版 webhook_retry_test 的意图，改为
+// 持久化队列模型：单次尝试 + 重调度，而非进程内 sleep 重试）。
+// ──────────────────────────────────────────────────────────────────────────────
+
+func TestWebhookRetry_5xxReschedules(t *testing.T) {
+	var calls int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&calls, 1)
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	db := newWebhookTestDB(t)
+	seedWebhook(t, db, 1, srv.URL, "")
+	d := seedDueDelivery(t, db, 1)
+
+	w := newTestWorker(db, func(w *WebhookWorker) {
+		// 1s base backoff keeps NextRetryAt robustly in the future across
+		// the assertion timing.
+		w.backoff = func(attempt int) time.Duration { return time.Second }
+	}) // MaxRetries=3 → maxAttempts=4
+	runOnce(w)
+
+	if got := atomic.LoadInt32(&calls); got != 1 {
+		t.Fatalf("expected 1 HTTP call (single attempt per claim), got %d", got)
+	}
+	got := getDelivery(t, db, d.ID)
+	if got.Status != models.WebhookDeliveryPending {
+		t.Errorf("status = %s, want pending (rescheduled)", got.Status)
+	}
+	if got.Attempts != 1 {
+		t.Errorf("attempts = %d, want 1", got.Attempts)
+	}
+	if !got.NextRetryAt.After(time.Now()) {
+		t.Error("expected NextRetryAt in the future after reschedule")
+	}
+	// No terminal log until the delivery reaches a terminal state.
+	var logs []models.WebhookLog
+	db.Find(&logs)
+	if len(logs) != 0 {
+		t.Errorf("expected 0 logs after reschedule, got %d", len(logs))
+	}
 }
 
-// zeroBackoff removes retry sleeps so retry tests run instantly.
-func zeroBackoff(svc *WebhookService) *WebhookService {
-	svc.backoff = func(int) time.Duration { return 0 }
-	return allowPrivateTargets(svc)
-}
-
-// TestWebhookRetry_5xxThenSuccess: 前两次返回 500，第三次 200 → 成功，Retries=2。
 func TestWebhookRetry_5xxThenSuccess(t *testing.T) {
 	var calls int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if atomic.AddInt32(&calls, 1) <= 2 {
+		if atomic.AddInt32(&calls, 1) == 1 {
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
@@ -35,32 +67,46 @@ func TestWebhookRetry_5xxThenSuccess(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	repo := &MockWebhookRepository{}
-	svc := zeroBackoff(NewWebhookServiceWithRepo(repo))
+	db := newWebhookTestDB(t)
+	seedWebhook(t, db, 1, srv.URL, "")
+	d := seedDueDelivery(t, db, 1)
 
-	wh := models.Webhook{ID: 1, URL: srv.URL, Events: models.StringSlice{"article.created"}}
-	svc.deliver(wh, WebhookPayload{Event: "article.created", Timestamp: time.Now(), Data: "x"})
+	w := newTestWorker(db)
 
-	if got := atomic.LoadInt32(&calls); got != 3 {
-		t.Errorf("expected 3 HTTP calls (2 failures + 1 success), got %d", got)
+	// First attempt: 500 → rescheduled.
+	runOnce(w)
+	if got := atomic.LoadInt32(&calls); got != 1 {
+		t.Fatalf("after first cycle: expected 1 call, got %d", got)
 	}
-	if len(repo.CreatedLogs) != 1 {
-		t.Fatalf("expected 1 log, got %d", len(repo.CreatedLogs))
+
+	// Advance the retry clock and re-run.
+	if err := db.Model(&models.WebhookDelivery{}).Where("id = ?", d.ID).
+		Update("next_retry_at", time.Now().Add(-time.Second)).Error; err != nil {
+		t.Fatalf("reset due: %v", err)
 	}
-	log := repo.CreatedLogs[0]
-	if !log.Success {
-		t.Errorf("expected success=true after retry, got false (error: %s)", log.Error)
+	runOnce(w)
+
+	if got := atomic.LoadInt32(&calls); got != 2 {
+		t.Fatalf("expected 2 total HTTP calls, got %d", got)
 	}
-	if log.Retries != 2 {
-		t.Errorf("expected retries=2, got %d", log.Retries)
+	got := getDelivery(t, db, d.ID)
+	if got.Status != models.WebhookDeliverySuccess {
+		t.Errorf("status = %s, want success", got.Status)
 	}
-	if log.Response != http.StatusOK {
-		t.Errorf("expected response 200, got %d", log.Response)
+	if got.Attempts != 2 {
+		t.Errorf("attempts = %d, want 2", got.Attempts)
+	}
+	var logs []models.WebhookLog
+	db.Find(&logs)
+	if len(logs) != 1 {
+		t.Fatalf("expected 1 terminal log, got %d", len(logs))
+	}
+	if !logs[0].Success || logs[0].Retries != 1 {
+		t.Errorf("unexpected log: success=%v retries=%d", logs[0].Success, logs[0].Retries)
 	}
 }
 
-// TestWebhookRetry_5xxExhausted: 一直 500 → 初次 + 3 次重试后放弃，Retries=3。
-func TestWebhookRetry_5xxExhausted(t *testing.T) {
+func TestWebhookRetry_Exhausted(t *testing.T) {
 	var calls int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		atomic.AddInt32(&calls, 1)
@@ -68,94 +114,88 @@ func TestWebhookRetry_5xxExhausted(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	repo := &MockWebhookRepository{}
-	svc := zeroBackoff(NewWebhookServiceWithRepo(repo))
+	db := newWebhookTestDB(t)
+	seedWebhook(t, db, 1, srv.URL, "")
+	d := seedDueDelivery(t, db, 1)
 
-	wh := models.Webhook{ID: 1, URL: srv.URL}
-	svc.deliver(wh, WebhookPayload{Event: "article.created", Timestamp: time.Now(), Data: "x"})
-
-	if got := atomic.LoadInt32(&calls); got != int32(1+maxWebhookRetries) {
-		t.Errorf("expected %d HTTP calls, got %d", 1+maxWebhookRetries, got)
-	}
-	if len(repo.CreatedLogs) != 1 {
-		t.Fatalf("expected 1 log, got %d", len(repo.CreatedLogs))
-	}
-	log := repo.CreatedLogs[0]
-	if log.Success {
-		t.Error("expected success=false after exhausting retries")
-	}
-	if log.Retries != maxWebhookRetries {
-		t.Errorf("expected retries=%d, got %d", maxWebhookRetries, log.Retries)
-	}
-	if log.Response != http.StatusBadGateway {
-		t.Errorf("expected response 502, got %d", log.Response)
-	}
-}
-
-// TestWebhookRetry_4xxNoRetry: 4xx 属永久失败，不应重试。
-func TestWebhookRetry_4xxNoRetry(t *testing.T) {
-	var calls int32
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		atomic.AddInt32(&calls, 1)
-		w.WriteHeader(http.StatusNotFound)
-	}))
-	defer srv.Close()
-
-	repo := &MockWebhookRepository{}
-	svc := zeroBackoff(NewWebhookServiceWithRepo(repo))
-
-	wh := models.Webhook{ID: 1, URL: srv.URL}
-	svc.deliver(wh, WebhookPayload{Event: "article.created", Timestamp: time.Now(), Data: "x"})
+	// MaxRetries=0 → maxAttempts=1: first 5xx exhausts immediately.
+	w := newTestWorker(db, func(w *WebhookWorker) {
+		w.maxAttempts = 1
+	})
+	runOnce(w)
 
 	if got := atomic.LoadInt32(&calls); got != 1 {
-		t.Errorf("expected exactly 1 HTTP call for 4xx (no retry), got %d", got)
+		t.Errorf("expected 1 HTTP call, got %d", got)
 	}
-	if len(repo.CreatedLogs) != 1 {
-		t.Fatalf("expected 1 log, got %d", len(repo.CreatedLogs))
+	got := getDelivery(t, db, d.ID)
+	if got.Status != models.WebhookDeliveryExhausted {
+		t.Errorf("status = %s, want exhausted", got.Status)
 	}
-	log := repo.CreatedLogs[0]
-	if log.Success {
-		t.Error("expected success=false for 404 response")
-	}
-	if log.Retries != 0 {
-		t.Errorf("expected retries=0 for 4xx, got %d", log.Retries)
+	var logs []models.WebhookLog
+	db.Find(&logs)
+	if len(logs) != 1 || logs[0].Success || logs[0].Retries != 0 {
+		t.Errorf("unexpected exhausted log: %+v", logs)
 	}
 }
 
-// TestWebhookRetry_NetworkErrorRetries: 网络错误（无法连接）也应触发重试直至耗尽。
-func TestWebhookRetry_NetworkErrorRetries(t *testing.T) {
-	// 起一个 server 立即关掉，拿到一个必然拒绝连接的地址。
+func TestWebhookRetry_NetworkErrorReschedules(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
 	deadURL := srv.URL
-	srv.Close()
+	srv.Close() // guaranteed connection refused
 
-	repo := &MockWebhookRepository{}
-	svc := zeroBackoff(NewWebhookServiceWithRepo(repo))
+	db := newWebhookTestDB(t)
+	seedWebhook(t, db, 1, deadURL, "")
+	d := seedDueDelivery(t, db, 1)
 
-	wh := models.Webhook{ID: 1, URL: deadURL}
-	svc.deliver(wh, WebhookPayload{Event: "article.created", Timestamp: time.Now(), Data: "x"})
+	w := newTestWorker(db)
+	runOnce(w)
 
-	if len(repo.CreatedLogs) != 1 {
-		t.Fatalf("expected 1 log, got %d", len(repo.CreatedLogs))
+	got := getDelivery(t, db, d.ID)
+	if got.Status != models.WebhookDeliveryPending {
+		t.Errorf("status = %s, want pending (network error should reschedule)", got.Status)
 	}
-	log := repo.CreatedLogs[0]
-	if log.Success {
-		t.Error("expected success=false on network error")
+	if got.LastError == "" {
+		t.Error("expected non-empty last_error on network failure")
 	}
-	if log.Retries != maxWebhookRetries {
-		t.Errorf("expected retries=%d on network error, got %d", maxWebhookRetries, log.Retries)
-	}
-	if log.Error == "" {
-		t.Error("expected non-empty error message")
+	if got.Attempts != 1 {
+		t.Errorf("attempts = %d, want 1", got.Attempts)
 	}
 }
 
-// TestWebhookBackoff_Exponential: 指数退避序列 1s/2s/4s。
-func TestWebhookBackoff_Exponential(t *testing.T) {
-	want := []time.Duration{1 * time.Second, 2 * time.Second, 4 * time.Second}
-	for attempt, w := range want {
-		if got := webhookBackoff(attempt); got != w {
-			t.Errorf("attempt %d: expected %v, got %v", attempt, w, got)
+// TestWebhookRetry_BackoffSequence: exponential base 1ms → 1ms, 2ms, 4ms.
+func TestWebhookRetry_BackoffSequence(t *testing.T) {
+	db := newWebhookTestDB(t)
+	w := newTestWorker(db) // RetryDelay = 1ms
+	want := []time.Duration{time.Millisecond, 2 * time.Millisecond, 4 * time.Millisecond}
+	for attempt, w2 := range want {
+		if got := w.backoff(attempt); got != w2 {
+			t.Errorf("backoff(%d) = %v, want %v", attempt, got, w2)
 		}
+	}
+}
+
+// TestWebhookRetry_JitterBounds: fullJitter maps d into [d/2, d).
+func TestWebhookRetry_JitterBounds(t *testing.T) {
+	d := 100 * time.Millisecond
+	for i := 0; i < 1000; i++ {
+		got := fullJitter(d)
+		if got < d/2 || got >= d {
+			t.Fatalf("jitter %v out of [%v, %v)", got, d/2, d)
+		}
+	}
+}
+
+// Ensure config.QueueConfig zero values still produce a sane worker (defaults).
+func TestWebhookWorker_DefaultsFromZeroConfig(t *testing.T) {
+	db := newWebhookTestDB(t)
+	w := NewWebhookWorker(db, config.QueueConfig{})
+	if w.concurrency != 4 {
+		t.Errorf("default concurrency = %d, want 4", w.concurrency)
+	}
+	if w.maxAttempts != 1 {
+		t.Errorf("default maxAttempts = %d, want 1", w.maxAttempts)
+	}
+	if w.backoff(0) != 5*time.Second {
+		t.Errorf("default backoff(0) = %v, want 5s", w.backoff(0))
 	}
 }

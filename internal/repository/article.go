@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -17,11 +18,17 @@ import (
 // infinite loop (A-2 fix).
 const maxSlugAttempts = 100
 
+// ErrConcurrentModification is returned by Update when an optimistic-lock
+// check (expectedVersion) fails — the row was modified by another writer
+// between the caller's read and write.
+var ErrConcurrentModification = errors.New("concurrent modification: version mismatch")
+
 // ArticleListFilter holds query parameters for listing articles.
 type ArticleListFilter struct {
 	Page       int
 	PageSize   int
 	Status     string
+	Visibility string
 	PostType   string
 	CategoryID string
 	TagSlug    string
@@ -53,7 +60,11 @@ type ArticleRepository interface {
 	// recompute), and creates a new revision — all in a single transaction.
 	// tagIDs == nil means "do not touch tags". The article pointer is mutated
 	// to hold the final state (with associations preloaded).
-	Update(article *models.Article, updates map[string]interface{}, tagIDs []uint, revisionNote string, userID uint) error
+	// expectedVersion: when non-nil, performs an atomic optimistic-lock check
+	// (WHERE version = ?); returns ErrConcurrentModification if the row was
+	// modified by another writer. When nil, no version check is performed
+	// (backward-compatible with callers that don't supply a version).
+	Update(article *models.Article, updates map[string]interface{}, tagIDs []uint, revisionNote string, userID uint, expectedVersion *int) error
 
 	Delete(article *models.Article) error
 
@@ -105,6 +116,9 @@ func (r *gormArticleRepository) List(filter ArticleListFilter) ([]models.Article
 
 	if filter.Status != "" {
 		query = query.Where("status = ?", filter.Status)
+	}
+	if filter.Visibility != "" {
+		query = query.Where("visibility = ?", filter.Visibility)
 	}
 	if filter.PostType != "" {
 		query = query.Where("post_type = ?", filter.PostType)
@@ -188,7 +202,7 @@ func (r *gormArticleRepository) GetPublishedBySlug(articleSlug string) (*models.
 		Preload("Author").
 		Preload("Category").
 		Preload("Tags").
-		Where("slug = ? AND status = ?", articleSlug, models.StatusPublished).
+		Where("slug = ? AND status = ? AND visibility = ?", articleSlug, models.StatusPublished, models.VisibilityPublic).
 		First(&article).Error; err != nil {
 		return nil, err
 	}
@@ -255,11 +269,31 @@ func (r *gormArticleRepository) Create(article *models.Article, tagIDs []uint, r
 	})
 }
 
-func (r *gormArticleRepository) Update(article *models.Article, updates map[string]interface{}, tagIDs []uint, revisionNote string, userID uint) error {
+func (r *gormArticleRepository) Update(article *models.Article, updates map[string]interface{}, tagIDs []uint, revisionNote string, userID uint, expectedVersion *int) error {
 	return database.WithTransaction(r.db, func(tx *gorm.DB) error {
-		if len(updates) > 0 {
-			if err := tx.Model(article).Updates(updates).Error; err != nil {
-				return err
+		// Tag replacement is also a content change: it must participate in
+		// optimistic locking and advance the article version.
+		if len(updates) > 0 || tagIDs != nil {
+			if updates == nil {
+				updates = make(map[string]interface{})
+			}
+			// Optimistic-lock: when expectedVersion is provided, add a
+			// WHERE version = ? guard and bump version atomically. If the
+			// row was modified by another writer, RowsAffected = 0 and we
+			// return ErrConcurrentModification so the service layer can
+			// surface a 409 to the client.
+			query := tx.Model(&models.Article{}).Where("id = ?", article.ID)
+			if expectedVersion != nil {
+				query = query.Where("version = ?", *expectedVersion)
+			}
+			// Always bump version on content-affecting updates.
+			updates["version"] = gorm.Expr("version + 1")
+			result := query.Updates(updates)
+			if result.Error != nil {
+				return result.Error
+			}
+			if expectedVersion != nil && result.RowsAffected == 0 {
+				return ErrConcurrentModification
 			}
 		}
 

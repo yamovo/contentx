@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -69,14 +70,14 @@ func setupCoverageRouter(t *testing.T) (*gin.Engine, *gorm.DB, string) {
 	r := gin.New()
 
 	// Public routes.
-	r.GET("/api/v1/feed", NewArticleHandler(articleSvc).Feed)
-	r.GET("/api/v1/articles/:id/like", NewArticleHandler(articleSvc).LikeArticle)
+	r.GET("/api/v1/feed", NewArticleHandler(articleSvc, 0).Feed)
+	r.GET("/api/v1/articles/:id/like", NewArticleHandler(articleSvc, 0).LikeArticle)
 
 	api := r.Group("/api/v1")
 	api.Use(mockAuthMiddleware(jwtMgr, db))
 	{
 		// Article - 缺失路由（含 CRUD 前置条件）
-		artH := NewArticleHandler(articleSvc)
+		artH := NewArticleHandler(articleSvc, 0)
 		api.GET("/articles", artH.List)
 		api.GET("/articles/:id", artH.Get)
 		api.POST("/articles", artH.Create)
@@ -167,7 +168,7 @@ func setupCoverageRouter(t *testing.T) (*gin.Engine, *gorm.DB, string) {
 		api.POST("/categories/reorder", catH.Reorder)
 
 		// Comment - 路由
-		commentH := NewCommentHandler(services.NewCommentService(db))
+		commentH := NewCommentHandler(services.NewCommentService(db), 0)
 		api.GET("/comments", commentH.List)
 		api.GET("/comments/:id", commentH.Get)
 		api.POST("/comments", commentH.Create)
@@ -180,7 +181,7 @@ func setupCoverageRouter(t *testing.T) (*gin.Engine, *gorm.DB, string) {
 		api.GET("/articles/:id/comments", commentH.ArticleComments)
 
 		// Media - 缺失路由
-		mediaH := NewMediaHandler(mediaSvc)
+		mediaH := NewMediaHandler(mediaSvc, 0)
 		api.POST("/media/upload", mediaH.Upload)
 		api.GET("/media", mediaH.List)
 		api.GET("/media/:id", mediaH.Get)
@@ -245,6 +246,22 @@ func TestCoverage_ArticleBulkAction_InvalidJSON(t *testing.T) {
 	w := doJSONRequest(r, http.MethodPost, "/api/v1/articles/bulk", token, `{}`)
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("bulk action invalid: expected 400, got %d", w.Code)
+	}
+}
+
+func TestCoverage_ArticleBulkAction_ExceedsLimit(t *testing.T) {
+	r, _, token := setupCoverageRouter(t)
+
+	// Build a payload with 101 article IDs — exceeds the default limit of 100.
+	ids := make([]string, 101)
+	for i := range ids {
+		ids[i] = "1"
+	}
+	body := `{"action":"publish","article_ids":[` + strings.Join(ids, ",") + `]}`
+
+	w := doJSONRequest(r, http.MethodPost, "/api/v1/articles/bulk", token, body)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("bulk action over limit: expected 400, got %d: %s", w.Code, w.Body.String())
 	}
 }
 
@@ -515,28 +532,49 @@ func TestCoverage_UserDelete(t *testing.T) {
 func TestCoverage_RoleUpdateAndDelete(t *testing.T) {
 	r, _, token := setupCoverageRouter(t)
 
-	// 创建角色
+	// 创建角色（非系统角色，可用于 update/delete 测试）
 	w := doJSONRequest(r, http.MethodPost, "/api/v1/roles", token,
 		`{"name":"Temp Role","slug":"temp-role","description":"Temporary"}`)
 	if w.Code != http.StatusCreated && w.Code != http.StatusOK {
 		t.Fatalf("create role: expected 201/200, got %d: %s", w.Code, w.Body.String())
 	}
+	// 解析新建角色的 ID（避免修改/删除 seed 的系统角色 admin/editor）
+	var createResp map[string]interface{}
+	json.Unmarshal(w.Body.Bytes(), &createResp)
+	createdData, ok := dataField(createResp)
+	if !ok {
+		t.Fatalf("create role: missing data field in response: %s", w.Body.String())
+	}
+	updateID, ok := docIDField(createdData)
+	if !ok {
+		t.Fatalf("create role: missing id in response: %s", w.Body.String())
+	}
 
-	// Update
-	w = doJSONRequest(r, http.MethodPut, "/api/v1/roles/1", token,
+	// Update 新建的非系统角色
+	w = doJSONRequest(r, http.MethodPut, "/api/v1/roles/"+updateID, token,
 		`{"name":"Updated Role","description":"Updated"}`)
 	if w.Code != http.StatusOK {
 		t.Fatalf("update role: expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 
-	// Delete (用新创建的角色，避免删除 seed 的 admin/editor)
+	// Delete：再创建一个角色用于删除测试
 	w = doJSONRequest(r, http.MethodPost, "/api/v1/roles", token,
 		`{"name":"Delete Me","slug":"delete-me","description":"To delete"}`)
 	if w.Code != http.StatusCreated && w.Code != http.StatusOK {
 		t.Fatalf("create role for delete: expected 201/200, got %d: %s", w.Code, w.Body.String())
 	}
+	var deleteResp map[string]interface{}
+	json.Unmarshal(w.Body.Bytes(), &deleteResp)
+	deleteData, ok := dataField(deleteResp)
+	if !ok {
+		t.Fatalf("create role for delete: missing data field in response: %s", w.Body.String())
+	}
+	deleteID, ok := docIDField(deleteData)
+	if !ok {
+		t.Fatalf("create role for delete: missing id in response: %s", w.Body.String())
+	}
 
-	w = doJSONRequest(r, http.MethodDelete, "/api/v1/roles/2", token, "")
+	w = doJSONRequest(r, http.MethodDelete, "/api/v1/roles/"+deleteID, token, "")
 	if w.Code != http.StatusOK {
 		t.Fatalf("delete role: expected 200, got %d: %s", w.Code, w.Body.String())
 	}
