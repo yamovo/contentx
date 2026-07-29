@@ -1,39 +1,33 @@
 # ContentX
 
-ContentX 是一个使用 Go 构建的 API-first Headless CMS。它提供 REST API、只读 GraphQL、Vue 3 管理后台，并支持文章工作流、自定义内容类型、国际化、媒体管理、搜索、Webhook、插件和可观测性。
+ContentX 是一个使用 Go 构建的 API-first Headless CMS，提供 REST API、只读 GraphQL、Vue 3 管理后台，以及面向 AI Agent 的 MCP 接口。
 
-当前发布基线为 `v1.3.0`。P3-A“生产就绪”、Round 6 扣分项整改与 Round 7 外部审查整改（复评 7.8/10）已通过 ROADMAP Round 1-7 全部验收。
+## 功能
 
-## 文档导航
+- 文章、页面、分类、标签、评论和媒体管理
+- 草稿、审核、定时发布、发布和归档工作流
+- JWT、API Token、TOTP 和基于角色的访问控制
+- 自定义内容类型、国际化和版本修订
+- PostgreSQL、MySQL 和 SQLite
+- Redis 缓存、Webhook、Prometheus 和 OpenTelemetry
+- 本地与 S3 兼容存储
+- stdio 与 Streamable HTTP MCP
 
-| 文档 | 内容 |
-|---|---|
-| [docs/PRD.md](./docs/PRD.md) | 产品需求、已交付能力、当前边界和完成定义 |
-| [docs/SOP.md](./docs/SOP.md) | 本地开发、Docker 部署、可观测性、压测流程和验证命令 |
-| [docs/ROADMAP.md](./docs/ROADMAP.md) | 轮次化执行路线、退出门槛和当前进度 |
-| [docs/AUDIT.md](./docs/AUDIT.md) | 外部审查报告（评分、缺点、整改清单） |
-| [docs/TECH_REVIEW.md](./docs/TECH_REVIEW.md) | 全面技术审查报告（8 维度评分、风险与改进路线） |
-| [CHANGELOG.md](./CHANGELOG.md) | 版本变更记录 |
+## 要求
 
-## 技术栈
-
-| 层 | 实现 |
-|---|---|
-| 后端 | Go 1.25、Gin、GORM |
-| 数据库 | PostgreSQL、MySQL、SQLite |
-| 缓存与协调 | Redis，可回退到进程内实现 |
-| 前端 | Vue 3、TypeScript、Vite、Element Plus |
-| API | REST、GraphQL、Swagger/OpenAPI |
-| 可观测性 | Prometheus、Grafana、OpenTelemetry、Tempo |
-| 部署 | 单应用镜像、Docker Compose、Nginx |
+- Go 1.25 或更高版本
+- Node.js 及 npm（开发管理后台时需要）
+- Docker Desktop 或 Docker Engine（使用容器部署时需要）
 
 ## 快速开始
 
-### Docker Compose（推荐）
+### Docker Compose
 
-要求：Docker Desktop 或 Docker Engine 已启动。
+复制环境变量模板并设置至少以下密钥：
 
-在项目根目录创建 `.env`，至少设置以下值：
+```bash
+cp .env.example .env
+```
 
 ```env
 POSTGRES_PASSWORD=replace-with-a-strong-password
@@ -43,42 +37,24 @@ ADMIN_PASSWORD=replace-with-at-least-8-characters
 GRAFANA_PASSWORD=replace-with-a-strong-password
 ```
 
-启动应用、PostgreSQL、Redis 和 Nginx：
+启动服务：
 
 ```bash
 docker compose up -d --build
 ```
 
-需要监控与链路追踪时：
-
-```bash
-docker compose --profile monitor up -d --build
-```
-
-默认入口：
-
-| 服务 | 地址 |
-|---|---|
-| 管理后台 | http://localhost:8080 |
-| REST API | http://localhost:8080/api/v1 |
-| Swagger | http://localhost:8080/swagger/index.html |
-| GraphQL | http://localhost:8080/api/v1/graphql |
-| 健康检查 | http://localhost:8080/api/v1/system/health |
-| Prometheus | http://localhost:9090 |
-| Grafana | http://localhost:3001 |
-| Tempo | http://localhost:3200 |
-
-如端口冲突，可在 `.env` 中修改 `APP_PORT`、`HTTP_PORT` 和 `HTTPS_PORT`。管理账号为 `admin`，密码取自 `ADMIN_PASSWORD`。
+管理后台位于 <http://localhost:8080>，Swagger 文档位于
+<http://localhost:8080/swagger/index.html>。
 
 ### 本地开发
 
-后端默认使用 SQLite，适合快速开发：
+后端默认使用 SQLite：
 
 ```bash
 go run ./cmd/server
 ```
 
-前端开发服务器：
+在另一个终端启动管理后台：
 
 ```bash
 cd web
@@ -86,121 +62,37 @@ npm ci
 npm run dev
 ```
 
-生产模式不会自动接受弱密钥：必须提供有效的 `JWT_SECRET`、`ADMIN_PASSWORD`，使用 PostgreSQL/MySQL 时还必须提供数据库密码。
-
-详细的验证命令、压测流程和可观测性配置见 [SOP.md](./docs/SOP.md)。
-
-## 阶段性性能基线
-
-> ⚠️ 所有性能数字为**阶段性本机结果，非 SLA**。来自开发机 Docker 环境，仅供相对比较。
-
-跨数据库（PostgreSQL / MySQL / SQLite）对照基线已由 ROADMAP Round 3 在统一条件下重跑
-（同一 Git SHA、10,000 篇数据集、同一 Linux 容器内压测）。完整数据与根因归因见
-[reports/benchmarks/cross-db-comparison.md](./reports/benchmarks/cross-db-comparison.md)。
-
-PostgreSQL（主推驱动）摘要（读 1,000 req/s × 15s，10,000 篇）：
-
-| 场景 | 成功率 | P50 | P95 | P99 |
-|---|---:|---:|---:|---:|
-| 文章列表（20 条） | 100% | 8.29 ms | 13.35 ms | 21.75 ms |
-| 文章详情 | 100% | 1.52 ms | 1.98 ms | 2.59 ms |
-| GraphQL 查询 | 100% | 8.24 ms | 11.22 ms | 18.70 ms |
-| 并发写入（100 req/s） | 100% | 7.48 ms | 9.70 ms | 12.49 ms |
-
-原始 Vegeta JSON 位于 `reports/benchmarks/raw/`。
-
-## 项目结构
-
-```text
-cmd/server/             应用入口与 HTTP 服务
-internal/handlers/      路由、HTTP handler 和 DTO
-internal/services/      业务逻辑、工作流、搜索和调度器
-internal/repository/    数据访问接口与 GORM 实现
-internal/models/        数据模型
-internal/cache/         内存/Redis 缓存和分布式锁
-internal/storage/       本地/S3 兼容存储
-internal/observability/ 指标与链路追踪
-internal/graphql/       GraphQL schema 与 resolver
-web/                    Vue 3 管理后台
-sdk/typescript/         TypeScript SDK
-deploy/                 Nginx、Prometheus、Grafana、Tempo 配置
-docs/                   PRD、SOP、ROADMAP、OpenAPI 和截图
-scripts/benchmark/      可复现压测脚本与数据集
-reports/benchmarks/     压测原始结果与后续报告
-```
-
-## 当前边界
-
-- GraphQL 当前只读，写操作走 REST；查询深度上限 10 层（超出返回 400），单次执行超时 30 秒。
-- 内置搜索索引不跨实例共享，外部 MeiliSearch 驱动尚未完成。
-- **灾难恢复 CLI**：`docker exec contentx /app/contentx --restore <file>` 绕过 HTTP 认证直接恢复（Round 6 / F3）；restore 后异步重建内存搜索索引（F2）。
-- **Release 二进制不支持 SQLite**：CI Release 作业以 `CGO_ENABLED=0` 构建跨平台二进制，
-  SQLite 驱动需要 CGO，因此预编译 Release 包仅支持 PostgreSQL / MySQL。需要 SQLite 时
-  请使用 Docker 镜像（内置 CGO 构建）或本地 `go build`（需 C 编译器）。
-- README 中的性能数字是阶段性本机结果，不是 SLA。
-
-完整的当前边界和完成定义见 [PRD.md](./docs/PRD.md)。
-
-## 开发
-
-本地防线（Round 6 / F1）：
+## 验证
 
 ```bash
-# 安装 pre-commit 钩子（gofmt + go vet + swagger drift 检查）
-make install-hooks
-
-# 聚合检查（fmt + vet + swagger + lint + test）
 make check
 ```
 
-前端使用 husky + lint-staged 对暂存的 `.ts`/`.vue` 运行 `vue-tsc --noEmit`。
+该命令依次执行格式化、静态检查、Swagger 同步检查、lint 和测试。更完整的开发、部署与恢复步骤见 [标准操作流程](./docs/SOP.md)。
 
-CI 强制覆盖率门槛（Round 6 / F8）：后端 Go ≥ 60%，前端 vitest `--coverage` thresholds（lines/statements 20%，branches 40%，functions 35%）。
+## 文档
 
-## AI / MCP（实验性）
+| 文档 | 用途 |
+|---|---|
+| [产品需求](./docs/PRD.md) | 产品定位、范围和验收标准 |
+| [路线图](./docs/ROADMAP.md) | 里程碑、优先级和后续计划 |
+| [标准操作流程](./docs/SOP.md) | 开发、部署、验证、备份与恢复 |
+| [项目状态](./docs/STATUS.md) | 当前版本、已知限制和下一步 |
+| [API 文档](./docs/api/swagger.yaml) | OpenAPI 规范 |
+| [变更日志](./CHANGELOG.md) | 版本变更记录 |
 
-ContentX 可作为 [Model Context Protocol](https://modelcontextprotocol.io) server，让支持 MCP 的 AI Agent（Claude Desktop、IDE 等）直接检索/读取内容。当前为**只读 MVP**，走 stdio 传输，复用进程内的只读服务：
+## 获取帮助
 
-```bash
-# 需要一个已迁移/已 seed 的数据库（默认 SQLite）
-contentx --mcp        # 或：go run ./cmd/server --mcp
-```
+请通过 [GitHub Issues](https://github.com/yamovo/contentx/issues) 报告缺陷或提出功能建议。提交问题前请避免公开令牌、密码、个人数据或未修复漏洞的利用细节。
 
-只读工具：`search_content`、`list_articles`、`get_article`、`list_content_types`。默认仅暴露 `published` 内容；受信本地环境如需读取草稿，设 `MCP_INCLUDE_DRAFTS=true`。
+## 贡献
 
-Claude Desktop 配置示例（`claude_desktop_config.json`）：
+提交变更前请运行 `make check`，并确保文档、测试和生成的 Swagger 文件与代码保持同步。较大的功能变更建议先创建 Issue 说明需求和设计。
 
-```json
-{
-  "mcpServers": {
-    "contentx": {
-      "command": "contentx",
-      "args": ["--mcp"],
-      "env": { "DB_DRIVER": "sqlite", "DB_NAME": "contentx" }
-    }
-  }
-}
-```
+## 安全
 
-本地冒烟测试：`npx @modelcontextprotocol/inspector contentx --mcp`。
-
-**远程（Streamable HTTP）**：设 `MCP_HTTP_ENABLED=true` 后，MCP 挂载在 `/api/v1/mcp`，供远程 Agent 访问。需先经 `/api/v1/system/tokens`（管理员）创建 API Token，客户端请求带 `Authorization: Bearer <token>`（缺失/无效 → 401）。
-
-HTTP 模式额外提供**写工具** `create_article` / `update_article` / `publish_article`，按 API Token 的 `permissions` 授权（`articles.create` / `articles.edit` / `articles.edit_all` / `articles.publish`）并以 token 所属用户身份执行；AI 创建/修改默认存草稿，发布需单独调用 `publish_article`。stdio 模式无身份，仅暴露只读工具。
-
-**Resources**：支持 MCP resources 原语——内容类型作为具体资源可通过 `resources/list` 发现，文章通过 URI 模板 `contentx://articles/{id}` 按 ID 读取完整正文。
-
-**Prompts（AI 写作工作流）**：内置 4 个提示词模板，在支持 MCP prompts 的客户端（如 Claude Desktop 的 `+` 菜单）中直接选用，自动编排上述读写工具完成内容创作：
-
-| Prompt | 参数 | 工作流 |
-|---|---|---|
-| `write_article` | `topic`（必填）、`style`/`length`/`locale` | 先 `search_content` 查重 → 起草 Markdown → `create_article` 存草稿 |
-| `improve_article` | `article_id`（必填）、`focus` | `get_article` 拉取 → 按焦点改进 → `update_article` 保存修订 |
-| `summarize_article` | `article_id`（必填）、`max_words` | `get_article` → 生成摘要，仅在明确要求时写回 excerpt |
-| `translate_article` | `article_id`、`target_locale`（均必填） | `get_article` → 翻译 → `create_article` 存为新语种草稿 |
-
-所有模板均遵守安全约束：AI 产出一律存草稿、绝不自动发布；只读会话（stdio 无写工具）下自动降级为在对话中呈现草稿。
+安全问题请使用 GitHub Security Advisory 私下报告，不要创建公开 Issue。
 
 ## 许可证
 
-[MIT](./LICENSE)
+本项目采用 [MIT License](./LICENSE)。

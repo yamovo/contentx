@@ -5,7 +5,24 @@
 
 ## [Unreleased]
 
-Round 7 后续清理 + P0 收尾 + AI 原生起步：消除 AUDIT.md 剩余代码层面未解决项、补齐 E2E 测试缺口；落地 TECH_REVIEW 独立复核的 P0 项（性能复合索引 + 安全加固 + 文档同步）；并新增只读 MCP Server（AI Agent 内容后端）。
+Round 7 后续清理 + P0 收尾 + AI 原生起步：消除 AUDIT.md 剩余代码层面未解决项、补齐 E2E 测试缺口；落地 TECH_REVIEW 独立复核的 P0 项（性能复合索引 + 安全加固 + 文档同步）；新增只读 MCP Server（AI Agent 内容后端）；完成 Round 8 安全整改（P0 SEC-1~4 全部 + P1 SEC-5/6/7/9/11）。
+
+### Security — Round 8 安全整改（SEC-1 ~ SEC-11，完成 9/11）
+- **SEC-1 Webhook SSRF 防护**：新增 `internal/services/webhook_ssrf.go`——投递客户端用自定义 Dialer Control 在拨号阶段封禁 loopback/RFC1918/link-local（含云元数据 169.254.169.254）/ULA（防 DNS rebinding）；不跟随 redirect；release 模式强制 https；创建时 `validateWebhookURL` 前置拦截；`WEBHOOK_ALLOW_PRIVATE_TARGETS=true` 供内网投递显式放行
+- **SEC-2 RedisTokenStore fail-open 修复**：新增 `internal/auth/resilient_token_store.go`——Redis + 内存 Blacklist 双写组合 store，IsRevoked 先查内存再查 Redis，Redis 故障窗口内本实例吊销的 token 仍被拒；`main.go initTokenStore` 装配
+- **SEC-3 RestoreRevision IDOR 修复**：`article_service.go` 加 ownership 复核（`AuthorID != userID && !isEditor → Forbidden`），handler 传 `user.IsEditor()`，越权/本人/editor 三分支测试
+- **SEC-4 弱密钥占位符拦截**：`config.go` 弱密钥黑名单增加 `change-me`/`replace-me`/`change_me` 等前缀模式，`.env.example` 占位符直接复制上线时启动失败
+- **SEC-5 service 层 ownership 复核**：MediaService.Update/Delete/BulkDelete 加 `UploaderID != userID && !isEditor → Forbidden`（非 editor 批删含他人文件整批拒绝，无权限中间件的 `PUT /media/:id` 也被覆盖）；UserService.Update/ResetPassword 加垂直越权防护（非 admin 不得修改 admin 账户、变更角色、重置 admin 密码）
+- **SEC-6 RedisLoginGuard**：新增 `internal/auth/redis_login_guard.go`——登录失败计数（INCR+TTL）与锁定 key 存 Redis，多实例共享锁定防分布式撞库；Redis 故障时回退内嵌内存 LoginGuard；抽 `LoginLimiter` 接口，AuthService/routes 改用接口；真实 Redis 测试由 `REDIS_TEST_ADDR` 门控
+- **SEC-7 插件沙箱第一步**：`plugin.Manager` 移除 `db *gorm.DB`，改注入仅触及 plugins 表的 `StateStore` 窄接口（`state_store.go`）；Hook 执行统一包 5s 超时 + panic 回收（`runHook`），挂死/panic 插件不再阻塞或击穿写路径
+- **SEC-9 缓存 single-flight 防击穿**：`ArticleService` 引入 `golang.org/x/sync/singleflight`，List/Get 的 cache-miss 回源合并并发请求（flight 内二次查缓存），20 并发 miss 合并为 1 次 DB 查询
+- **SEC-11 GraphQL query complexity 限制**：新增 `internal/graphql/complexity.go`——AST 代价评分（分页参数作乘数，字面量钳制 100，变量取默认 20），上限 2000，超限 400 拒绝；与现有 MaxDepth=10 叠加防宽查询 DoS
+- 顺延：SEC-8（Webhook jitter/死信/并发上限，与 P3-B B3 合并设计）、SEC-10（S3 迁移真实 SDK）
+
+### Added — 覆盖率回补（Round 8）
+- `internal/auth/totp_test.go`：TOTP 全链路测试（secret 生成/URI/当前码验证/skew 窗口/非法 secret/备份码生成与哈希），原 0% 覆盖
+- `internal/database/seed_test.go`：SeedAll 初始数据/幂等性/release 模式缺 ADMIN_PASSWORD 拒绝启动，原 0% 覆盖
+- 总覆盖率 66.8% → 67.1%
 
 ### Added — AI / MCP（只读 stdio MVP）
 - `internal/mcp/`：基于官方 `github.com/modelcontextprotocol/go-sdk` 的只读 MCP Server，暴露 `search_content` / `list_articles` / `get_article` / `list_content_types` 四个工具；工具层传输无关，为后续 Streamable HTTP 铺路
@@ -57,6 +74,17 @@ Round 7 后续清理 + P0 收尾 + AI 原生起步：消除 AUDIT.md 剩余代�
 - `internal/middleware/apikey.go`：`extractAPIKey` 移除 `?api_key=` 查询参数通道，防止 API Key 泄漏到 access log / 浏览器历史 / Referer
 - `internal/handlers/routes.go`：`uploads` 静态服务增加 `X-Content-Type-Options: nosniff`，并对非图片/视频（HTML/SVG/PDF 等）强制 `Content-Disposition: attachment`
 
+### Fixed — 内容条目 JSON 过滤跨库兼容（TECH_REVIEW P1）
+- `internal/repository/content.go`：内容条目列表的 JSON 字段过滤由 SQLite 专有的 `json_extract` 改为方言分派——PostgreSQL 用 `data::jsonb ->> ?`，MySQL 用 `JSON_UNQUOTE(JSON_EXTRACT(data, ?))`，SQLite 保持 `json_extract`；path/key 与 value 全部保持参数绑定
+- 防御性加固：过滤字段名限制为合法标识符（`^[A-Za-z_][A-Za-z0-9_]*$`），任意 query 参数构成的非法 JSON path 被跳过而非触发 500
+- `internal/repository/content_test.go`：新增 4 个测试（三方言 SQL 生成、单/组合过滤命中、未命中、非法字段名跳过）
+
+### Added — F9/F10 基础包测试补齐（ROADMAP Round 6 遗留）
+- `internal/errs/errs_test.go`：15 个预定义错误码→HTTP 状态映射全表断言；Wrap/WithMessage 不可变性（sentinel 不被篡改）；`errs.Is` 覆盖直接匹配/fmt.Errorf %w 链/errors.Join 多错误组/不匹配四路径（覆盖率 95.2%）
+- `internal/logger/logger_test.go`：`parseLevel` 全表（含大小写/未知值回退）；级别过滤生效验证；file 输出真实写入 + JSON 格式断言；非法路径回退 stdout 不 panic（覆盖率 91.7%）
+- `internal/mail/mailer_test.go`：内置最小 SMTP 假服务器（loopback + AUTH PLAIN）捕获真实 DATA 载荷，验证头部（From/To/Subject/Content-Type）与 Verification/PasswordReset/CommentNotification 三套模板渲染；无收件人/未配置 SMTP 边界分支
+- `internal/database/migrations/migrations_test.go`：真实 001-003 迁移正向（建表+建索引）/全量回滚/回滚后重放；索引迁移 Up/Down 幂等；版本号从 1 连续递增校验（覆盖率 95.7%）
+
 ### Docs
 - 新增 `docs/TECH_REVIEW.md`：全面技术审查报告（8 维度评分 + 风险与改进路线）
 - `README.md` / `docs/PRD.md`：发布基线更新至 `v1.3.0`；README 文档导航新增 TECH_REVIEW 链接
@@ -81,7 +109,7 @@ Round 7 后续清理 + P0 收尾 + AI 原生起步：消除 AUDIT.md 剩余代�
 
 ## [1.3.0] - 2026-07-24
 
-Round 7 外部审查整改：基于 [AUDIT.md](./docs/AUDIT.md) 初评 6.5/10 的整改轮次，目标 6.5 → 7.5（复评 7.8/10）。完成全部 23 项整改任务（A-1 ~ A-23），覆盖 P0 安全、前端工程化卫生、测试补齐、后端性能与稳定性、代码质量重构。
+Round 7 外部审查整改：基于当时的技术审查报告 §1.2 初评 6.5/10 的整改轮次（审查材料现已删除），目标 6.5 → 7.5（复评 7.8/10）。完成全部 23 项整改任务（A-1 ~ A-23），覆盖 P0 安全、前端工程化卫生、测试补齐、后端性能与稳定性、代码质量重构。
 
 ### Fixed — 安全（A-1 ~ A-4）
 - `internal/auth/jwt.go` + `internal/services/auth_service.go`：JWT Refresh 改为查 DB 加载用户最新角色/状态，refresh 后角色/禁用变更立即生效（A-1）

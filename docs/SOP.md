@@ -1,18 +1,20 @@
-# ContentX 标准操作流程（SOP）
+# 标准操作流程
 
-> 本文件定义 ContentX 的验证、部署、压测和可观测性操作流程。产品能力见 [PRD.md](./PRD.md)，执行进度见 [ROADMAP.md](./ROADMAP.md)。
+本文档提供 ContentX 的开发、验证、部署、备份和故障恢复操作。所有命令默认在项目根目录执行。
 
-## 1. 本地开发
+## 本地开发
 
 ### 后端
 
-默认使用 SQLite，适合快速开发：
+默认配置使用 SQLite：
 
 ```bash
 go run ./cmd/server
 ```
 
-### 前端
+服务启动时会执行待处理的数据库迁移并初始化必要数据。
+
+### 管理后台
 
 ```bash
 cd web
@@ -20,499 +22,161 @@ npm ci
 npm run dev
 ```
 
-### 验证命令
+## 配置
+
+从模板创建本地配置：
 
 ```bash
-# 后端
-go test ./...
-go vet ./...
-go build ./cmd/server
+cp .env.example .env
+```
 
-# 前端
+生产环境至少必须设置强随机的 `JWT_SECRET`、`ADMIN_PASSWORD`、数据库密码、Redis 密码和 Grafana 密码。不要提交 `.env` 或真实凭据。
+
+常用配置组：
+
+| 范围 | 变量 |
+|---|---|
+| 服务 | `SERVER_HOST`、`SERVER_PORT`、`SERVER_MODE`、`SERVER_BASE_URL` |
+| 数据库 | `DB_DRIVER`、`DB_HOST`、`DB_PORT`、`DB_USER`、`DB_PASSWORD`、`DB_NAME` |
+| Redis | `REDIS_HOST`、`REDIS_PORT`、`REDIS_PASSWORD`、`REDIS_DB` |
+| 存储 | `STORAGE_DRIVER`、`UPLOAD_STORAGE_PATH`、`S3_*` |
+| 监控 | `METRICS_ENABLED`、`OTEL_ENABLED`、`OTEL_*` |
+| 搜索 | `SEARCH_ENGINE`、`MEILISEARCH_URL`、`MEILISEARCH_KEY` |
+
+完整列表及默认值见 [`.env.example`](../.env.example)。
+
+## 验证
+
+提交前运行：
+
+```bash
+make check
+```
+
+需要单独排查时可运行：
+
+```bash
+make fmt
+make vet
+make swagger
+make lint
+make test
+```
+
+前端单独验证：
+
+```bash
 cd web
 npm ci
-npm run type-check
-npm run test -- --run
+npm run lint
+npm run test
 npm run build
 ```
 
-Windows 上若 Go 不在 `PATH`，可直接使用本机安装位置，例如：
+如果修改 REST 路由或注释，执行 `make swagger` 并提交更新后的 `docs/api/` 文件。
 
-```powershell
-& 'D:\tool\Go\bin\go.exe' test ./...
-```
+## Docker Compose 部署
 
-为避免扫描 `web/node_modules` 中碰巧存在的 Go 包，使用明确包范围：
-
-```powershell
-$env:GOCACHE = Join-Path $env:TEMP 'contentx-verify-cache'
-& 'D:\tool\Go\bin\go.exe' test -p=1 ./cmd/server ./docs/api ./internal/... ./scripts/benchmark/seeder ./tests -count=1
-& 'D:\tool\Go\bin\go.exe' vet ./cmd/server ./docs/api ./internal/... ./scripts/benchmark/seeder ./tests
-& 'D:\tool\Go\bin\go.exe' build -o (Join-Path $env:TEMP 'contentx-verify.exe') ./cmd/server
-```
-
-### 提交前检查
-
-> 对应 ROADMAP Round 6 / F1。目标：本地拦截格式化与 Swagger 漂移，不依赖远端 CI。
-
-**一键本地检查**（Makefile）：
-
-```bash
-make check    # fmt + vet + swagger drift + lint + test
-make install-hooks  # 安装 pre-commit 钩子到 .git/hooks/
-```
-
-**Pre-commit 钩子内容**（`scripts/git/hooks/pre-commit`，`make install-hooks` 安装）：
-
-- `go fmt ./...` + `git diff --exit-code`：拦截未格式化代码
-- `go vet ./...`：静态检查
-- `swag init -g cmd/server/main.go --parseDependency --parseInternal -o docs/api` + `git diff --exit-code docs/api/`：Swagger 漂移检查
-
-**前端钩子**（husky + lint-staged，`web/package.json` 配置）：
-
-- 对暂存的 `.ts`/`.vue` 文件运行 `vue-tsc --noEmit`
-
-> 钩子安装后每次 `git commit` 自动执行。如需跳过（不推荐），使用 `git commit --no-verify`。
-
-### 覆盖率门槛
-
-> 对应 ROADMAP Round 6 / F8。
-
-- 后端：CI 在 `go test` 后运行 `go tool cover -func=coverage.out | grep total`，低于阈值失败。
-- 前端：`web/vite.config.ts` 配置 `coverage.thresholds`，vitest 以 `--coverage` 运行并检查门槛。
-
-## 2. Docker Compose 部署
-
-要求：Docker Desktop 或 Docker Engine 已启动。
-
-在项目根目录创建 `.env`，至少设置以下值：
-
-```env
-POSTGRES_PASSWORD=replace-with-a-strong-password
-REDIS_PASSWORD=replace-with-a-strong-password
-JWT_SECRET=replace-with-at-least-32-random-characters
-ADMIN_PASSWORD=replace-with-at-least-8-characters
-GRAFANA_PASSWORD=replace-with-a-strong-password
-```
-
-启动应用、PostgreSQL、Redis 和 Nginx：
+创建并检查 `.env` 后启动：
 
 ```bash
 docker compose up -d --build
 ```
 
-需要监控与链路追踪时：
+启用监控组件：
 
 ```bash
 docker compose --profile monitor up -d --build
+```
+
+检查服务：
+
+```bash
+docker compose ps
+curl http://localhost:8080/api/v1/system/health
 ```
 
 默认入口：
 
 | 服务 | 地址 |
 |---|---|
-| 管理后台 | http://localhost:8080 |
-| REST API | http://localhost:8080/api/v1 |
-| Swagger | http://localhost:8080/swagger/index.html |
-| GraphQL | http://localhost:8080/api/v1/graphql |
-| 健康检查 | http://localhost:8080/api/v1/system/health |
-| Prometheus | http://localhost:9090 |
-| Grafana | http://localhost:3001 |
-| Tempo | http://localhost:3200 |
+| 管理后台 | <http://localhost:8080> |
+| REST API | <http://localhost:8080/api/v1> |
+| Swagger | <http://localhost:8080/swagger/index.html> |
+| GraphQL | <http://localhost:8080/api/v1/graphql> |
+| 健康检查 | <http://localhost:8080/api/v1/system/health> |
+| Prometheus | <http://localhost:9090> |
+| Grafana | <http://localhost:3001> |
 
-如端口冲突，可在 `.env` 中修改 `APP_PORT`、`HTTP_PORT` 和 `HTTPS_PORT`。管理账号为 `admin`，密码取自 `ADMIN_PASSWORD`。
-
-停止服务：
+## 数据库管理
 
 ```bash
-docker compose --profile monitor down
+go run ./cmd/server --migrate-status
+go run ./cmd/server --migrate
+go run ./cmd/server --migrate-down 1
+go run ./cmd/server --seed
 ```
 
-### 配置解析与健康检查
+回滚迁移可能造成数据丢失，只能在确认目标版本和备份可用后执行。
 
-```powershell
-docker compose --profile monitor config --quiet
-docker compose --profile monitor ps
-Invoke-RestMethod http://127.0.0.1:18080/api/v1/system/health
-```
+## 备份与恢复
 
-端口以 `.env` 为准。验收还必须检查 Prometheus target、Grafana 数据源和 Tempo Trace。
+### 创建备份
 
-生产模式不会自动接受弱密钥：必须提供有效的 `JWT_SECRET`、`ADMIN_PASSWORD`，使用 PostgreSQL/MySQL 时还必须提供数据库密码。
-
-## 3. 备份与恢复
-
-ContentX 提供基于 `pg_dump`/`mysqldump`（SQLite 用 `VACUUM INTO`）的数据库备份与恢复，所有端点限 superadmin 调用并通过 `RequireAdmin` 中间件保护。
-
-### 3.1 端点
-
-| 方法 | 路径 | 说明 |
-|---|---|---|
-| `POST` | `/api/v1/admin/backup?type=db` | 触发数据库备份，返回文件名 |
-| `POST` | `/api/v1/admin/backup?type=media` | 触发媒体目录备份 |
-| `POST` | `/api/v1/admin/backup?type=all` | 同时备份数据库与媒体 |
-| `GET`  | `/api/v1/admin/backup` | 列出已有备份 |
-| `GET`  | `/api/v1/admin/backup/:file/download` | 下载备份文件 |
-| `POST` | `/api/v1/admin/backup/:file/restore` | 从备份恢复数据库或媒体 |
-| `DELETE` | `/api/v1/admin/backup/:file` | 删除备份文件 |
-
-### 3.2 手动备份与恢复
-
-```powershell
-# 1. 登录获取 token
-$resp = Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:18080/api/v1/auth/login' `
-  -ContentType 'application/json' -Body '{"username":"admin","password":"<ADMIN_PASSWORD>"}'
-$token = $resp.data.token.access_token
-
-# 2. 触发数据库备份
-$bk = Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:18080/api/v1/admin/backup?type=db' `
-  -Headers @{ Authorization = 'Bearer ' + $token }
-$bkFile = $bk.data.path
-
-# 3. 下载备份到本地
-Invoke-WebRequest -Uri "http://127.0.0.1:18080/api/v1/admin/backup/$bkFile/download" `
-  -Headers @{ Authorization = 'Bearer ' + $token } -OutFile $bkFile
-
-# 4. 从备份恢复（恢复前会校验 schema 版本与表完整性，恢复后返回行数对比）
-Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:18080/api/v1/admin/backup/$bkFile/restore" `
-  -Headers @{ Authorization = 'Bearer ' + $token }
-```
-
-备份文件存放在容器内 `/app/backups`（对应 docker volume `backups`），文件名形如 `db-YYYYMMDD-HHMMSS.sql`（pg/mysql）或 `db-YYYYMMDD-HHMMSS.db`（sqlite）。
-
-### 3.3 定时备份
-
-通过环境变量配置定时备份与保留策略：
-
-```env
-BACKUP_SCHEDULE=0 3 * * *      # 每天 03:00 执行（cron 表达式）
-BACKUP_RETENTION_COUNT=10      # 最多保留 10 份
-BACKUP_RETENTION_DAYS=30       # 或按天数保留 30 天
-```
-
-定时备份由 `BackupScheduler` 在应用启动时注册，使用分布式锁（Redis，单机回退内存）防止多实例重复执行。备份失败会记录结构化日志（`slog.Error`）。
-
-### 3.4 灾难恢复（数据库完全丢失）
-
-> **重要约束**：HTTP 恢复端点 `/api/v1/admin/backup/:file/restore` 需 superadmin 认证，而认证中间件每次请求都会查询 `users` 表。如果整个数据库被删除（`DROP SCHEMA`），`users` 表不存在，端点会返回 `401 User not found` —— HTTP 端点**不能**用于数据库完全丢失的场景。
->
-> **Round 6 已整改**（F3 完成）：已增加 `--restore` CLI 子命令，绕过 HTTP/认证层直接恢复，消除 auth-DB 循环依赖。数据库完全丢失场景请使用下方"方式一"。
-
-#### 方式一：`--restore` CLI 子命令（推荐）
+使用管理接口创建备份，或运行项目提供的备份命令：
 
 ```bash
-# 从 app 容器执行 CLI 恢复（绕过 HTTP 认证，直接调用 backup.Restore）
-docker exec contentx /app/contentx --restore /app/backups/<filename>.sql --driver postgres
-
-# 验证恢复结果
-docker exec contentx-db psql -U contentx -d contentx -c 'SELECT count(*) FROM articles;'
-docker exec contentx-db psql -U contentx -d contentx -c 'SELECT count(*) FROM users;'
+make backup
 ```
 
-#### 方式二：直接 psql 客户端（PostgreSQL 专用兜底，方式一不可用时使用）
+记录备份文件、数据库类型、应用版本、schema 版本和创建时间。不要只以命令退出码判断备份可用。
+
+### 恢复
+
+先停止写入并保存当前数据库副本，然后执行：
 
 ```bash
-# 1. 确认备份文件存在于 app 容器内
-docker exec contentx ls /app/backups/
-
-# 2. 从 app 容器执行 psql 恢复（app 镜像已安装 postgresql-client）
-docker exec contentx sh -c 'PGPASSWORD=$DB_PASSWORD psql -h $DB_HOST -p $DB_PORT -U $DB_USER -d $DB_NAME -f /app/backups/<filename>.sql'
-
-# 3. 验证恢复结果
-docker exec contentx-db psql -U contentx -d contentx -c 'SELECT count(*) FROM articles;'
-docker exec contentx-db psql -U contentx -d contentx -c 'SELECT count(*) FROM users;'
+go run ./cmd/server --restore path/to/backup
 ```
 
-备份文件使用 `pg_dump --clean --if-exists` 生成，包含 `DROP TABLE IF EXISTS` 语句，因此恢复会自动替换已有表。
+容器环境可在应用容器中执行同一子命令。恢复后必须：
 
-#### 恢复后：重建搜索索引
+1. 检查健康接口。
+2. 核对关键表和行数。
+3. 验证管理员登录和内容读取。
+4. 重建或验证搜索索引。
+5. 记录恢复耗时与异常。
 
-> **重要**：数据库恢复后，内置搜索索引（保存在应用进程内存中）会由 Restore 流程自动重建（Round 6 / F2 完成）。
->
-> - **Restore API 与 `--restore` CLI**：恢复成功后异步触发 `ReindexAll`（best-effort，不阻塞响应），响应中返回 `search_index: "rebuilding"`。pg/mysql 场景立即重建；SQLite 场景提示重启后重建。
-> - **手动兜底**：如需强制重建，可重启应用（启动时 warm-up 重建），或调用 `POST /api/v1/search/reindex`（需 superadmin 认证）。
+生产发布前应在隔离环境完成一次与生产数据库类型相同的恢复演练。
+
+## 可观测性
+
+- 健康状态：`/api/v1/system/health`
+- Prometheus 指标：`/metrics`
+- OpenTelemetry：设置 `OTEL_ENABLED=true` 并配置 `OTEL_EXPORTER_OTLP_ENDPOINT`
+
+告警和 SLA 必须基于目标部署环境重新设定，开发机压测数据不能直接作为生产承诺。
+
+## MCP
+
+stdio 模式要求数据库已迁移并初始化：
 
 ```bash
-# 方式 A：重启应用（启动时自动重建索引）
-docker compose restart contentx
-
-# 方式 B：手动触发重建（需 admin token）
-curl -X POST http://localhost:8080/api/v1/search/reindex \
-  -H "Authorization: Bearer <admin_token>"
+go run ./cmd/server --mcp
 ```
 
-### 3.5 端到端演练
+远程 MCP 默认关闭。启用后使用 `/api/v1/mcp`，客户端必须携带 API Token。写工具还会检查对应的内容创建、编辑或发布权限。
 
-定期执行真实容器演练以验证备份可恢复：
+建议用 MCP Inspector 完成 `tools/list`、只读调用、无权限拒绝和受权写入四类冒烟测试。
 
-```powershell
-# 演练脚本覆盖两个场景：
-#   Scenario A: API 恢复（保留 auth 表，验证恢复端点可用）
-#   Scenario B: 完全丢失恢复（DROP SCHEMA，直接 psql 恢复）
-powershell -ExecutionPolicy Bypass -File scripts/backup/e2e-drill.ps1
-```
+## 发布检查
 
-演练报告输出到 `reports/backup/e2e-drill-<timestamp>.md`，包含 Git SHA、命令、行数对比和结论。最新一次演练结果见 `reports/backup/` 目录。
+发布前逐项确认：
 
-## 4. 可观测性
-
-ContentX 提供 Prometheus 指标、Grafana 仪表盘和 OpenTelemetry 分布式追踪。追踪通过 OTLP/HTTP 发送至 Tempo，默认关闭；Prometheus 指标默认在 `/metrics` 开启。
-
-### 启动监控栈
-
-先在 `.env` 中设置生产启动所需的密码，并开启追踪：
-
-```env
-POSTGRES_PASSWORD=change-me
-JWT_SECRET=change-me-to-at-least-16-characters
-ADMIN_PASSWORD=change-me
-OTEL_ENABLED=true
-```
-
-然后启动应用与监控 profile：
-
-```bash
-docker compose --profile monitor up -d
-```
-
-Grafana 会自动加载 Prometheus、Tempo 数据源和 ContentX 仪表盘。
-
-如默认端口已被占用，可在 `.env` 中设置 `APP_PORT`、`HTTP_PORT`、`HTTPS_PORT`。应用容器内部仍使用 8080，不影响 Prometheus 抓取。
-
-### 指标
-
-- `http_requests_total{method,path,status}`
-- `http_request_duration_seconds{method,path}`
-- `active_users_total`
-- `articles_total{status}`
-- `db_connections_in_use`
-- `cache_hits_total` / `cache_misses_total`
-- `webhook_dispatch_total{event,status}`
-
-HTTP 路由参数会统一为 `:param`，避免 Prometheus 标签基数失控。
-
-### 追踪
-
-每个 HTTP 请求创建 server span，并自动提取和注入 W3C `traceparent` / `baggage`。数据库操作创建 GORM client span；Webhook 和 S3 请求创建外部 HTTP client span。
-
-响应头 `X-Trace-ID` 和结构化日志字段 `trace_id` 使用同一 TraceID；请求的 `X-Request-ID` 会写入根 span 的 `request.id` 属性，便于日志和链路互查。
-
-常用配置：
-
-```env
-OTEL_ENABLED=false
-OTEL_SERVICE_NAME=contentx
-OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
-OTEL_EXPORTER_OTLP_INSECURE=true
-OTEL_TRACE_SAMPLE_RATIO=1.0
-```
-
-生产环境可降低 `OTEL_TRACE_SAMPLE_RATIO`，并为 OTLP 端点启用 TLS。
-
-### 验收记录
-
-2026-07-22 已使用 PostgreSQL、Redis、Prometheus、Grafana、Tempo 完成真实容器验收：应用健康检查返回 200，Prometheus target 为 `up`，Grafana 自动加载两个数据源和 ContentX 仪表盘，真实 HTTP 请求的 `X-Trace-ID` 可从 Tempo API 查询。
-
-## 5. 压测流程
-
-### 5.1 对照原则
-
-- **同一数据集**：三种驱动都用等价的 10,000 篇文章 seed（正文均为 `ContentX benchmark content for realistic payload size. ` 重复 40 次，2,200 字符）。
-- **同一场景**：文章列表、文章详情、GraphQL 查询、并发写入四个场景。
-- **同一采样规模**：读 1,000 req/s × 15s；写 100 req/s × 10s。
-- **同一压测路径**：三库均从 Docker 网络内的 Linux 容器运行 `scripts/benchmark/run-benchmark-linux.sh`，消除 Windows 客户端端口耗尽。三库均使用 Redis 缓存/队列，唯一变量为数据库驱动。
-- **同一元数据**：每次运行保存 `run-metadata.json`（Git SHA、文章数、响应体大小、应用配置），由 `generate-report.ps1` 读入报告头部。
-- **同一空闲内存口径**：`scripts/benchmark/sample-memory.ps1`，无负载下采样 12 次取 min/mean/max。
-
-### 5.2 PostgreSQL
-
-```powershell
-# 主 compose 即 PostgreSQL 栈
-docker compose up -d --build
-
-# 播种 10,000 篇。PowerShell 不支持 `<` 重定向，用 Get-Content 管道；
-# Bash 用户可改用：docker exec -i contentx-db psql -U contentx contentx < scripts/benchmark/seed_postgres_10000.sql
-Get-Content scripts/benchmark/seed_postgres_10000.sql | docker exec -i contentx-db psql -U contentx contentx
-
-# 从 Linux 容器内运行压测（消除 Windows 客户端端口耗尽）：
-# 1) 构建 bench-runner 镜像
-docker build -t contentx-bench-runner -f scripts/benchmark/Dockerfile.bench --build-arg GOPROXY=https://goproxy.cn,direct .
-# 2) 在主栈网络上运行 bench-runner
-$sha = (git rev-parse --short HEAD).Trim()
-docker run --rm --network contentx-main_contentx-net `
-    -e BASE_URL=http://contentx:8080 -e ADMIN_PASSWORD=<你的 admin 密码> `
-    -e OUTPUT_DIR=/out -e DRIVER=postgres -e GIT_SHA=$sha -e GIT_BRANCH=main `
-    -v "$PWD\reports\benchmarks\raw\postgres:/out" contentx-bench-runner
-
-# 生成报告
-powershell -ExecutionPolicy Bypass -File scripts\benchmark\generate-report.ps1 -Driver postgres
-```
-
-### 5.3 MySQL
-
-```powershell
-docker compose -f scripts/benchmark/docker-compose.mysql.yml up -d --build
-# 等待 contentx-bench-mysql healthy 后播种。PowerShell 用 Get-Content 管道；
-# Bash 用户可改用：mysql -h127.0.0.1 -P13306 -ucontentx -pbenchpass contentx < scripts/benchmark/seed_mysql_10000.sql
-Get-Content scripts/benchmark/seed_mysql_10000.sql | mysql -h127.0.0.1 -P13306 -ucontentx -pbenchpass contentx
-
-# 构建 bench-runner 镜像（如尚未构建，见 §4.2）
-# 从 Linux 容器内运行压测
-$sha = (git rev-parse --short HEAD).Trim()
-docker run --rm --network benchmark_bench-net `
-    -e BASE_URL=http://app:8080 -e ADMIN_PASSWORD=BenchAdmin123! `
-    -e OUTPUT_DIR=/out -e DRIVER=mysql -e GIT_SHA=$sha -e GIT_BRANCH=main `
-    -v "$PWD\reports\benchmarks\raw\mysql:/out" contentx-bench-runner
-
-# 生成报告
-powershell -ExecutionPolicy Bypass -File scripts\benchmark\generate-report.ps1 -Driver mysql
-
-docker compose -f scripts/benchmark/docker-compose.mysql.yml down -v
-```
-
-### 5.4 SQLite
-
-SQLite 为嵌入式数据库，CGO 构建在 Docker 多阶段构建中完成，无需宿主机安装 C 编译器。
-缓存与队列使用 Redis（与 PostgreSQL/MySQL 一致），唯一变量为数据库驱动。
-
-```powershell
-# 构建并启动 SQLite benchmark 栈（app + redis + seeder）
-docker compose -f scripts/benchmark/docker-compose.sqlite.yml up -d --build
-
-# seeder 会在 app healthy 后自动播种 10,000 篇并退出
-docker logs contentx-bench-sqlite-seeder
-
-# 构建 bench-runner 镜像（见 §4.2/4.3）
-# 从 Linux 容器内运行压测
-$sha = (git rev-parse --short HEAD).Trim()
-docker run --rm --network benchmark_sqlite-net `
-    -e BASE_URL=http://app:8080 -e ADMIN_PASSWORD=BenchAdmin123! `
-    -e OUTPUT_DIR=/out -e DRIVER=sqlite -e GIT_SHA=$sha -e GIT_BRANCH=main `
-    -v "$PWD\reports\benchmarks\raw\sqlite:/out" contentx-bench-runner
-
-# 生成报告
-powershell -ExecutionPolicy Bypass -File scripts\benchmark\generate-report.ps1 -Driver sqlite
-
-# 清理
-docker compose -f scripts/benchmark/docker-compose.sqlite.yml down -v
-```
-
-> Windows MinGW gcc 8.1.0 与 Go 1.26 CGO 不兼容（生成的 PE 无法加载）。
-> 如需本地原生构建，请使用 Docker 或升级到 gcc 11+。
-
-### 5.5 搜索引擎配置
-
-`SEARCH_ENGINE=builtin` 是当前完整实现：索引保存在应用进程内，启动时从数据库重建，适合单实例或对短暂索引重建可接受的部署。
-
-- `builtin`：已实现，支持 BM25、中文 bigram、高亮、筛选和分页
-- `noop`：关闭搜索
-- `meilisearch`：当前仅保留配置入口，会记录警告并回退到 `builtin`，尚未集成外部驱动
-
-多实例部署时，各实例拥有独立内存索引；在外部搜索驱动完成前，不应把它描述为共享搜索集群。
-
-## 6. 证据要求
-
-每项验收证据最少包含：
-
-- Git SHA
-- 日期与环境
-- 完整命令
-- exit code
-- 测试/请求数量
-- 原始结果路径
-- 已知限制
-
-## 7. API 文档生成
-
-Swagger 文档由源码注解自动生成：
-
-```bash
-make swagger
-# 或直接调用：
-swag init -g cmd/server/main.go --parseDependency --parseInternal -o docs/api
-```
-
-CI 会检查生成结果与提交的 `docs/api/` 是否一致（漂移检查）。运行中的 `/swagger/index.html` 是最新版本，仓库中的 `docs/api/` 可能滞后于代码。
-
-所有业务接口以 `/api/v1` 为前缀。
-
-| 分组 | 示例 | 说明 |
-|---|---|---|
-| Auth | `POST /auth/login` | 登录、注册、刷新、注销和个人资料 |
-| Articles | `GET /articles` | CRUD、修订、工作流、翻译和批量操作 |
-| Search | `GET /search?q=go` | 公开搜索仅返回已发布内容 |
-| GraphQL | `POST /graphql` | 只读聚合查询 |
-| Content Types | `POST /content-types` | 定义自定义内容结构 |
-| Content | `GET /content/:uid` | 自定义内容 CRUD、发布、导入导出和翻译 |
-| Media | `POST /media/upload` | 媒体上传与管理 |
-| Webhooks | `POST /webhooks` | Webhook 配置与投递日志 |
-| System | `GET /system/health` | 健康检查、系统信息、审计日志和 API Token |
-
-GraphQL 示例：
-
-```bash
-curl -X POST http://localhost:8080/api/v1/graphql \
-  -H "Content-Type: application/json" \
-  -d '{"query":"{ articles(page: 1, pageSize: 5) { total items { title slug } } }"}'
-```
-
-## 8. MCP（AI Agent 内容后端）
-
-ContentX 可作为 Model Context Protocol server 运行，向支持 MCP 的 AI Agent 暴露只读内容工具。当前为只读 MVP，走 stdio 传输。
-
-### 8.1 运行
-
-```bash
-# 假定数据库已迁移/已 seed（与 --restore 同约定）
-contentx --mcp                 # 或：go run ./cmd/server --mcp
-```
-
-- 日志走 stderr，stdout 专用于 JSON-RPC 协议流。
-- 只读工具：`search_content`、`list_articles`、`get_article`、`list_content_types`。
-- 默认仅暴露 `published` 内容；设 `MCP_INCLUDE_DRAFTS=true` 可在受信本地环境读取草稿。
-- stdio 无网络暴露，信任边界为启动进程的操作者；远程/多客户端的 Streamable HTTP 传输为后续增量。
-
-### 8.2 冒烟测试
-
-```bash
-# 用官方 Inspector 连接并调用工具
-npx @modelcontextprotocol/inspector contentx --mcp
-```
-
-在 Inspector 中调用 `list_content_types`，或 `search_content`（参数 `query`）验证返回。Prompts 页签中应能看到 `write_article` / `improve_article` / `summarize_article` / `translate_article` 四个模板，选中后填参数（如 `topic`）可预览生成的指令文本。
-
-### 8.3 远程（Streamable HTTP）
-
-设 `MCP_HTTP_ENABLED=true` 后，MCP 服务挂载在 `/api/v1/mcp`（Streamable HTTP），供远程/多客户端访问。鉴权复用长期 API Token（`models.APIToken`）。
-
-```bash
-# 1. 管理员创建 API Token（返回的 token 只显示一次）
-curl -X POST http://localhost:8080/api/v1/system/tokens \
-  -H "Authorization: Bearer <admin_jwt>" -H "Content-Type: application/json" \
-  -d '{"name":"mcp-agent"}'
-
-# 2. 客户端连接 /api/v1/mcp，带 Authorization: Bearer <token>（或 X-API-Token）
-#    缺失/无效 token 返回 401
-npx @modelcontextprotocol/inspector   # 选 Streamable HTTP，URL 填 http://localhost:8080/api/v1/mcp
-```
-
-- 端点默认关闭（opt-in），且强制 API Token 鉴权。
-- 只读工具与 stdio 一致；HTTP 模式额外提供写工具 `create_article` / `update_article` / `publish_article`，按 token `permissions` 授权：
-  - `articles.create` → 创建（默认草稿）
-  - `articles.edit` → 更新本人文章；`articles.edit_all` → 可更新他人文章
-  - `articles.publish` → 发布
-  - 写操作以 token 所属用户身份执行；空 permissions 的 token 仅可读。
-- 该端点受 `/api/` 全局限流覆盖。
-
-### 8.4 Prompts（AI 写作工作流）
-
-所有传输均暴露 4 个提示词模板（`prompts/list` / `prompts/get`），用于引导 AI Agent 编排现有工具完成内容创作：
-
-| Prompt | 必填参数 | 可选参数 | 行为 |
-|---|---|---|---|
-| `write_article` | `topic` | `style`、`length`、`locale` | 查重→起草→存草稿 |
-| `improve_article` | `article_id` | `focus` | 拉取→改进→保存修订（不改发布状态） |
-| `summarize_article` | `article_id` | `max_words` | 拉取→摘要，仅按明确指令写回 excerpt |
-| `translate_article` | `article_id`、`target_locale` | — | 拉取→翻译→存为新语种草稿 |
-
-约束：模板只生成指令文本、不直接读写数据库；产出一律要求存草稿、发布需用户另行调用 `publish_article`；缺少写工具时（stdio 只读会话）指令要求 Agent 在对话中呈现结果而非持久化。缺失必填参数时 `prompts/get` 返回协议错误。验证：`go test ./internal/mcp/ -run TestMCPPromptsRoundTrip`。
+- `make check` 通过
+- 前端 lint、测试和构建通过
+- 数据库迁移和回滚路径已检查
+- 备份恢复演练有效
+- OpenAPI 与实现同步
+- README、状态、路线图和变更日志同步
+- 密钥、调试配置和本地产物未进入版本库
