@@ -64,3 +64,8 @@ cover_func.txt
 
 # Codegraph cache
 .codegraph/
+
+# Local assistant memory & throwaway diff artifacts
+.workbuddy/
+tmp_*.txt
+tmp_*.yml

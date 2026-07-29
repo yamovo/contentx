@@ -807,6 +807,12 @@ const docTemplate = `{
                         "schema": {
                             "$ref": "#/definitions/internal_handlers.APIResponse"
                         }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.APIResponse"
+                        }
                     }
                 }
             },
@@ -1962,6 +1968,229 @@ const docTemplate = `{
                     },
                     "400": {
                         "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.APIResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/auth/totp/disable": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Disables two-factor authentication. Requires the account password for confirmation.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Auth"
+                ],
+                "summary": "Disable TOTP",
+                "parameters": [
+                    {
+                        "description": "Account password",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "password": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.APIResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.APIResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/auth/totp/enable": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Verifies the code from the authenticator app, enables TOTP, and returns one-time backup codes.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Auth"
+                ],
+                "summary": "Enable TOTP",
+                "parameters": [
+                    {
+                        "description": "6-digit code from the authenticator app",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "code": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/internal_handlers.APIResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "type": "object",
+                                            "properties": {
+                                                "backup_codes": {
+                                                    "type": "array",
+                                                    "items": {
+                                                        "type": "string"
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.APIResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.APIResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/auth/totp/setup": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Generates a TOTP secret and otpauth URI. TOTP stays disabled until confirmed via /auth/totp/enable.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Auth"
+                ],
+                "summary": "Begin TOTP setup",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/internal_handlers.APIResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/github_com_yamovo_contentx_internal_services.TOTPSetupResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.APIResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.APIResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/auth/totp/status": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns whether two-factor authentication is enabled for the current user",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Auth"
+                ],
+                "summary": "TOTP status",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/internal_handlers.APIResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "type": "object",
+                                            "properties": {
+                                                "enabled": {
+                                                    "type": "boolean"
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
                         "schema": {
                             "$ref": "#/definitions/internal_handlers.APIResponse"
                         }
@@ -9254,9 +9483,6 @@ const docTemplate = `{
                 "post_type": {
                     "type": "string"
                 },
-                "published_at": {
-                    "type": "string"
-                },
                 "revision_note": {
                     "type": "string"
                 },
@@ -9266,13 +9492,7 @@ const docTemplate = `{
                 "robots_index": {
                     "type": "boolean"
                 },
-                "scheduled_at": {
-                    "type": "string"
-                },
                 "slug": {
-                    "type": "string"
-                },
-                "status": {
                     "type": "string"
                 },
                 "tag_ids": {
@@ -9646,6 +9866,10 @@ const docTemplate = `{
                 "password": {
                     "type": "string"
                 },
+                "totp_code": {
+                    "description": "TOTPCode is required when the account has two-factor authentication\nenabled; a one-time backup code is also accepted.",
+                    "type": "string"
+                },
                 "username": {
                     "type": "string"
                 }
@@ -9788,6 +10012,17 @@ const docTemplate = `{
                 }
             }
         },
+        "github_com_yamovo_contentx_internal_services.TOTPSetupResponse": {
+            "type": "object",
+            "properties": {
+                "otpauth_uri": {
+                    "type": "string"
+                },
+                "secret": {
+                    "type": "string"
+                }
+            }
+        },
         "github_com_yamovo_contentx_internal_services.TokenCreatedResponse": {
             "type": "object",
             "properties": {
@@ -9817,6 +10052,9 @@ const docTemplate = `{
         },
         "github_com_yamovo_contentx_internal_services.UpdateArticleRequest": {
             "type": "object",
+            "required": [
+                "expected_version"
+            ],
             "properties": {
                 "allow_comment": {
                     "type": "boolean"
@@ -9832,6 +10070,11 @@ const docTemplate = `{
                 },
                 "excerpt": {
                     "type": "string"
+                },
+                "expected_version": {
+                    "description": "乐观锁：客户端读取时的 version，不匹配返回 409",
+                    "type": "integer",
+                    "minimum": 1
                 },
                 "featured_image": {
                     "type": "string"
@@ -9860,12 +10103,6 @@ const docTemplate = `{
                 "password": {
                     "type": "string"
                 },
-                "post_type": {
-                    "type": "string"
-                },
-                "published_at": {
-                    "type": "string"
-                },
                 "revision_note": {
                     "type": "string"
                 },
@@ -9875,13 +10112,7 @@ const docTemplate = `{
                 "robots_index": {
                     "type": "boolean"
                 },
-                "scheduled_at": {
-                    "type": "string"
-                },
                 "slug": {
-                    "type": "string"
-                },
-                "status": {
                     "type": "string"
                 },
                 "tag_ids": {
@@ -10105,12 +10336,12 @@ const docTemplate = `{
 
 // SwaggerInfo holds exported Swagger Info so clients can modify it
 var SwaggerInfo = &swag.Spec{
-	Version:          "1.0",
+	Version:          "1.3.0",
 	Host:             "localhost:8080",
 	BasePath:         "/api/v1",
 	Schemes:          []string{"http", "https"},
 	Title:            "ContentX API",
-	Description:      "High-performance Headless CMS - API-first content platform",
+	Description:      "ContentX API-first Headless CMS REST API",
 	InfoInstanceName: "swagger",
 	SwaggerTemplate:  docTemplate,
 	LeftDelim:        "{{",

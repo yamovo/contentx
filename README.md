@@ -1,50 +1,60 @@
 # ContentX
 
-ContentX 是一个使用 Go 构建的 API-first Headless CMS，提供 REST API、只读 GraphQL、Vue 3 管理后台，以及面向 AI Agent 的 MCP 接口。
+ContentX 是一个使用 Go 和 Vue 3 构建的 API-first Headless CMS。它提供 REST API、只读 GraphQL、管理后台，以及面向 AI Agent 的 Model Context Protocol（MCP）接口。
 
-## 功能
+> 当前稳定版本为 `v1.3.0`。工作区包含尚未发布的安全、稳定性和存储改进；准确状态与发布阻断项见[项目状态](./docs/STATUS.md)。
 
-- 文章、页面、分类、标签、评论和媒体管理
-- 草稿、审核、定时发布、发布和归档工作流
-- JWT、API Token、TOTP 和基于角色的访问控制
-- 自定义内容类型、国际化和版本修订
-- PostgreSQL、MySQL 和 SQLite
-- Redis 缓存、Webhook、Prometheus 和 OpenTelemetry
-- 本地与 S3 兼容存储
-- stdio 与 Streamable HTTP MCP
+## 核心能力
 
-## 要求
+| 范围 | 能力 |
+|---|---|
+| 内容 | 文章、页面、分类、标签、评论、自定义内容类型、国际化、修订历史 |
+| 工作流 | 草稿、提交审核、发布、取消发布、定时发布、归档、乐观锁冲突保护 |
+| 媒体 | 本地文件与 S3 兼容存储；MinIO 已完成真实上传、读取、删除和分片验证 |
+| 安全 | JWT、刷新令牌轮换、API Token、TOTP、RBAC、限流、审计日志 |
+| 接口 | REST、只读 GraphQL、OpenAPI、stdio MCP、Streamable HTTP MCP |
+| 运维 | SQLite、PostgreSQL、MySQL、Redis、备份恢复、Prometheus、OpenTelemetry |
+| 扩展 | Webhook 持久化投递、HMAC、SSRF 防护、重试与并发限制 |
 
-- Go 1.25 或更高版本
-- Node.js 及 npm（开发管理后台时需要）
-- Docker Desktop 或 Docker Engine（使用容器部署时需要）
+## 系统要求
+
+- Go `1.25` 或更高版本
+- Node.js `20` 和 npm（开发或构建管理后台）
+- Docker Desktop 或 Docker Engine（容器部署）
+- PostgreSQL 与 Redis（推荐生产配置；本地开发默认使用 SQLite）
 
 ## 快速开始
 
 ### Docker Compose
 
-复制环境变量模板并设置至少以下密钥：
+1. 复制配置模板：
 
-```bash
-cp .env.example .env
-```
+   ```bash
+   cp .env.example .env
+   ```
 
-```env
-POSTGRES_PASSWORD=replace-with-a-strong-password
-REDIS_PASSWORD=replace-with-a-strong-password
-JWT_SECRET=replace-with-at-least-32-random-characters
-ADMIN_PASSWORD=replace-with-at-least-8-characters
-GRAFANA_PASSWORD=replace-with-a-strong-password
-```
+2. 至少设置以下生产密钥：
 
-启动服务：
+   ```env
+   POSTGRES_PASSWORD=replace-with-a-strong-password
+   REDIS_PASSWORD=replace-with-a-strong-password
+   JWT_SECRET=replace-with-at-least-32-random-characters
+   ADMIN_PASSWORD=replace-with-a-strong-password
+   GRAFANA_PASSWORD=replace-with-a-strong-password
+   ```
 
-```bash
-docker compose up -d --build
-```
+3. 启动服务：
 
-管理后台位于 <http://localhost:8080>，Swagger 文档位于
-<http://localhost:8080/swagger/index.html>。
+   ```bash
+   docker compose up -d --build
+   ```
+
+默认入口：
+
+- 管理后台：<http://localhost:8080>
+- REST API：<http://localhost:8080/api/v1>
+- Swagger UI：<http://localhost:8080/swagger/index.html>
+- 健康检查：<http://localhost:8080/api/v1/system/health>
 
 ### 本地开发
 
@@ -64,34 +74,43 @@ npm run dev
 
 ## 验证
 
+提交前运行完整质量门禁：
+
 ```bash
 make check
 ```
 
-该命令依次执行格式化、静态检查、Swagger 同步检查、lint 和测试。更完整的开发、部署与恢复步骤见 [标准操作流程](./docs/SOP.md)。
+浏览器端到端测试：
 
-## 文档
+```bash
+cd web
+npm run test:e2e
+```
+
+涉及 S3、Redis、数据库恢复或 OpenTelemetry 的变更还必须运行对应真实服务测试，不能仅依赖 mock。具体命令见[标准操作流程](./docs/SOP.md)。
+
+## 官方文档
+
+完整导航见[文档中心](./docs/README.md)。
 
 | 文档 | 用途 |
 |---|---|
-| [产品需求](./docs/PRD.md) | 产品定位、范围和验收标准 |
-| [路线图](./docs/ROADMAP.md) | 里程碑、优先级和后续计划 |
-| [标准操作流程](./docs/SOP.md) | 开发、部署、验证、备份与恢复 |
-| [项目状态](./docs/STATUS.md) | 当前版本、已知限制和下一步 |
-| [API 文档](./docs/api/swagger.yaml) | OpenAPI 规范 |
-| [变更日志](./CHANGELOG.md) | 版本变更记录 |
+| [产品需求](./docs/PRD.md) | 产品定位、范围、非目标和验收标准 |
+| [项目状态](./docs/STATUS.md) | 当前版本、已交付能力、限制和发布阻断项 |
+| [路线图](./docs/ROADMAP.md) | 当前、下一里程碑及退出条件 |
+| [标准操作流程](./docs/SOP.md) | 开发、配置、验证、部署、备份和恢复 |
+| [OpenAPI](./docs/api/swagger.yaml) | REST API 的机器可读接口契约 |
+| [变更日志](./CHANGELOG.md) | 已发布与未发布变更 |
+| [贡献指南](./CONTRIBUTING.md) | 分支、测试和提交要求 |
+| [安全策略](./SECURITY.md) | 漏洞报告和支持范围 |
 
-## 获取帮助
+`docs/archive/` 和 `reports/` 仅保存历史方案与验证证据，不是当前事实来源。
 
-请通过 [GitHub Issues](https://github.com/yamovo/contentx/issues) 报告缺陷或提出功能建议。提交问题前请避免公开令牌、密码、个人数据或未修复漏洞的利用细节。
+## 支持与贡献
 
-## 贡献
-
-提交变更前请运行 `make check`，并确保文档、测试和生成的 Swagger 文件与代码保持同步。较大的功能变更建议先创建 Issue 说明需求和设计。
-
-## 安全
-
-安全问题请使用 GitHub Security Advisory 私下报告，不要创建公开 Issue。
+- 缺陷和功能建议：使用 [GitHub Issues](https://github.com/yamovo/contentx/issues)
+- 安全漏洞：按[安全策略](./SECURITY.md)私下报告，不要创建公开 Issue
+- 代码贡献：先阅读[贡献指南](./CONTRIBUTING.md)
 
 ## 许可证
 

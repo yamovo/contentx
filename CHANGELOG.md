@@ -5,7 +5,36 @@
 
 ## [Unreleased]
 
-Round 7 后续清理 + P0 收尾 + AI 原生起步：消除 AUDIT.md 剩余代码层面未解决项、补齐 E2E 测试缺口；落地 TECH_REVIEW 独立复核的 P0 项（性能复合索引 + 安全加固 + 文档同步）；新增只读 MCP Server（AI Agent 内容后端）；完成 Round 8 安全整改（P0 SEC-1~4 全部 + P1 SEC-5/6/7/9/11）。
+当前未发布改动聚焦安全与稳定性收口、管理后台重构、MCP、Webhook 持久化投递、S3 正式 SDK、审计日志和文章更新乐观锁。发布前仍需在最终候选提交上完成 PostgreSQL 恢复演练、CI 复核和版本整理。
+
+### Documentation — 官方文档体系
+- 新增 `docs/README.md` 文档中心，明确 PRD、STATUS、ROADMAP、SOP、OpenAPI 与 CHANGELOG 的权威边界
+- 重写 README、PRD、STATUS、ROADMAP 和 SOP，使能力、限制、发布阻断项和当前验证结果与代码一致
+- 新增 `CONTRIBUTING.md`、`SECURITY.md`、`reports/README.md` 与归档索引
+- 将已完成 P0 审计和大量历史记录混合的 `docs/ISSUES.md` 固化为 `docs/archive/ISSUES-2026-07-29.md`；未完成事项迁入现行路线图
+- 更新 Pull Request 模板，要求记录真实服务、迁移、OpenAPI、文档和发布证据
+
+### Changed — S3 正式 SDK 与真实 MinIO 验证
+- `internal/storage/s3.go` 从自实现 HTTP/V2 签名迁移到 `minio-go/v7`，启用 Signature V4、流式分片、SDK 错误响应与 OpenTelemetry HTTP transport
+- 媒体服务通过统一 `storage.Driver` 完成 S3 上传、数据库写入失败回滚、单删和批删；带协议 endpoint 与 CDN URL 尾斜杠会统一规范化
+- 官方 MinIO Windows 服务端真实验证通过：SDK 上传/读取/删除、幂等删除、预签名 URL 下载、bucket 创建、17 MiB 分片上传和错误凭据拒绝
+
+### Fixed — 既有失败测试修复（注册门控 / 系统角色保护）
+- **TestAuth_Register_\***（services + handlers）：注册测试用零值 `config.Config{}`（`AllowRegistration=false`）装配 AuthService，导致 `Register` 在第一道开关就被 `REGISTRATION_DISABLED` 拦截。handlers 的 `setupAuthTestRouter` 显式置 `cfg.Auth.AllowRegistration=true` 并经 `cfg.Auth` 注入；services 的 `TestAuthService_Register_*` 与 6 个 `TestMockAuth_Register_*` 同步传入 `config.AuthConfig{AllowRegistration: true}`，让测试真正走到 setting/重复用户/默认角色等被测路径
+- **TestCoverage_RoleUpdateAndDelete**：原测试对 seed 的系统角色（admin/editor，`IsSystem=true`）发起 update/delete 并期望 200，与 `RoleService` 的系统角色保护逻辑冲突（正确返回 500）。改为新建非系统角色后解析响应 ID，再对该 ID 做 update/delete，与 service 的保护语义一致
+
+### Changed — ISSUES.md 文档重构与同类项目对比复核
+基于 Strapi / Directus / Payload / Ghost 的同类项目对比复核，重写当时的 `docs/ISSUES.md`（现已归档为 `docs/archive/ISSUES-2026-07-29.md`）：
+- **结构重组**：从 10 个分类章节改为 P0/P1/P2/P3 优先级分组，每条统一格式（问题 / 证据 / 影响 / 建议），新增"排序原则"与"完成记录"章节
+- **新增 5 项未发现问题**：P0-1 文章并发更新丢失（无乐观锁）、P0-2 审计日志严重不完整（EntityID/Details/失败操作均未记录）、P1-1 密码策略前后端不一致（前端 `min:6` vs 后端 `min:8`+复杂度）、P1-2 批量操作无上限校验、P1-5 敏感端点账户维度限流缺失
+- **删除不可操作/已完成/重复项**：§3.1 工作目录存量变更（已完成）、§3.2 Git 提交粒度粗（历史问题）、§4.3 循环依赖风险（已修复无监测机制）、§5.3 barrel 重导出（理论问题）、§5.4 vue-tsc（已完成）、§5.6 i18n（PRD 已列为非目标）、§6 覆盖率阈值下调（合并入 P1-3）、§9 非目标记录（指向 PRD/ROADMAP）
+- **完成项归档**：既有失败测试修复、vue-tsc 清零、Webhook 队列、安全整改等已交付项移入 §99 完成记录
+
+### Fixed — 前端 vue-tsc 类型错误清零（ISSUES §5.4）
+- **AdminLayout.vue**：`ResolvedMenuItem.permission` 与 `routeMetaMap` 的 `permission` 字段从 `string` 收窄为 `PermissionSlug`，与 `RouteMeta.permission` 类型对齐；`hasPermission(perm?)` 同步改为 `PermissionSlug`，移除 `as string` 强转
+- **ArticleList.vue**：`statusTone` 用 `Record<string, ...>` 注解字面量对象，避免索引访问退化为 `string`；toggle `is_pinned`/`is_featured` 的 mutation 入参不再报缺 `title`（根因是 `ArticleUpdateInput` 从 `Omit<ArticleCreateInput, 'post_type'>` 继承了必填 `title`，改为 `Partial<Omit<...>>` 与部分更新语义一致）
+- **6 个 List 视图**（CommentList / MediaLibrary / PluginList / RoleList / ThemeList / UserList）：Vue Query 的 `refetch` 函数签名 `(options?: RefetchOptions) => Promise<...>` 与 `el-pagination` 的 `@current-change="(val: number) => void"` / `el-button` 的 `@click="(evt: MouseEvent) => any"` 不兼容，统一改为 `() => refetch()` 包装
+- `npm run type-check` 全绿（原 10 个错误清零）；`npm run test` 172/172 全绿；`npm run build` 成功
 
 ### Security — Round 8 安全整改（SEC-1 ~ SEC-11，完成 9/11）
 - **SEC-1 Webhook SSRF 防护**：新增 `internal/services/webhook_ssrf.go`——投递客户端用自定义 Dialer Control 在拨号阶段封禁 loopback/RFC1918/link-local（含云元数据 169.254.169.254）/ULA（防 DNS rebinding）；不跟随 redirect；release 模式强制 https；创建时 `validateWebhookURL` 前置拦截；`WEBHOOK_ALLOW_PRIVATE_TARGETS=true` 供内网投递显式放行
@@ -18,6 +47,15 @@ Round 7 后续清理 + P0 收尾 + AI 原生起步：消除 AUDIT.md 剩余代�
 - **SEC-9 缓存 single-flight 防击穿**：`ArticleService` 引入 `golang.org/x/sync/singleflight`，List/Get 的 cache-miss 回源合并并发请求（flight 内二次查缓存），20 并发 miss 合并为 1 次 DB 查询
 - **SEC-11 GraphQL query complexity 限制**：新增 `internal/graphql/complexity.go`——AST 代价评分（分页参数作乘数，字面量钳制 100，变量取默认 20），上限 2000，超限 400 拒绝；与现有 MaxDepth=10 叠加防宽查询 DoS
 - 顺延：SEC-8（Webhook jitter/死信/并发上限，与 P3-B B3 合并设计）、SEC-10（S3 迁移真实 SDK）
+
+### Changed — Webhook 持久化投递队列（ISSUES §10 P0 / STATUS 进行中收口）
+- **持久化队列**：新增 `models.WebhookDelivery` + 迁移 006（`webhook_deliveries` 表）；`WebhookService.Dispatch` 从进程内 fire-and-forget goroutine 改为写入持久化投递行，投递在进程重启后仍能完成（至少一次语义）
+- **WebhookWorker**（`internal/services/webhook_worker.go`）：后台轮询认领到期投递行，单次 HTTP 尝试/行；5xx 与网络错误按指数退避 + full jitter 重调度，4xx 视为永久失败，重试预算耗尽标记 `exhausted`；崩溃时停留在 `delivering` 的行在下次 `Start` 复投
+- **并发上限**：信号量约束在途投递数（`QUEUE_MAX_WORKERS`，默认 4），消除无界 goroutine fan-out；认领采用条件 `UPDATE ... WHERE status='pending'` 实现 SQLite/MySQL/Postgres 可移植的竞态安全
+- **退避可配置**：复用既有的 `QueueConfig`（`QUEUE_MAX_WORKERS` / `QUEUE_MAX_RETRIES` / `QUEUE_RETRY_DELAY`，默认 4 / 3 / 5s），`cmd/server/main.go` 启动 worker 并优雅停机（10s 超时，在途行下次复投）
+- **可观测性**：终态计数 `webhook_dispatch_total`（success/failure/exhausted）保持原标签集；新增 `webhook_queue_pending` gauge 暴露队列深度（`SystemService.SnapshotMetrics` + `SystemRepository.CountPendingWebhookDeliveries`）；终态仍写 `webhook_logs` 供管理后台展示
+- **测试**：`webhook_worker_test.go`（成功/HMAC/4xx/删除 webhook/并发上限/崩溃复投/仓库层 claim·complete SQL）、`webhook_retry_test.go` 改为队列重试语义（5xx 重调度、5xx→成功、耗尽、网络错误重调度、退避序列、jitter 边界、零配置默认值）；SSRF 测试改为直接验证加固 HTTP client
+- 部分 SEC-8（jitter/并发上限/持久化）由此交付；SEC-10（S3 真实 SDK）仍顺延
 
 ### Added — 覆盖率回补（Round 8）
 - `internal/auth/totp_test.go`：TOTP 全链路测试（secret 生成/URI/当前码验证/skew 窗口/非法 secret/备份码生成与哈希），原 0% 覆盖
