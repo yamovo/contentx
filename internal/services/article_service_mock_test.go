@@ -303,12 +303,38 @@ func TestMockArticle_BulkAction_AllBranches(t *testing.T) {
 
 func TestMockArticle_RestoreRevision_Success(t *testing.T) {
 	svc, mock := newMockArticleService()
-	mock.Articles[1] = &models.Article{BaseModel: models.BaseModel{ID: 1}, Title: "Current"}
+	mock.Articles[1] = &models.Article{BaseModel: models.BaseModel{ID: 1}, Title: "Current", AuthorID: 100}
 	mock.Revision = &models.Revision{BaseModel: models.BaseModel{ID: 10}, ArticleID: 1, Version: 2}
 
-	err := svc.RestoreRevision(1, 10, 100)
+	// Owner restores own article revision.
+	err := svc.RestoreRevision(1, 10, 100, false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestMockArticle_RestoreRevision_EditorCanRestoreOthers(t *testing.T) {
+	svc, mock := newMockArticleService()
+	mock.Articles[1] = &models.Article{BaseModel: models.BaseModel{ID: 1}, Title: "Current", AuthorID: 100}
+	mock.Revision = &models.Revision{BaseModel: models.BaseModel{ID: 10}, ArticleID: 1, Version: 2}
+
+	// Editor (non-owner) is allowed to restore.
+	err := svc.RestoreRevision(1, 10, 200, true)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestMockArticle_RestoreRevision_NonOwnerForbidden(t *testing.T) {
+	svc, mock := newMockArticleService()
+	mock.Articles[1] = &models.Article{BaseModel: models.BaseModel{ID: 1}, Title: "Current", AuthorID: 100}
+	mock.Revision = &models.Revision{BaseModel: models.BaseModel{ID: 10}, ArticleID: 1, Version: 2}
+
+	// Non-owner without editor role must be rejected (SEC-3 IDOR).
+	err := svc.RestoreRevision(1, 10, 200, false)
+	var appErr *errs.AppError
+	if !errs.Is(err, &appErr) || appErr.Code != errs.ErrForbidden.Code {
+		t.Fatalf("expected forbidden error, got %v", err)
 	}
 }
 
@@ -316,7 +342,7 @@ func TestMockArticle_RestoreRevision_RevisionNotFound(t *testing.T) {
 	svc, mock := newMockArticleService()
 	mock.FindRevisionErr = gorm.ErrRecordNotFound
 
-	err := svc.RestoreRevision(1, 99, 100)
+	err := svc.RestoreRevision(1, 99, 100, false)
 	if !errors.Is(err, gorm.ErrRecordNotFound) {
 		t.Fatalf("expected ErrRecordNotFound, got %v", err)
 	}
@@ -327,7 +353,7 @@ func TestMockArticle_RestoreRevision_ArticleNotFound(t *testing.T) {
 	mock.Revision = &models.Revision{BaseModel: models.BaseModel{ID: 10}, ArticleID: 1}
 	mock.FindByIDErr = gorm.ErrRecordNotFound
 
-	err := svc.RestoreRevision(1, 10, 100)
+	err := svc.RestoreRevision(1, 10, 100, false)
 	if !errors.Is(err, gorm.ErrRecordNotFound) {
 		t.Fatalf("expected ErrRecordNotFound, got %v", err)
 	}

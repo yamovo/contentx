@@ -1,7 +1,10 @@
-# ContentX 启动脚本
+﻿# ContentX 启动脚本 (PowerShell)
+$ErrorActionPreference = 'Stop'
+Set-Location $PSScriptRoot
+
 Write-Host ""
 Write-Host "========================================"
-Write-Host "   ContentX v1.0.0"
+Write-Host "   ContentX v1.2.0"
 Write-Host "   正在启动..."
 Write-Host "========================================"
 Write-Host ""
@@ -16,6 +19,7 @@ $env:DB_NAME = "contentx"
 $env:JWT_ACCESS_TTL = "15m"
 $env:JWT_REFRESH_TTL = "168h"
 $env:LIMITS_API_RATE = "300"
+$env:ADMIN_PASSWORD = "admin123"
 
 Write-Host "[OK] 环境变量已加载" -ForegroundColor Green
 Write-Host "[OK] 数据库: $env:DB_DRIVER" -ForegroundColor Green
@@ -26,8 +30,27 @@ Write-Host "管理后台: http://localhost:8080/login" -ForegroundColor Cyan
 Write-Host "账号: admin / admin123" -ForegroundColor Yellow
 Write-Host ""
 
-# 切换到脚本所在目录
-Set-Location $PSScriptRoot
+# 后台等待端口就绪后打开浏览器（避免编译期间浏览器先打开看到空白页）
+Start-Job -ScriptBlock {
+    for ($i = 0; $i -lt 60; $i++) {
+        try {
+            $c = New-Object Net.Sockets.TcpClient
+            $c.Connect('127.0.0.1', 8080)
+            $c.Close()
+            Start-Process 'http://localhost:8080'
+            break
+        } catch {
+            Start-Sleep -Seconds 1
+        }
+    }
+} | Out-Null
 
-# 启动服务
-.\contentx.exe
+# 优先使用预编译二进制；不存在则自动 go run
+$binary = Join-Path $PSScriptRoot "bin\contentx.exe"
+if (Test-Path $binary) {
+    Write-Host "Starting prebuilt binary: bin\contentx.exe" -ForegroundColor Green
+    & $binary
+} else {
+    Write-Host "Binary not found, falling back to: go run ./cmd/server" -ForegroundColor Yellow
+    go run ./cmd/server
+}

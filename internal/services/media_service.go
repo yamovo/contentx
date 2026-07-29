@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/yamovo/contentx/internal/config"
+	"github.com/yamovo/contentx/internal/errs"
 	"github.com/yamovo/contentx/internal/models"
 	"github.com/yamovo/contentx/internal/repository"
 	"github.com/yamovo/contentx/internal/storage"
@@ -248,10 +249,15 @@ func (s *MediaService) Upload(file io.Reader, header *multipart.FileHeader, fold
 	return &media, nil
 }
 
-// Update updates media metadata.
-func (s *MediaService) Update(id uint, req UpdateMediaRequest) error {
-	if _, err := s.repo.FindByID(id); err != nil {
+// Update updates media metadata. Non-editors may only update their own
+// uploads (SEC-5: ownership re-check, aligned with Article.Update).
+func (s *MediaService) Update(id uint, req UpdateMediaRequest, userID uint, isEditor bool) error {
+	media, err := s.repo.FindByID(id)
+	if err != nil {
 		return err
+	}
+	if media.UploaderID != userID && !isEditor {
+		return errs.ErrForbidden.WithMessage("Not authorized to update this media")
 	}
 
 	updates := map[string]interface{}{
@@ -268,10 +274,14 @@ func (s *MediaService) Update(id uint, req UpdateMediaRequest) error {
 }
 
 // Delete removes a media file from storage (or local disk) and the database.
-func (s *MediaService) Delete(id uint) error {
+// Non-editors may only delete their own uploads (SEC-5).
+func (s *MediaService) Delete(id uint, userID uint, isEditor bool) error {
 	media, err := s.repo.FindByID(id)
 	if err != nil {
 		return err
+	}
+	if media.UploaderID != userID && !isEditor {
+		return errs.ErrForbidden.WithMessage("Not authorized to delete this media")
 	}
 
 	// Remove the primary file via the configured backend.
@@ -288,10 +298,19 @@ func (s *MediaService) Delete(id uint) error {
 }
 
 // BulkDelete removes multiple media files by ID. Returns the number of rows affected.
-func (s *MediaService) BulkDelete(ids []uint) (int64, error) {
+// Non-editors may only bulk-delete their own uploads (SEC-5): the whole batch
+// is rejected if it contains any media owned by another user.
+func (s *MediaService) BulkDelete(ids []uint, userID uint, isEditor bool) (int64, error) {
 	media, err := s.repo.FindByIDs(ids)
 	if err != nil {
 		return 0, err
+	}
+	if !isEditor {
+		for _, m := range media {
+			if m.UploaderID != userID {
+				return 0, errs.ErrForbidden.WithMessage("Not authorized to delete media owned by another user")
+			}
+		}
 	}
 
 	// Remove files via the configured backend.

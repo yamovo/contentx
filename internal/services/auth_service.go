@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/yamovo/contentx/internal/auth"
+	"github.com/yamovo/contentx/internal/config"
 	"github.com/yamovo/contentx/internal/errs"
 	"github.com/yamovo/contentx/internal/models"
 	"github.com/yamovo/contentx/internal/repository"
@@ -19,6 +20,9 @@ import (
 type LoginRequest struct {
 	Username string `json:"username" binding:"required"`
 	Password string `json:"password" binding:"required"`
+	// TOTPCode is required when the account has two-factor authentication
+	// enabled; a one-time backup code is also accepted.
+	TOTPCode string `json:"totp_code"`
 }
 
 // RegisterRequest is the payload for user registration.
@@ -67,36 +71,69 @@ type SafeUser struct {
 
 // AuthService handles authentication business logic.
 type AuthService struct {
-	repo      repository.AuthRepository
-	jwtMgr    *auth.JWTManager
-	blacklist auth.TokenStore
-	guard     *auth.LoginGuard
+	repo              repository.AuthRepository
+	jwtMgr            *auth.JWTManager
+	blacklist         auth.TokenStore
+	guard             auth.LoginLimiter
+	totp              TOTPVerifier // optional second-factor hook
+	allowRegistration bool
+}
+
+// TOTPVerifier is the login-time second-factor hook. Implemented by
+// *TOTPService; kept as an interface so AuthService unit tests don't need a
+// database and existing constructors stay unchanged.
+type TOTPVerifier interface {
+	// Required reports whether the user must supply a TOTP code.
+	Required(userID uint) (bool, error)
+	// VerifyLogin validates a TOTP or backup code for the user.
+	VerifyLogin(userID uint, code string) error
+}
+
+// SetTOTPVerifier wires the optional TOTP second-factor check into login.
+func (s *AuthService) SetTOTPVerifier(v TOTPVerifier) {
+	s.totp = v
 }
 
 // NewAuthService creates a new AuthService backed by a GORM repository.
 // blacklist 可为 *auth.Blacklist（内存版）或 *auth.RedisTokenStore（Redis 版）。
-func NewAuthService(db *gorm.DB, jwtMgr *auth.JWTManager, blacklist auth.TokenStore, guard *auth.LoginGuard) *AuthService {
+// guard 可为 *auth.LoginGuard（内存版）或 *auth.RedisLoginGuard（多实例共享）。
+func NewAuthService(db *gorm.DB, jwtMgr *auth.JWTManager, blacklist auth.TokenStore, guard auth.LoginLimiter, authCfg ...config.AuthConfig) *AuthService {
 	return &AuthService{
-		repo:      repository.NewAuthRepository(db),
-		jwtMgr:    jwtMgr,
-		blacklist: blacklist,
-		guard:     guard,
+		repo:              repository.NewAuthRepository(db),
+		jwtMgr:            jwtMgr,
+		blacklist:         blacklist,
+		guard:             guard,
+		allowRegistration: registrationEnabled(authCfg),
 	}
 }
 
 // NewAuthServiceWithRepo builds an AuthService with an explicit repository.
-func NewAuthServiceWithRepo(repo repository.AuthRepository, jwtMgr *auth.JWTManager, blacklist auth.TokenStore, guard *auth.LoginGuard) *AuthService {
+func NewAuthServiceWithRepo(repo repository.AuthRepository, jwtMgr *auth.JWTManager, blacklist auth.TokenStore, guard auth.LoginLimiter, authCfg ...config.AuthConfig) *AuthService {
 	return &AuthService{
-		repo:      repo,
-		jwtMgr:    jwtMgr,
-		blacklist: blacklist,
-		guard:     guard,
+		repo:              repo,
+		jwtMgr:            jwtMgr,
+		blacklist:         blacklist,
+		guard:             guard,
+		allowRegistration: registrationEnabled(authCfg),
 	}
+}
+
+func registrationEnabled(authCfg []config.AuthConfig) bool {
+	return len(authCfg) > 0 && authCfg[0].AllowRegistration
 }
 
 // Login authenticates a user by username/email and password, records the login
 // event, and returns a token pair together with the sanitized user profile.
+// Accounts with TOTP enabled must use LoginWithTOTP (Login passes no code and
+// will fail for them with ErrTOTPRequired).
 func (s *AuthService) Login(username, password, clientIP, userAgent string) (*auth.TokenPair, *SafeUser, error) {
+	return s.LoginWithTOTP(username, password, "", clientIP, userAgent)
+}
+
+// LoginWithTOTP is Login plus an optional TOTP/backup code. The second factor
+// is checked after the password so the code can never be probed on its own,
+// and before token generation so no session exists until both factors pass.
+func (s *AuthService) LoginWithTOTP(username, password, totpCode, clientIP, userAgent string) (*auth.TokenPair, *SafeUser, error) {
 	// Check if account is locked.
 	if s.guard != nil {
 		locked, remaining := s.guard.Check(username)
@@ -135,6 +172,30 @@ func (s *AuthService) Login(username, password, clientIP, userAgent string) (*au
 		s.guard.RecordSuccess(username)
 	}
 
+	// Second factor: checked after the password (and guard reset) so lockout
+	// semantics for the first factor are unchanged, but before any token is
+	// issued. Failed codes count as failed attempts to block TOTP brute force.
+	if s.totp != nil {
+		required, err := s.totp.Required(user.ID)
+		if err != nil {
+			return nil, nil, errs.ErrServiceUnavailable.Wrap(err)
+		}
+		if required {
+			if totpCode == "" {
+				return nil, nil, errs.ErrTOTPRequired
+			}
+			if err := s.totp.VerifyLogin(user.ID, totpCode); err != nil {
+				if s.guard != nil {
+					locked, _ := s.guard.RecordFailed(username)
+					if locked {
+						return nil, nil, errs.ErrAccountLocked.WithMessage(fmt.Sprintf("account locked after %d failed attempts", s.guard.MaxAttempts()))
+					}
+				}
+				return nil, nil, err
+			}
+		}
+	}
+
 	tokenPair, err := s.jwtMgr.GenerateTokenPair(
 		user.ID, user.Username, user.Email, user.Role.Slug, user.DisplayName,
 	)
@@ -166,10 +227,14 @@ func (s *AuthService) Login(username, password, clientIP, userAgent string) (*au
 // Register creates a new user account, assigns the default role, generates
 // tokens, and returns them together with the sanitized user profile.
 func (s *AuthService) Register(req RegisterRequest, clientIP string) (*auth.TokenPair, *SafeUser, error) {
+	if !s.allowRegistration {
+		return nil, nil, errs.ErrRegistrationDisabled
+	}
+
 	// Check if registration is enabled.
 	if setting, err := s.repo.FindSetting("enable_registration"); err == nil {
 		if setting.Value == "false" {
-			return nil, nil, errs.ErrForbidden.WithMessage("registration is currently disabled")
+			return nil, nil, errs.ErrRegistrationDisabled
 		}
 	}
 
@@ -239,9 +304,19 @@ func (s *AuthService) Register(req RegisterRequest, clientIP string) (*auth.Toke
 // or who was disabled could keep obtaining access tokens with the old
 // privileges until the refresh token expired (A-1 security fix).
 func (s *AuthService) RefreshToken(refreshToken string) (*auth.TokenPair, error) {
-	claims, err := s.jwtMgr.ValidateToken(refreshToken)
+	claims, err := s.jwtMgr.ValidateRefreshToken(refreshToken)
 	if err != nil {
 		return nil, errs.ErrUnauthorized.WithMessage("invalid refresh token")
+	}
+	if s.blacklist == nil {
+		return nil, errs.ErrServiceUnavailable.WithMessage("token revocation store unavailable")
+	}
+	consumed, err := s.blacklist.Consume(refreshToken, claims.ExpiresAt.Time)
+	if err != nil {
+		return nil, errs.ErrServiceUnavailable.Wrap(err)
+	}
+	if !consumed {
+		return nil, errs.ErrTokenRevoked.WithMessage("refresh token has already been used or revoked")
 	}
 
 	user, err := s.repo.FindUserByIDWithRole(claims.UserID)
@@ -268,15 +343,17 @@ type LogoutRequest struct {
 // best-effort: an invalid/expired refresh token is silently ignored so a
 // client with a stale token can still log out.
 func (s *AuthService) Logout(accessToken, refreshToken string) error {
-	claims, err := s.jwtMgr.ValidateToken(accessToken)
+	claims, err := s.jwtMgr.ValidateAccessToken(accessToken)
 	if err != nil {
 		return errs.ErrUnauthorized.WithMessage("invalid token")
 	}
 
-	s.blacklist.Revoke(accessToken, claims.ExpiresAt.Time)
+	if s.blacklist != nil {
+		s.blacklist.Revoke(accessToken, claims.ExpiresAt.Time)
+	}
 
-	if refreshToken != "" {
-		if rClaims, err := s.jwtMgr.ValidateToken(refreshToken); err == nil {
+	if refreshToken != "" && s.blacklist != nil {
+		if rClaims, err := s.jwtMgr.ValidateRefreshToken(refreshToken); err == nil {
 			s.blacklist.Revoke(refreshToken, rClaims.ExpiresAt.Time)
 		}
 	}

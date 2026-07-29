@@ -244,7 +244,7 @@ func main() {
 	// 若 Redis 不可用或配置为内存缓存，回退到内存版 Blacklist。
 	jwtMgr := auth.NewJWTManager(cfg.JWT)
 	tokenStore := initTokenStore(cfg, cacheDriver)
-	guard := auth.NewLoginGuard()
+	guard := initLoginGuard(cfg, cacheDriver)
 
 	// Setup gin.
 	r := gin.New()
@@ -359,7 +359,12 @@ func main() {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Endpoint not found"})
 			return
 		}
-		c.Header("Cache-Control", "no-cache")
+		// index.html 绝对不能被浏览器缓存，否则用户会拿到引用旧 hash JS 的旧 HTML，
+		// 导致前端更新后浏览器仍加载 web/dist/assets 里的旧 JS（hash 文件名防缓存
+		// 失效）。no-store 强制每次都拉新 HTML；hash 化的 /assets/* 才走 immutable。
+		c.Header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+		c.Header("Pragma", "no-cache")
+		c.Header("Expires", "0")
 		c.File("./web/dist/index.html")
 	})
 
@@ -413,7 +418,9 @@ func main() {
 }
 
 // initTokenStore 根据配置创建 JWT token 黑名单存储：
-//   - cache driver 为 Redis 时，返回 *auth.RedisTokenStore（多实例共享、重启不丢失）
+//   - cache driver 为 Redis 时，返回 *auth.ResilientTokenStore（Redis + 内存双写）：
+//     Redis 提供多实例共享与重启不丢失；内存层在 Redis 故障窗口内提供兜底，
+//     避免 fail-open（SEC-2：故障期间已吊销 token 仍可用）
 //   - 否则回退到内存版 *auth.Blacklist
 //
 // Redis 连接复用 cache.RedisDriver 的 client，避免重复建连。
@@ -431,6 +438,29 @@ func initTokenStore(cfg *config.Config, cacheDriver cache.Driver) auth.TokenStor
 		slog.Warn("token store: redis unreachable, falling back to in-memory blacklist", "error", err)
 		return auth.NewBlacklist()
 	}
-	slog.Info("token store: using redis-backed blacklist")
-	return store
+	slog.Info("token store: using redis-backed blacklist with in-memory fallback")
+	return auth.NewResilientTokenStore(store, nil)
+}
+
+// initLoginGuard 根据配置创建登录失败限流器（SEC-6）：
+//   - cache driver 为 Redis 时，返回 *auth.RedisLoginGuard（多实例共享锁定，
+//     防分布式撞库；Redis 故障时内部回退内存版）
+//   - 否则回退到内存版 *auth.LoginGuard（单实例）
+func initLoginGuard(cfg *config.Config, cacheDriver cache.Driver) auth.LoginLimiter {
+	redisDrv, ok := cacheDriver.(*cache.RedisDriver)
+	if !ok {
+		slog.Info("login guard: using in-memory guard (cache driver is not redis)")
+		return auth.NewLoginGuard()
+	}
+
+	guard := auth.NewRedisLoginGuard(redisDrv.Client(), cfg.Redis.Prefix+":login:")
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	if err := guard.Ping(ctx); err != nil {
+		slog.Warn("login guard: redis unreachable, falling back to in-memory guard", "error", err)
+		guard.Stop() // 释放内嵌 fallback 的清理 goroutine
+		return auth.NewLoginGuard()
+	}
+	slog.Info("login guard: using redis-backed guard with in-memory fallback")
+	return guard
 }

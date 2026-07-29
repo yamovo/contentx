@@ -12,10 +12,10 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/yamovo/contentx/internal/errs"
 	"github.com/yamovo/contentx/internal/models"
 	"github.com/yamovo/contentx/internal/observability"
 	"github.com/yamovo/contentx/internal/repository"
-	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"gorm.io/gorm"
 )
 
@@ -37,7 +37,7 @@ type WebhookService struct {
 func NewWebhookService(db *gorm.DB) *WebhookService {
 	return &WebhookService{
 		repo:    repository.NewWebhookRepository(db),
-		client:  &http.Client{Timeout: 10 * time.Second, Transport: otelhttp.NewTransport(http.DefaultTransport)},
+		client:  newWebhookHTTPClient(allowPrivateWebhookTargets()),
 		backoff: webhookBackoff,
 	}
 }
@@ -47,7 +47,7 @@ func NewWebhookService(db *gorm.DB) *WebhookService {
 func NewWebhookServiceWithRepo(repo repository.WebhookRepository) *WebhookService {
 	return &WebhookService{
 		repo:    repo,
-		client:  &http.Client{Timeout: 10 * time.Second, Transport: otelhttp.NewTransport(http.DefaultTransport)},
+		client:  newWebhookHTTPClient(allowPrivateWebhookTargets()),
 		backoff: webhookBackoff,
 	}
 }
@@ -65,6 +65,10 @@ type CreateWebhookRequest struct {
 
 // Create creates a new webhook.
 func (s *WebhookService) Create(req CreateWebhookRequest) (*models.Webhook, error) {
+	// SEC-1: reject unsafe target URLs early (scheme + literal internal IPs).
+	if err := validateWebhookURL(req.URL); err != nil {
+		return nil, errs.ErrBadRequest.WithMessage(err.Error())
+	}
 	wh := models.Webhook{
 		Name:     req.Name,
 		URL:      req.URL,

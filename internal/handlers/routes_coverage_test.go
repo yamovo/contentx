@@ -316,7 +316,7 @@ func TestCoverage_AuthChangePassword(t *testing.T) {
 
 	// 先设置一个已知密码
 	userSvc := services.NewUserService(db)
-	userSvc.ResetPassword(currentUser.ID, "OldPass123!")
+	userSvc.ResetPassword(currentUser.ID, "OldPass123!", true)
 
 	w := doJSONRequest(r, http.MethodPut, "/api/v1/auth/password", token,
 		`{"old_password":"OldPass123!","new_password":"NewPass456!"}`)

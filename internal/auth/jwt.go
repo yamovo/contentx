@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
 	"github.com/yamovo/contentx/internal/config"
 )
 
@@ -14,6 +15,12 @@ var (
 	ErrInvalidToken = errors.New("invalid or expired token")
 	ErrTokenExpired = errors.New("token has expired")
 	ErrTokenRevoked = errors.New("token has been revoked")
+	ErrWrongTokenUse = errors.New("token cannot be used for this operation")
+)
+
+const (
+	TokenUseAccess  = "access"
+	TokenUseRefresh = "refresh"
 )
 
 // Claims represents JWT claims.
@@ -23,6 +30,7 @@ type Claims struct {
 	Email       string `json:"email"`
 	RoleSlug    string `json:"role"`
 	DisplayName string `json:"display_name"`
+	TokenUse    string `json:"token_use"`
 	jwt.RegisteredClaims
 }
 
@@ -56,12 +64,14 @@ func (m *JWTManager) GenerateTokenPair(userID uint, username, email, roleSlug, d
 		Email:       email,
 		RoleSlug:    roleSlug,
 		DisplayName: displayName,
+		TokenUse:    TokenUseAccess,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(now.Add(m.cfg.AccessTokenTTL)),
 			IssuedAt:  jwt.NewNumericDate(now),
 			NotBefore: jwt.NewNumericDate(now),
 			Issuer:    m.cfg.Issuer,
 			Subject:   fmt.Sprintf("%d", userID),
+			ID:        uuid.NewString(),
 		},
 	}
 
@@ -73,12 +83,15 @@ func (m *JWTManager) GenerateTokenPair(userID uint, username, email, roleSlug, d
 
 	// Refresh token.
 	refreshClaims := &Claims{
-		UserID: userID,
+		UserID:   userID,
+		TokenUse: TokenUseRefresh,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(now.Add(m.cfg.RefreshTokenTTL)),
 			IssuedAt:  jwt.NewNumericDate(now),
+			NotBefore: jwt.NewNumericDate(now),
 			Issuer:    m.cfg.Issuer,
 			Subject:   fmt.Sprintf("%d", userID),
+			ID:        uuid.NewString(),
 		},
 	}
 
@@ -100,11 +113,11 @@ func (m *JWTManager) GenerateTokenPair(userID uint, username, email, roleSlug, d
 // ValidateToken validates and parses a JWT token string.
 func (m *JWTManager) ValidateToken(tokenStr string) (*Claims, error) {
 	token, err := jwt.ParseWithClaims(tokenStr, &Claims{}, func(token *jwt.Token) (interface{}, error) {
-		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+		if token.Method != jwt.SigningMethodHS256 {
 			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
 		}
 		return []byte(m.cfg.Secret), nil
-	})
+	}, jwt.WithIssuer(m.cfg.Issuer))
 
 	if err != nil {
 		if errors.Is(err, jwt.ErrTokenExpired) {
@@ -121,6 +134,27 @@ func (m *JWTManager) ValidateToken(tokenStr string) (*Claims, error) {
 	return claims, nil
 }
 
+// ValidateAccessToken validates a JWT and requires access-token semantics.
+func (m *JWTManager) ValidateAccessToken(tokenStr string) (*Claims, error) {
+	return m.validateTokenUse(tokenStr, TokenUseAccess)
+}
+
+// ValidateRefreshToken validates a JWT and requires refresh-token semantics.
+func (m *JWTManager) ValidateRefreshToken(tokenStr string) (*Claims, error) {
+	return m.validateTokenUse(tokenStr, TokenUseRefresh)
+}
+
+func (m *JWTManager) validateTokenUse(tokenStr, expected string) (*Claims, error) {
+	claims, err := m.ValidateToken(tokenStr)
+	if err != nil {
+		return nil, err
+	}
+	if claims.TokenUse != expected || claims.ID == "" {
+		return nil, ErrWrongTokenUse
+	}
+	return claims, nil
+}
+
 // RefreshAccessToken creates a new access token from a valid refresh token.
 //
 // Deprecated: this method reuses the claims embedded in the refresh token
@@ -130,7 +164,7 @@ func (m *JWTManager) ValidateToken(tokenStr string) (*Claims, error) {
 // which loads the user's current state on every refresh (A-1 security fix).
 // Retained for backward compatibility and pure JWT-layer unit tests.
 func (m *JWTManager) RefreshAccessToken(refreshTokenStr string) (*TokenPair, error) {
-	claims, err := m.ValidateToken(refreshTokenStr)
+	claims, err := m.ValidateRefreshToken(refreshTokenStr)
 	if err != nil {
 		return nil, fmt.Errorf("invalid refresh token: %w", err)
 	}
@@ -182,6 +216,24 @@ func (b *Blacklist) IsRevoked(tokenStr string) bool {
 		return false
 	}
 	return true
+}
+
+// Consume atomically revokes a one-time token. Exactly one concurrent caller
+// can consume a live token successfully.
+func (b *Blacklist) Consume(tokenStr string, expiresAt time.Time) (bool, error) {
+	if b == nil || !expiresAt.After(time.Now()) {
+		return false, nil
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if exp, ok := b.tokens[tokenStr]; ok {
+		if time.Now().Before(exp) {
+			return false, nil
+		}
+		delete(b.tokens, tokenStr)
+	}
+	b.tokens[tokenStr] = expiresAt
+	return true, nil
 }
 
 // Cleanup removes expired tokens from the blacklist.

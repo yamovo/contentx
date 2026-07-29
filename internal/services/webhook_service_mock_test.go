@@ -203,7 +203,7 @@ func TestMockWebhook_Deliver_Success(t *testing.T) {
 	defer srv.Close()
 
 	repo := &MockWebhookRepository{}
-	svc := NewWebhookServiceWithRepo(repo)
+	svc := allowPrivateTargets(NewWebhookServiceWithRepo(repo))
 
 	wh := models.Webhook{ID: 1, URL: srv.URL, Events: models.StringSlice{"article.created"}}
 	payload := WebhookPayload{Event: "article.created", Timestamp: time.Now(), Data: map[string]string{"id": "1"}}
@@ -292,7 +292,7 @@ func TestMockWebhook_Deliver_HMACSignature(t *testing.T) {
 	defer srv.Close()
 
 	repo := &MockWebhookRepository{}
-	svc := NewWebhookServiceWithRepo(repo)
+	svc := allowPrivateTargets(NewWebhookServiceWithRepo(repo))
 
 	wh := models.Webhook{
 		ID:     1,

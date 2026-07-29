@@ -167,7 +167,12 @@ func (h *MediaHandler) Update(c *gin.Context) {
 		return
 	}
 
-	if err := h.svc.Update(uint(id), req); err != nil {
+	user := getCurrentUser(c)
+	if user == nil {
+		return
+	}
+
+	if err := h.svc.Update(uint(id), req, user.ID, user.IsEditor()); err != nil {
 		handleServiceError(c, err)
 		return
 	}
@@ -197,7 +202,12 @@ func (h *MediaHandler) Delete(c *gin.Context) {
 		return
 	}
 
-	if err := h.svc.Delete(uint(id)); err != nil {
+	user := getCurrentUser(c)
+	if user == nil {
+		return
+	}
+
+	if err := h.svc.Delete(uint(id), user.ID, user.IsEditor()); err != nil {
 		handleServiceError(c, err)
 		return
 	}
@@ -229,7 +239,12 @@ func (h *MediaHandler) BulkDelete(c *gin.Context) {
 		return
 	}
 
-	affected, err := h.svc.BulkDelete(req.IDs)
+	user := getCurrentUser(c)
+	if user == nil {
+		return
+	}
+
+	affected, err := h.svc.BulkDelete(req.IDs, user.ID, user.IsEditor())
 	if err != nil {
 		handleServiceError(c, err)
 		return

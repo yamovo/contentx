@@ -11,6 +11,23 @@ const (
 	defaultWindowDuration = 15 * time.Minute
 )
 
+// LoginLimiter is the contract for failed-login throttling backends.
+// Implementations must be safe for concurrent use.
+//
+// 实现：*LoginGuard（内存版，单实例）与 *RedisLoginGuard（多实例共享，SEC-6）。
+type LoginLimiter interface {
+	// Check returns (locked bool, remainingAttempts int) without mutating state.
+	Check(key string) (bool, int)
+	// RecordFailed increments the failure counter; returns (locked, remaining).
+	RecordFailed(key string) (bool, int)
+	// RecordSuccess clears the failure state for the key.
+	RecordSuccess(key string)
+	// MaxAttempts returns the configured lockout threshold.
+	MaxAttempts() int
+	// Stop releases background resources. Safe to call multiple times.
+	Stop()
+}
+
 // LoginGuard tracks failed login attempts and locks accounts.
 // Safe for concurrent use.
 type LoginGuard struct {
@@ -157,5 +174,5 @@ func (g *LoginGuard) cleanup() {
 	}
 }
 
-// Compile-time check.
-var _ = (*LoginGuard)(nil)
+// Compile-time check: *LoginGuard 实现 LoginLimiter。
+var _ LoginLimiter = (*LoginGuard)(nil)

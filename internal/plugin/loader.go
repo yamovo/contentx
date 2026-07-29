@@ -14,6 +14,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/yamovo/contentx/internal/models"
 	"gorm.io/gorm"
@@ -75,19 +76,33 @@ type hookEntry struct {
 }
 
 // Manager manages plugin lifecycle and hook dispatch.
+// SEC-7: the Manager holds a narrow StateStore (plugins table only) instead
+// of a full *gorm.DB, so the plugin subsystem has no general database access.
 type Manager struct {
 	mu      sync.RWMutex
-	db      *gorm.DB
+	store   StateStore // nil → in-memory only (no persistence)
 	plugins map[string]Plugin
 	configs map[string]map[string]interface{}
 	enabled map[string]bool
 	hooks   map[string][]hookEntry
 }
 
-// NewManager creates a new plugin manager.
+// NewManager creates a new plugin manager. A nil db yields an in-memory
+// manager (used by tests); otherwise persistence is confined to the
+// plugins table via the GORM StateStore.
 func NewManager(db *gorm.DB) *Manager {
+	var store StateStore
+	if db != nil {
+		store = NewGormStateStore(db)
+	}
+	return NewManagerWithStore(store)
+}
+
+// NewManagerWithStore creates a plugin manager with an explicit StateStore,
+// enabling tests to inject fakes.
+func NewManagerWithStore(store StateStore) *Manager {
 	return &Manager{
-		db:      db,
+		store:   store,
 		plugins: make(map[string]Plugin),
 		configs: make(map[string]map[string]interface{}),
 		enabled: make(map[string]bool),
@@ -139,17 +154,17 @@ func (m *Manager) sortHooks() {
 	}
 }
 
-// loadDBState fetches the plugin's config and enabled state from the DB.
-// Defaults to enabled=true, config=nil when the plugin has no DB row yet.
+// loadDBState fetches the plugin's config and enabled state from the store.
+// Defaults to enabled=true, config=nil when the plugin has no row yet.
 func (m *Manager) loadDBState(name string) (map[string]interface{}, bool) {
-	if m.db == nil {
+	if m.store == nil {
 		return nil, true
 	}
-	var dbPlugin models.Plugin
-	if err := m.db.Where("slug = ?", strings.ToLower(name)).First(&dbPlugin).Error; err != nil {
+	config, enabled, found := m.store.Load(name)
+	if !found {
 		return nil, true
 	}
-	return dbPlugin.Config, dbPlugin.IsEnabled
+	return config, enabled
 }
 
 // ─── Lifecycle ───────────────────────────────────────────────────────────────
@@ -163,8 +178,8 @@ func (m *Manager) Enable(name string) error {
 		return fmt.Errorf("plugin %q not found", name)
 	}
 	m.enabled[name] = true
-	if m.db != nil {
-		m.db.Model(&models.Plugin{}).Where("slug = ?", strings.ToLower(name)).Update("is_enabled", true)
+	if m.store != nil {
+		_ = m.store.SetEnabled(name, true)
 	}
 	slog.Info("plugin enabled", "name", name)
 	return nil
@@ -179,8 +194,8 @@ func (m *Manager) Disable(name string) error {
 		return fmt.Errorf("plugin %q not found", name)
 	}
 	m.enabled[name] = false
-	if m.db != nil {
-		m.db.Model(&models.Plugin{}).Where("slug = ?", strings.ToLower(name)).Update("is_enabled", false)
+	if m.store != nil {
+		_ = m.store.SetEnabled(name, false)
 	}
 	slog.Info("plugin disabled", "name", name)
 	return nil
@@ -269,13 +284,49 @@ func (m *Manager) ExecuteAction(hookName string, args map[string]interface{}) []
 		if !m.IsEnabled(entry.pluginName) {
 			continue
 		}
-		if _, err := entry.fn(args); err != nil {
+		if _, err := runHook(entry.pluginName, hookName, entry.fn, args); err != nil {
 			slog.Error("action hook failed",
 				"plugin", entry.pluginName, "hook", hookName, "error", err)
 			errs = append(errs, fmt.Errorf("plugin %s: %w", entry.pluginName, err))
 		}
 	}
 	return errs
+}
+
+// hookTimeout bounds each hook handler run (SEC-7): a slow or hung plugin
+// must not stall the calling write path indefinitely. Variable (not const)
+// so tests can shrink it.
+var hookTimeout = 5 * time.Second
+
+// runHook executes a single hook handler with a timeout and panic recovery.
+// On timeout the handler goroutine keeps running (goroutines cannot be
+// killed) but the caller proceeds; the leak is logged for diagnosis.
+func runHook(pluginName, hookName string, fn HookFunc, args map[string]interface{}) (interface{}, error) {
+	type hookResult struct {
+		v   interface{}
+		err error
+	}
+	ch := make(chan hookResult, 1)
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				ch <- hookResult{nil, fmt.Errorf("panic: %v", r)}
+			}
+		}()
+		v, err := fn(args)
+		ch <- hookResult{v, err}
+	}()
+
+	timer := time.NewTimer(hookTimeout)
+	defer timer.Stop()
+	select {
+	case r := <-ch:
+		return r.v, r.err
+	case <-timer.C:
+		slog.Warn("plugin hook timed out; handler goroutine abandoned",
+			"plugin", pluginName, "hook", hookName, "timeout", hookTimeout)
+		return nil, fmt.Errorf("hook %s timed out after %s", hookName, hookTimeout)
+	}
 }
 
 // ApplyFilter chains all filter-hook handlers for the given hook name. The
@@ -295,7 +346,7 @@ func (m *Manager) ApplyFilter(hookName string, value interface{}, args map[strin
 			continue
 		}
 		args["value"] = current
-		result, err := entry.fn(args)
+		result, err := runHook(entry.pluginName, hookName, entry.fn, args)
 		if err != nil {
 			return current, fmt.Errorf("plugin %s: %w", entry.pluginName, err)
 		}
@@ -328,22 +379,18 @@ func (m *Manager) snapshotEntries(hookName string) []hookEntry {
 func (m *Manager) InitDB() error {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	if m.db == nil {
+	if m.store == nil {
 		return nil
 	}
 	for name, p := range m.plugins {
-		var count int64
-		m.db.Model(&models.Plugin{}).Where("slug = ?", strings.ToLower(name)).Count(&count)
-		if count == 0 {
-			m.db.Create(&models.Plugin{
-				Name:        name,
-				Slug:        strings.ToLower(name),
-				Description: p.Description(),
-				Version:     p.Version(),
-				Author:      p.Author(),
-				IsEnabled:   m.enabled[name],
-			})
-		}
+		_ = m.store.Ensure(models.Plugin{
+			Name:        name,
+			Slug:        strings.ToLower(name),
+			Description: p.Description(),
+			Version:     p.Version(),
+			Author:      p.Author(),
+			IsEnabled:   m.enabled[name],
+		})
 	}
 	return nil
 }

@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"errors"
 	"testing"
 	"time"
 
@@ -35,6 +36,16 @@ func TestGenerateAndValidateToken(t *testing.T) {
 	}
 	if claims.UserID != 7 || claims.Username != "alice" || claims.RoleSlug != "admin" {
 		t.Fatalf("claims mismatch: %+v", claims)
+	}
+	if claims.TokenUse != TokenUseAccess || claims.ID == "" {
+		t.Fatalf("access token missing token_use/JTI: %+v", claims)
+	}
+	refreshClaims, err := m.ValidateRefreshToken(pair.RefreshToken)
+	if err != nil {
+		t.Fatalf("ValidateRefreshToken: %v", err)
+	}
+	if refreshClaims.TokenUse != TokenUseRefresh || refreshClaims.ID == "" || refreshClaims.ID == claims.ID {
+		t.Fatalf("refresh token missing distinct token_use/JTI: %+v", refreshClaims)
 	}
 }
 
@@ -84,6 +95,22 @@ func TestRefreshAccessToken(t *testing.T) {
 	}
 }
 
+func TestRefreshAccessToken_RejectsAccessToken(t *testing.T) {
+	m := testJWTManager(time.Hour)
+	pair, _ := m.GenerateTokenPair(9, "bob", "b@x.com", "editor", "Bob")
+	if _, err := m.RefreshAccessToken(pair.AccessToken); !errors.Is(err, ErrWrongTokenUse) {
+		t.Fatalf("expected ErrWrongTokenUse, got %v", err)
+	}
+}
+
+func TestValidateAccessToken_RejectsRefreshToken(t *testing.T) {
+	m := testJWTManager(time.Hour)
+	pair, _ := m.GenerateTokenPair(9, "bob", "b@x.com", "editor", "Bob")
+	if _, err := m.ValidateAccessToken(pair.RefreshToken); err != ErrWrongTokenUse {
+		t.Fatalf("expected ErrWrongTokenUse, got %v", err)
+	}
+}
+
 func TestBlacklist_RevokeAndCheck(t *testing.T) {
 	b := NewBlacklist()
 	tok := "token-abc"
@@ -115,5 +142,29 @@ func TestBlacklist_Cleanup(t *testing.T) {
 	}
 	if b.IsRevoked("dead") {
 		t.Fatal("dead token should have been cleaned")
+	}
+}
+
+func TestBlacklist_ConsumeIsAtomic(t *testing.T) {
+	b := NewBlacklist()
+	const callers = 32
+	results := make(chan bool, callers)
+	for i := 0; i < callers; i++ {
+		go func() {
+			ok, err := b.Consume("one-time-refresh", time.Now().Add(time.Hour))
+			if err != nil {
+				t.Errorf("Consume: %v", err)
+			}
+			results <- ok
+		}()
+	}
+	successes := 0
+	for i := 0; i < callers; i++ {
+		if <-results {
+			successes++
+		}
+	}
+	if successes != 1 {
+		t.Fatalf("expected exactly one successful consume, got %d", successes)
 	}
 }

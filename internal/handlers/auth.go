@@ -38,7 +38,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		return
 	}
 
-	tokenPair, user, err := h.svc.Login(req.Username, req.Password, c.ClientIP(), c.Request.UserAgent())
+	tokenPair, user, err := h.svc.LoginWithTOTP(req.Username, req.Password, req.TOTPCode, c.ClientIP(), c.Request.UserAgent())
 	if err != nil {
 		handleServiceError(c, err)
 		return

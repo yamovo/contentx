@@ -69,6 +69,7 @@ func AllModels() []interface{} {
 		&models.Permission{},
 		&models.Role{},
 		&models.User{},
+		&models.UserTOTP{},
 
 		// Content
 		&models.Category{},

@@ -5,6 +5,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/yamovo/contentx/internal/database"
 	"github.com/yamovo/contentx/internal/models"
@@ -533,5 +534,85 @@ func TestWordCountPlugin_AfterCreate(t *testing.T) {
 	})
 	if err != nil {
 		t.Errorf("afterCreate: %v", err)
+	}
+}
+
+// ─── SEC-7：Hook 超时与 panic 防护 ────────────────────────────────────
+
+// shrinkHookTimeout 临时缩短 hook 超时时间，避免测试等待 5s。
+func shrinkHookTimeout(t *testing.T, d time.Duration) {
+	t.Helper()
+	old := hookTimeout
+	hookTimeout = d
+	t.Cleanup(func() { hookTimeout = old })
+}
+
+func TestManager_ActionHook_Timeout(t *testing.T) {
+	shrinkHookTimeout(t, 50*time.Millisecond)
+
+	block := make(chan struct{})
+	defer close(block)
+
+	m := NewManager(nil)
+	p := &fakePlugin{name: "slow", hooks: []HookRegistration{{
+		Name: "x.slowAction", Type: HookAction,
+		Fn: func(args map[string]interface{}) (interface{}, error) {
+			<-block // 模拟挂死的插件
+			return nil, nil
+		},
+	}}}
+	if err := m.Register(p); err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+
+	errs := m.ExecuteAction("x.slowAction", nil)
+	if len(errs) != 1 || !strings.Contains(errs[0].Error(), "timed out") {
+		t.Fatalf("SEC-7: expected timeout error, got %v", errs)
+	}
+}
+
+func TestManager_FilterHook_TimeoutReturnsOriginal(t *testing.T) {
+	shrinkHookTimeout(t, 50*time.Millisecond)
+
+	block := make(chan struct{})
+	defer close(block)
+
+	m := NewManager(nil)
+	p := &fakePlugin{name: "slow-filter", hooks: []HookRegistration{{
+		Name: "x.slowFilter", Type: HookFilter,
+		Fn: func(args map[string]interface{}) (interface{}, error) {
+			<-block
+			return "mutated", nil
+		},
+	}}}
+	if err := m.Register(p); err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+
+	result, err := m.ApplyFilter("x.slowFilter", "original", nil)
+	if err == nil || !strings.Contains(err.Error(), "timed out") {
+		t.Fatalf("SEC-7: expected timeout error, got %v", err)
+	}
+	if result != "original" {
+		t.Errorf("filter timeout should keep original value, got %v", result)
+	}
+}
+
+func TestManager_ActionHook_PanicRecovered(t *testing.T) {
+	m := NewManager(nil)
+	p := &fakePlugin{name: "panicky", hooks: []HookRegistration{{
+		Name: "x.panic", Type: HookAction,
+		Fn: func(args map[string]interface{}) (interface{}, error) {
+			panic("boom")
+		},
+	}}}
+	if err := m.Register(p); err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+
+	// panic 必须被回收为 error，不能击穿调用方。
+	errs := m.ExecuteAction("x.panic", nil)
+	if len(errs) != 1 || !strings.Contains(errs[0].Error(), "panic") {
+		t.Fatalf("SEC-7: expected recovered panic error, got %v", errs)
 	}
 }

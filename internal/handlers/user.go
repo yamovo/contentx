@@ -154,7 +154,12 @@ func (h *UserHandler) Update(c *gin.Context) {
 		return
 	}
 
-	user, err := h.svc.Update(uint(id), req)
+	actor := getCurrentUser(c)
+	if actor == nil {
+		return
+	}
+
+	user, err := h.svc.Update(uint(id), req, actor.IsAdmin())
 	if err != nil {
 		handleServiceError(c, err)
 		return
@@ -225,7 +230,12 @@ func (h *UserHandler) ResetPassword(c *gin.Context) {
 		return
 	}
 
-	if err := h.svc.ResetPassword(uint(id), req.NewPassword); err != nil {
+	actor := getCurrentUser(c)
+	if actor == nil {
+		return
+	}
+
+	if err := h.svc.ResetPassword(uint(id), req.NewPassword, actor.IsAdmin()); err != nil {
 		handleServiceError(c, err)
 		return
 	}

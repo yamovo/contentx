@@ -129,7 +129,7 @@ func TestUserService_Update_Success(t *testing.T) {
 	updated, err := svc.Update(user.ID, UpdateUserRequest{
 		DisplayName: &newName,
 		Bio:         &newBio,
-	})
+	}, true)
 	if err != nil {
 		t.Fatalf("update user: %v", err)
 	}
@@ -146,7 +146,7 @@ func TestUserService_Update_NotFound(t *testing.T) {
 	svc := NewUserService(db)
 
 	name := "x"
-	_, err := svc.Update(99999, UpdateUserRequest{DisplayName: &name})
+	_, err := svc.Update(99999, UpdateUserRequest{DisplayName: &name}, true)
 	if !errors.Is(err, ErrUserNotFound) {
 		t.Fatalf("expected ErrUserNotFound, got %v", err)
 	}
@@ -194,7 +194,7 @@ func TestUserService_ResetPassword(t *testing.T) {
 	svc := NewUserService(db)
 	user := createTestUser(t, db, "resetuser", "admin")
 
-	if err := svc.ResetPassword(user.ID, "NewPassword123"); err != nil {
+	if err := svc.ResetPassword(user.ID, "NewPassword123", true); err != nil {
 		t.Fatalf("reset password: %v", err)
 	}
 
@@ -203,6 +203,58 @@ func TestUserService_ResetPassword(t *testing.T) {
 	if refreshed.Password == user.Password {
 		t.Fatal("password should have changed")
 	}
+}
+
+// ─── SEC-5：垂直越权防护 ────────────────────────────────────────────────
+
+func TestUserService_Update_NonAdminCannotModifyAdmin(t *testing.T) {
+	db := setupTestDB(t)
+	svc := NewUserService(db)
+	admin := createTestUser(t, db, "target-admin", "admin")
+
+	name := "hijacked"
+	_, err := svc.Update(admin.ID, UpdateUserRequest{DisplayName: &name}, false)
+	assertForbidden(t, err)
+}
+
+func TestUserService_Update_NonAdminCannotChangeRole(t *testing.T) {
+	db := setupTestDB(t)
+	svc := NewUserService(db)
+	user := createTestUser(t, db, "escalate-me", "author")
+
+	var adminRole models.Role
+	db.Where("slug = ?", "admin").First(&adminRole)
+
+	// 非 admin 操作者尝试把用户升为 admin 角色 → Forbidden（防提权）。
+	_, err := svc.Update(user.ID, UpdateUserRequest{RoleID: &adminRole.ID}, false)
+	assertForbidden(t, err)
+}
+
+func TestUserService_Update_AdminCanChangeRole(t *testing.T) {
+	db := setupTestDB(t)
+	svc := NewUserService(db)
+	user := createTestUser(t, db, "promote-me", "author")
+
+	var editorRole models.Role
+	db.Where("slug = ?", "editor").First(&editorRole)
+
+	updated, err := svc.Update(user.ID, UpdateUserRequest{RoleID: &editorRole.ID}, true)
+	if err != nil {
+		t.Fatalf("admin should change roles: %v", err)
+	}
+	if updated.RoleID != editorRole.ID {
+		t.Fatalf("role_id = %d, want %d", updated.RoleID, editorRole.ID)
+	}
+}
+
+func TestUserService_ResetPassword_NonAdminCannotResetAdmin(t *testing.T) {
+	db := setupTestDB(t)
+	svc := NewUserService(db)
+	admin := createTestUser(t, db, "takeover-target", "admin")
+
+	// 非 admin 操作者重置 admin 密码 → Forbidden（防账户接管）。
+	err := svc.ResetPassword(admin.ID, "Hacked12345", false)
+	assertForbidden(t, err)
 }
 
 // ─── RoleService Tests ──────────────────────────────────────────────────────

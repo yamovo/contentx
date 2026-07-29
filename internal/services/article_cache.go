@@ -97,12 +97,18 @@ type cachedListResponse struct {
 	HasPrev    bool             `json:"has_prev"`
 }
 
+// articleCacheKey builds the per-ID detail cache key. Shared by the cache
+// helpers and the single-flight group so both sides agree on the key.
+func articleCacheKey(id uint) string {
+	return fmt.Sprintf("articles:id:%d", id)
+}
+
 // cacheGetArticle reads a single article from cache. Returns nil on miss.
 func (s *ArticleService) cacheGetArticle(id uint) *models.Article {
 	if s.cache == nil {
 		return nil
 	}
-	key := fmt.Sprintf("articles:id:%d", id)
+	key := articleCacheKey(id)
 	data, err := s.cache.Get(context.Background(), key)
 	if err != nil {
 		return nil
@@ -119,7 +125,7 @@ func (s *ArticleService) cacheSetArticle(a *models.Article) {
 	if s.cache == nil || a == nil {
 		return
 	}
-	key := fmt.Sprintf("articles:id:%d", a.ID)
+	key := articleCacheKey(a.ID)
 	data, err := json.Marshal(a)
 	if err != nil {
 		return
@@ -136,6 +142,6 @@ func (s *ArticleService) invalidateArticle(ids ...uint) {
 	atomic.AddUint64(&s.cacheGen, 1)
 	ctx := context.Background()
 	for _, id := range ids {
-		_ = s.cache.Delete(ctx, fmt.Sprintf("articles:id:%d", id))
+		_ = s.cache.Delete(ctx, articleCacheKey(id))
 	}
 }

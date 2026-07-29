@@ -228,7 +228,7 @@ func TestWebhookDispatch_MediaDelete(t *testing.T) {
 	wh := &MockWebhookDispatcher{}
 	svc.SetWebhookDispatcher(wh)
 
-	err := svc.Delete(1)
+	err := svc.Delete(1, 0, true)
 	if err != nil {
 		t.Fatalf("Delete failed: %v", err)
 	}

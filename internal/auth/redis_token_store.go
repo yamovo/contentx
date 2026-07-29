@@ -62,6 +62,23 @@ func (s *RedisTokenStore) IsRevoked(tokenStr string) bool {
 	return n > 0
 }
 
+// Consume atomically marks a one-time token as used with Redis SET NX.
+// Redis errors are returned so refresh-token rotation can fail closed.
+func (s *RedisTokenStore) Consume(tokenStr string, expiresAt time.Time) (bool, error) {
+	if s == nil || s.client == nil {
+		return false, ErrTokenStoreUnavailable
+	}
+	ttl := time.Until(expiresAt)
+	if ttl <= 0 {
+		return false, nil
+	}
+	consumed, err := s.client.SetNX(context.Background(), s.key(tokenStr), "1", ttl).Result()
+	if err != nil {
+		return false, errors.Join(ErrTokenStoreUnavailable, err)
+	}
+	return consumed, nil
+}
+
 // key 生成带前缀的 Redis key，使用 token 的 SHA-256 摘要。
 func (s *RedisTokenStore) key(tokenStr string) string {
 	sum := sha256.Sum256([]byte(tokenStr))

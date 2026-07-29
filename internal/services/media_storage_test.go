@@ -192,7 +192,7 @@ func TestStorage_Delete_DelegatesToDriver(t *testing.T) {
 	s := NewMediaServiceWithRepo(repo, newStorageTestConfig(t))
 	s.SetStorageDriver(store)
 
-	if err := s.Delete(9); err != nil {
+	if err := s.Delete(9, 0, true); err != nil {
 		t.Fatalf("Delete failed: %v", err)
 	}
 	// Driver must receive exactly one Delete with the object key.
@@ -220,7 +220,7 @@ func TestStorage_Delete_RepoErrorStillReturnsError(t *testing.T) {
 	s := NewMediaServiceWithRepo(repo, newStorageTestConfig(t))
 	s.SetStorageDriver(store)
 
-	err := s.Delete(9)
+	err := s.Delete(9, 0, true)
 	if err == nil {
 		t.Fatal("expected error from repo.Delete")
 	}
@@ -242,7 +242,7 @@ func TestStorage_BulkDelete_DelegatesToDriver(t *testing.T) {
 	s := NewMediaServiceWithRepo(repo, newStorageTestConfig(t))
 	s.SetStorageDriver(store)
 
-	n, err := s.BulkDelete([]uint{1, 2, 3})
+	n, err := s.BulkDelete([]uint{1, 2, 3}, 0, true)
 	if err != nil {
 		t.Fatalf("BulkDelete failed: %v", err)
 	}
@@ -280,7 +280,7 @@ func TestStorage_BulkDelete_DriverDeleteErrorIgnored(t *testing.T) {
 	s := NewMediaServiceWithRepo(repo, newStorageTestConfig(t))
 	s.SetStorageDriver(store)
 
-	n, err := s.BulkDelete([]uint{1, 2})
+	n, err := s.BulkDelete([]uint{1, 2}, 0, true)
 	if err != nil {
 		t.Fatalf("BulkDelete should not surface driver Delete errors: %v", err)
 	}
@@ -308,7 +308,7 @@ func TestStorage_Delete_FallbackToLocalWhenNoDriver(t *testing.T) {
 	s := NewMediaServiceWithRepo(repo, config.UploadConfig{StoragePath: dir, URLPrefix: "/uploads"})
 	// No SetStorageDriver → legacy path.
 
-	if err := s.Delete(7); err != nil {
+	if err := s.Delete(7, 0, true); err != nil {
 		t.Fatalf("Delete failed: %v", err)
 	}
 	if _, err := os.Stat(filePath); !os.IsNotExist(err) {

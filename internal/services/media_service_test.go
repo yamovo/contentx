@@ -152,7 +152,7 @@ func TestMediaService_Update(t *testing.T) {
 		Title:       "Title",
 		Description: "Description",
 		Folder:      "/new_folder",
-	})
+	}, 0, true)
 	if err != nil {
 		t.Fatalf("update media: %v", err)
 	}
@@ -173,7 +173,7 @@ func TestMediaService_Delete(t *testing.T) {
 
 	created := createTestMedia(t, db, "delete.jpg", "image/jpeg", 100, "/")
 
-	if err := svc.Delete(created.ID); err != nil {
+	if err := svc.Delete(created.ID, 0, true); err != nil {
 		t.Fatalf("delete media: %v", err)
 	}
 
@@ -192,7 +192,7 @@ func TestMediaService_BulkDelete(t *testing.T) {
 	m2 := createTestMedia(t, db, "bulk2.jpg", "image/jpeg", 200, "/")
 	m3 := createTestMedia(t, db, "bulk3.jpg", "image/jpeg", 300, "/")
 
-	affected, err := svc.BulkDelete([]uint{m1.ID, m2.ID})
+	affected, err := svc.BulkDelete([]uint{m1.ID, m2.ID}, 0, true)
 	if err != nil {
 		t.Fatalf("bulk delete: %v", err)
 	}

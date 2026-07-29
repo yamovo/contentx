@@ -17,6 +17,7 @@ type Config struct {
 	Database  DatabaseConfig
 	Redis     RedisConfig
 	JWT       JWTConfig
+	Auth      AuthConfig
 	Upload    UploadConfig
 	Mail      MailConfig
 	Search    SearchConfig
@@ -110,6 +111,13 @@ type JWTConfig struct {
 	AccessTokenTTL  time.Duration
 	RefreshTokenTTL time.Duration
 	Issuer          string
+}
+
+// AuthConfig holds authentication-surface feature switches.
+type AuthConfig struct {
+	// AllowRegistration is deliberately opt-in. Production installations
+	// expose no public registration endpoint unless explicitly enabled.
+	AllowRegistration bool
 }
 
 // UploadConfig holds file upload settings.
@@ -266,6 +274,9 @@ func Load() *Config {
 			AccessTokenTTL:  envDuration("JWT_ACCESS_TTL", 15*time.Minute),
 			RefreshTokenTTL: envDuration("JWT_REFRESH_TTL", 7*24*time.Hour),
 			Issuer:          envStr("JWT_ISSUER", "contentx"),
+		},
+		Auth: AuthConfig{
+			AllowRegistration: envBool("AUTH_ALLOW_REGISTRATION", false),
 		},
 		Upload: UploadConfig{
 			Driver:       envStr("STORAGE_DRIVER", "local"),        // local | s3
@@ -480,6 +491,26 @@ var knownWeakSecrets = []string{
 	"my-secret-key", "super-secret", "123456", "password",
 }
 
+// placeholderPrefixes matches documentation placeholder values (e.g.
+// "change-me-to-a-random-secret") copied verbatim from .env.example or docs.
+// Such values must never pass validation regardless of length (SEC-4).
+var placeholderPrefixes = []string{
+	"change-me", "changeme", "change_me",
+	"replace-me", "replaceme", "replace_me", "replace-with",
+}
+
+// isPlaceholderSecret reports whether v looks like a placeholder secret
+// copied from example configuration instead of a real credential.
+func isPlaceholderSecret(v string) bool {
+	lv := strings.ToLower(v)
+	for _, p := range placeholderPrefixes {
+		if strings.HasPrefix(lv, p) {
+			return true
+		}
+	}
+	return false
+}
+
 // Validate runs startup security checks and logs warnings.
 // Returns false if any check fails fatally.
 func (c *Config) Validate() bool {
@@ -498,6 +529,10 @@ func (c *Config) Validate() bool {
 				break
 			}
 		}
+		if isPlaceholderSecret(c.JWT.Secret) {
+			slog.Error("JWT_SECRET is a placeholder value copied from example config, set a real random secret")
+			ok = false
+		}
 	}
 
 	// 2. Production mode checks.
@@ -511,8 +546,20 @@ func (c *Config) Validate() bool {
 			slog.Error("ADMIN_PASSWORD is too short", "required", 8)
 			ok = false
 		}
+		if pwd := os.Getenv("ADMIN_PASSWORD"); pwd != "" && isPlaceholderSecret(pwd) {
+			slog.Error("ADMIN_PASSWORD is a placeholder value copied from example config")
+			ok = false
+		}
 		if c.Database.Password == "" && c.Database.Driver != "sqlite" {
 			slog.Error("DB_PASSWORD must be set in production mode")
+			ok = false
+		}
+		if isPlaceholderSecret(c.Database.Password) {
+			slog.Error("DB_PASSWORD is a placeholder value copied from example config")
+			ok = false
+		}
+		if isPlaceholderSecret(c.Redis.Password) {
+			slog.Error("REDIS_PASSWORD is a placeholder value copied from example config")
 			ok = false
 		}
 		if c.Server.BaseURL == "" {

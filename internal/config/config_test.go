@@ -168,3 +168,71 @@ func TestConfig_Validate_ReleaseRequiresAdminPassword(t *testing.T) {
 		t.Fatal("expected release validation to fail without ADMIN_PASSWORD")
 	}
 }
+
+// SEC-4: placeholder values copied verbatim from .env.example must fail validation.
+
+func TestConfig_Validate_PlaceholderJWTSecret(t *testing.T) {
+	os.Unsetenv("ADMIN_PASSWORD")
+	cases := []string{
+		"change-me-to-a-random-secret-at-least-32-chars", // old .env.example value, 45 chars
+		"replace-with-at-least-32-random-characters",     // SOP doc placeholder
+		"CHANGE-ME-UPPERCASE-VARIANT-1234567890",         // case-insensitive
+	}
+	for _, secret := range cases {
+		c := &Config{}
+		c.JWT.Secret = secret
+		c.Server.Mode = "debug"
+		c.Database.Driver = "sqlite"
+		if c.Validate() {
+			t.Fatalf("expected validation to fail for placeholder secret %q", secret)
+		}
+	}
+}
+
+func TestConfig_Validate_Release_PlaceholderPasswords(t *testing.T) {
+	os.Setenv("ADMIN_PASSWORD", "a-real-strong-password")
+	defer os.Unsetenv("ADMIN_PASSWORD")
+
+	// Placeholder REDIS_PASSWORD must fail in release mode.
+	c := &Config{}
+	c.JWT.Secret = "a-sufficiently-long-secret-value"
+	c.Server.Mode = "release"
+	c.Database.Driver = "sqlite"
+	c.Redis.Password = "change-me"
+	if c.Validate() {
+		t.Fatal("expected release validation to fail for placeholder REDIS_PASSWORD")
+	}
+
+	// Placeholder DB_PASSWORD must fail in release mode.
+	c = &Config{}
+	c.JWT.Secret = "a-sufficiently-long-secret-value"
+	c.Server.Mode = "release"
+	c.Database.Driver = "postgres"
+	c.Database.Password = "replace-with-a-strong-password"
+	if c.Validate() {
+		t.Fatal("expected release validation to fail for placeholder DB_PASSWORD")
+	}
+
+	// Strong values pass.
+	c = &Config{}
+	c.JWT.Secret = "a-sufficiently-long-secret-value"
+	c.Server.Mode = "release"
+	c.Database.Driver = "postgres"
+	c.Database.Password = "k9PxM2rV7tQ4"
+	c.Redis.Password = "n8SwL5cJ3bF6"
+	if !c.Validate() {
+		t.Fatal("expected release validation to pass with strong passwords")
+	}
+}
+
+func TestConfig_Validate_Release_PlaceholderAdminPassword(t *testing.T) {
+	os.Setenv("ADMIN_PASSWORD", "change-me-admin")
+	defer os.Unsetenv("ADMIN_PASSWORD")
+	c := &Config{}
+	c.JWT.Secret = "a-sufficiently-long-secret-value"
+	c.Server.Mode = "release"
+	c.Database.Driver = "sqlite"
+	if c.Validate() {
+		t.Fatal("expected release validation to fail for placeholder ADMIN_PASSWORD")
+	}
+}

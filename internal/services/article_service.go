@@ -14,6 +14,7 @@ import (
 	"github.com/yamovo/contentx/internal/models"
 	"github.com/yamovo/contentx/internal/plugin"
 	"github.com/yamovo/contentx/internal/repository"
+	"golang.org/x/sync/singleflight"
 	"gorm.io/gorm"
 )
 
@@ -27,6 +28,7 @@ type ArticleService struct {
 	cache    cache.Driver
 	cacheTTL time.Duration
 	cacheGen uint64
+	flight   singleflight.Group // SEC-9: collapses concurrent cache-miss loads
 }
 
 const (
@@ -246,14 +248,31 @@ func (s *ArticleService) List(filter ListArticlesFilter) (models.ListResponse, e
 	}
 
 	// Cache check.
-	var cacheKey string
-	if s.cache != nil {
-		cacheKey = s.listCacheKey(filter)
+	if s.cache == nil {
+		return s.listUncached(filter, "")
+	}
+	cacheKey := s.listCacheKey(filter)
+	if cached, hit := s.cacheGetList(cacheKey); hit {
+		return cached, nil
+	}
+	// SEC-9: single-flight — concurrent misses on the same key share one
+	// repo query instead of stampeding the database (cache breakdown).
+	v, err, _ := s.flight.Do(cacheKey, func() (interface{}, error) {
+		// Re-check inside the flight: an earlier winner may have filled it.
 		if cached, hit := s.cacheGetList(cacheKey); hit {
 			return cached, nil
 		}
+		return s.listUncached(filter, cacheKey)
+	})
+	if err != nil {
+		return models.ListResponse{}, err
 	}
+	return v.(models.ListResponse), nil
+}
 
+// listUncached queries the repository directly and (when cacheKey is
+// non-empty) stores the result in cache.
+func (s *ArticleService) listUncached(filter ListArticlesFilter, cacheKey string) (models.ListResponse, error) {
 	articles, total, err := s.repo.List(repository.ArticleListFilter{
 		Page:       filter.Page,
 		PageSize:   filter.PageSize,
@@ -273,7 +292,9 @@ func (s *ArticleService) List(filter ListArticlesFilter) (models.ListResponse, e
 
 	paginate := models.Paginate{Page: filter.Page, PageSize: filter.PageSize, Total: total}
 	resp := models.NewListResponse(articles, paginate)
-	s.cacheSetList(cacheKey, resp)
+	if cacheKey != "" {
+		s.cacheSetList(cacheKey, resp)
+	}
 	return resp, nil
 }
 
@@ -327,12 +348,23 @@ func (s *ArticleService) Get(id uint) (*models.Article, error) {
 	if a := s.cacheGetArticle(id); a != nil {
 		return a, nil
 	}
-	a, err := s.repo.GetByID(id)
+	// SEC-9: single-flight — concurrent misses on the same article share one
+	// DB load instead of stampeding the database.
+	v, err, _ := s.flight.Do(articleCacheKey(id), func() (interface{}, error) {
+		if a := s.cacheGetArticle(id); a != nil {
+			return a, nil
+		}
+		a, err := s.repo.GetByID(id)
+		if err != nil {
+			return nil, err
+		}
+		s.cacheSetArticle(a)
+		return a, nil
+	})
 	if err != nil {
 		return nil, err
 	}
-	s.cacheSetArticle(a)
-	return a, nil
+	return v.(*models.Article), nil
 }
 
 // GetBySlug returns a single published article by slug and increments its view count.
@@ -762,7 +794,7 @@ func (s *ArticleService) Revisions(articleID uint) ([]models.Revision, error) {
 }
 
 // RestoreRevision restores an article to a specific revision and creates a new revision recording the restore.
-func (s *ArticleService) RestoreRevision(articleID uint, revisionID uint, userID uint) error {
+func (s *ArticleService) RestoreRevision(articleID uint, revisionID uint, userID uint, isEditor bool) error {
 	revision, err := s.repo.FindRevision(revisionID, articleID)
 	if err != nil {
 		return err
@@ -771,6 +803,11 @@ func (s *ArticleService) RestoreRevision(articleID uint, revisionID uint, userID
 	article, err := s.repo.FindByID(articleID)
 	if err != nil {
 		return err
+	}
+
+	// Check ownership or admin/editor (SEC-3: prevent IDOR on revision restore).
+	if article.AuthorID != userID && !isEditor {
+		return errs.ErrForbidden.WithMessage("Not authorized to restore revisions of this article")
 	}
 
 	if err := s.repo.RestoreRevision(article, revision, userID); err != nil {

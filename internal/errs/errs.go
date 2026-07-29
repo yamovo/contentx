@@ -16,11 +16,14 @@
 //	  - INVALID_CREDENTIALS 用户名或密码错误
 //	  - TOKEN_EXPIRED       令牌已过期
 //	  - TOKEN_REVOKED       令牌已吊销
+//	  - TOTP_REQUIRED       需要二次验证码
+//	  - TOTP_INVALID        二次验证码错误
 //
 //	403 Forbidden:
 //	  - FORBIDDEN           权限不足
 //	  - ACCOUNT_LOCKED      账户锁定
 //	  - ACCOUNT_DISABLED    账户已禁用
+//	  - REGISTRATION_DISABLED 公开注册未启用
 //
 //	404 Not Found:
 //	  - NOT_FOUND           资源不存在
@@ -122,11 +125,15 @@ var (
 	ErrInvalidCreds = &AppError{Code: "INVALID_CREDENTIALS", Message: "Invalid username or password", Status: http.StatusUnauthorized}
 	ErrTokenExpired = &AppError{Code: "TOKEN_EXPIRED", Message: "Token has expired", Status: http.StatusUnauthorized}
 	ErrTokenRevoked = &AppError{Code: "TOKEN_REVOKED", Message: "Token has been revoked", Status: http.StatusUnauthorized}
+	// TOTP 二次验证：密码正确但还需要（或提供了错误的）动态验证码。
+	ErrTOTPRequired = &AppError{Code: "TOTP_REQUIRED", Message: "Two-factor authentication code required", Status: http.StatusUnauthorized}
+	ErrTOTPInvalid  = &AppError{Code: "TOTP_INVALID", Message: "Invalid two-factor authentication code", Status: http.StatusUnauthorized}
 
 	// 403 Forbidden
-	ErrForbidden       = &AppError{Code: "FORBIDDEN", Message: "Insufficient permissions", Status: http.StatusForbidden}
-	ErrAccountLocked   = &AppError{Code: "ACCOUNT_LOCKED", Message: "Account temporarily locked due to too many failed attempts", Status: http.StatusForbidden}
-	ErrAccountDisabled = &AppError{Code: "ACCOUNT_DISABLED", Message: "Account is disabled", Status: http.StatusForbidden}
+	ErrForbidden            = &AppError{Code: "FORBIDDEN", Message: "Insufficient permissions", Status: http.StatusForbidden}
+	ErrAccountLocked        = &AppError{Code: "ACCOUNT_LOCKED", Message: "Account temporarily locked due to too many failed attempts", Status: http.StatusForbidden}
+	ErrAccountDisabled      = &AppError{Code: "ACCOUNT_DISABLED", Message: "Account is disabled", Status: http.StatusForbidden}
+	ErrRegistrationDisabled = &AppError{Code: "REGISTRATION_DISABLED", Message: "Registration is disabled", Status: http.StatusForbidden}
 
 	// 404 Not Found
 	ErrNotFound = &AppError{Code: "NOT_FOUND", Message: "Resource not found", Status: http.StatusNotFound}

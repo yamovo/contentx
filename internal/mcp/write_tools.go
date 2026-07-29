@@ -7,16 +7,8 @@ import (
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/yamovo/contentx/internal/permissions"
 	"github.com/yamovo/contentx/internal/services"
-)
-
-// MCP write-tool permission strings. These are matched against the API token's
-// own Permissions list (models.APIToken.Permissions); "*" grants everything.
-const (
-	permCreate  = "articles.create"
-	permEdit    = "articles.edit"
-	permEditAll = "articles.edit_all"
-	permPublish = "articles.publish"
 )
 
 // registerWriteTools adds the mutating tools. It is only called when an
@@ -29,7 +21,7 @@ func registerWriteTools(s *mcpsdk.Server, ts *toolset) {
 
 	mcpsdk.AddTool(s, &mcpsdk.Tool{
 		Name:        "update_article",
-		Description: "Update an existing article's fields (never publishes). Requires 'articles.edit'; editing another user's article additionally requires 'articles.edit_all'.",
+		Description: "Update an existing article's fields (never publishes). Requires 'articles.update'; editing another user's article additionally requires 'articles.update_all'.",
 	}, ts.updateArticle)
 
 	mcpsdk.AddTool(s, &mcpsdk.Tool{
@@ -41,12 +33,7 @@ func registerWriteTools(s *mcpsdk.Server, ts *toolset) {
 // permitted reports whether the token permission set grants want ("*" wildcard
 // or exact match).
 func permitted(perms []string, want string) bool {
-	for _, p := range perms {
-		if p == "*" || p == want {
-			return true
-		}
-	}
-	return false
+	return permissions.Grants(perms, want)
 }
 
 // identity resolves the acting writer from the request's HTTP headers via the
@@ -81,8 +68,8 @@ func (t *toolset) createArticle(_ context.Context, req *mcpsdk.CallToolRequest, 
 	if err != nil {
 		return nil, articleSummary{}, err
 	}
-	if !permitted(id.Permissions, permCreate) {
-		return nil, articleSummary{}, fmt.Errorf("token lacks permission: %s", permCreate)
+	if !permitted(id.Permissions, permissions.ArticlesCreate) {
+		return nil, articleSummary{}, fmt.Errorf("token lacks permission: %s", permissions.ArticlesCreate)
 	}
 	if in.Title == "" {
 		return nil, articleSummary{}, fmt.Errorf("title is required")
@@ -119,22 +106,22 @@ func (t *toolset) updateArticle(_ context.Context, req *mcpsdk.CallToolRequest, 
 	if err != nil {
 		return nil, articleSummary{}, err
 	}
-	if !permitted(id.Permissions, permEdit) {
-		return nil, articleSummary{}, fmt.Errorf("token lacks permission: %s", permEdit)
+	if !permitted(id.Permissions, permissions.ArticlesUpdate) {
+		return nil, articleSummary{}, fmt.Errorf("token lacks permission: %s", permissions.ArticlesUpdate)
 	}
 	if in.ID == 0 {
 		return nil, articleSummary{}, fmt.Errorf("id is required")
 	}
-	// articles.edit_all lets the token edit articles it does not own; otherwise
+	// articles.update_all lets the token edit articles it does not own; otherwise
 	// the service enforces ownership. Status is not touched here (no publish).
-	isEditor := permitted(id.Permissions, permEditAll)
+	canUpdateAll := permitted(id.Permissions, permissions.ArticlesUpdateAll)
 	article, err := t.deps.Article.Update(in.ID, services.UpdateArticleRequest{
 		Title:      in.Title,
 		Content:    in.Content,
 		Excerpt:    in.Excerpt,
 		CategoryID: in.CategoryID,
 		TagIDs:     in.TagIDs,
-	}, id.UserID, isEditor)
+	}, id.UserID, canUpdateAll)
 	if err != nil {
 		return nil, articleSummary{}, err
 	}
@@ -152,8 +139,8 @@ func (t *toolset) publishArticle(_ context.Context, req *mcpsdk.CallToolRequest,
 	if err != nil {
 		return nil, articleSummary{}, err
 	}
-	if !permitted(id.Permissions, permPublish) {
-		return nil, articleSummary{}, fmt.Errorf("token lacks permission: %s", permPublish)
+	if !permitted(id.Permissions, permissions.ArticlesPublish) {
+		return nil, articleSummary{}, fmt.Errorf("token lacks permission: %s", permissions.ArticlesPublish)
 	}
 	if in.ID == 0 {
 		return nil, articleSummary{}, fmt.Errorf("id is required")

@@ -1,10 +1,14 @@
 package services
 
 import (
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/yamovo/contentx/internal/cache"
+	"github.com/yamovo/contentx/internal/models"
+	"github.com/yamovo/contentx/internal/repository"
 )
 
 func TestArticleCache_ListHitAndInvalidate(t *testing.T) {
@@ -69,5 +73,79 @@ func TestArticleCache_GetHitAndInvalidate(t *testing.T) {
 	}
 	if a2.Title != "Updated Title" {
 		t.Fatalf("after update, title = %q, want Updated Title", a2.Title)
+	}
+}
+
+// ─── SEC-9：single-flight 防击穿 ─────────────────────────────────────────────
+
+// countingArticleRepo 包装 MockArticleRepository，统计回源次数并模拟慢查询，
+// 使并发 miss 窗口重叠，验证 single-flight 合并效果。
+type countingArticleRepo struct {
+	*MockArticleRepository
+	getCalls  int64
+	listCalls int64
+}
+
+func (r *countingArticleRepo) GetByID(id uint) (*models.Article, error) {
+	atomic.AddInt64(&r.getCalls, 1)
+	time.Sleep(50 * time.Millisecond)
+	return r.MockArticleRepository.GetByID(id)
+}
+
+func (r *countingArticleRepo) List(f repository.ArticleListFilter) ([]models.Article, int64, error) {
+	atomic.AddInt64(&r.listCalls, 1)
+	time.Sleep(50 * time.Millisecond)
+	return r.MockArticleRepository.List(f)
+}
+
+func TestArticleCache_SingleFlightGet(t *testing.T) {
+	repo := &countingArticleRepo{MockArticleRepository: &MockArticleRepository{
+		Articles: map[uint]*models.Article{1: {BaseModel: models.BaseModel{ID: 1}, Title: "SF"}},
+	}}
+	svc := NewArticleServiceWithRepo(repo, "http://localhost:8080")
+	svc.WithCache(cache.NewMemoryDriver(1000), 5*time.Minute)
+
+	const goroutines = 20
+	var wg sync.WaitGroup
+	wg.Add(goroutines)
+	for i := 0; i < goroutines; i++ {
+		go func() {
+			defer wg.Done()
+			if _, err := svc.Get(1); err != nil {
+				t.Errorf("Get: %v", err)
+			}
+		}()
+	}
+	wg.Wait()
+
+	if n := atomic.LoadInt64(&repo.getCalls); n != 1 {
+		t.Errorf("SEC-9: %d concurrent misses hit repo %d times, want 1 (single-flight)", goroutines, n)
+	}
+}
+
+func TestArticleCache_SingleFlightList(t *testing.T) {
+	repo := &countingArticleRepo{MockArticleRepository: &MockArticleRepository{
+		ArticlesList: []models.Article{{BaseModel: models.BaseModel{ID: 1}, Title: "SF"}},
+		ListTotal:    1,
+	}}
+	svc := NewArticleServiceWithRepo(repo, "http://localhost:8080")
+	svc.WithCache(cache.NewMemoryDriver(1000), 5*time.Minute)
+
+	filter := ListArticlesFilter{Status: "published", Page: 1, PageSize: 20}
+	const goroutines = 20
+	var wg sync.WaitGroup
+	wg.Add(goroutines)
+	for i := 0; i < goroutines; i++ {
+		go func() {
+			defer wg.Done()
+			if _, err := svc.List(filter); err != nil {
+				t.Errorf("List: %v", err)
+			}
+		}()
+	}
+	wg.Wait()
+
+	if n := atomic.LoadInt64(&repo.listCalls); n != 1 {
+		t.Errorf("SEC-9: %d concurrent misses hit repo %d times, want 1 (single-flight)", goroutines, n)
 	}
 }

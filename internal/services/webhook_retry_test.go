@@ -10,10 +10,17 @@ import (
 	"github.com/yamovo/contentx/internal/models"
 )
 
+// allowPrivateTargets swaps in a delivery client without the SSRF blocklist
+// so tests can target local httptest servers (loopback is blocked by default).
+func allowPrivateTargets(svc *WebhookService) *WebhookService {
+	svc.client = newWebhookHTTPClient(true)
+	return svc
+}
+
 // zeroBackoff removes retry sleeps so retry tests run instantly.
 func zeroBackoff(svc *WebhookService) *WebhookService {
 	svc.backoff = func(int) time.Duration { return 0 }
-	return svc
+	return allowPrivateTargets(svc)
 }
 
 // TestWebhookRetry_5xxThenSuccess: 前两次返回 500，第三次 200 → 成功，Retries=2。

@@ -8,6 +8,7 @@ import (
 
 	"github.com/yamovo/contentx/internal/errs"
 	"github.com/yamovo/contentx/internal/models"
+	"github.com/yamovo/contentx/internal/permissions"
 	"github.com/yamovo/contentx/internal/repository"
 	"gorm.io/gorm"
 )
@@ -49,11 +50,24 @@ func NewTokenServiceWithRepo(repo repository.TokenRepository) *TokenService {
 
 // List returns all API tokens (without the secret).
 func (s *TokenService) List() ([]models.APIToken, error) {
-	return s.repo.List()
+	tokens, err := s.repo.List()
+	if err != nil {
+		return nil, err
+	}
+	for i := range tokens {
+		canonical, _ := permissions.CanonicalizeList([]string(tokens[i].Permissions))
+		tokens[i].Permissions = models.StringSlice(canonical)
+	}
+	return tokens, nil
 }
 
 // Create generates a new API token.
 func (s *TokenService) Create(req CreateTokenRequest, createdBy uint) (*TokenCreatedResponse, error) {
+	canonicalPermissions, valid := permissions.CanonicalizeList(req.Permissions)
+	if !valid {
+		return nil, errs.ErrBadRequest.WithMessage("permissions contain an unknown slug")
+	}
+
 	// Generate random token (vc_live_ + 32 hex chars).
 	raw := make([]byte, 16)
 	if _, err := rand.Read(raw); err != nil {
@@ -74,7 +88,7 @@ func (s *TokenService) Create(req CreateTokenRequest, createdBy uint) (*TokenCre
 	token := models.APIToken{
 		Name:        req.Name,
 		Token:       tokenStr,
-		Permissions: req.Permissions,
+		Permissions: models.StringSlice(canonicalPermissions),
 		ExpiresAt:   expiresAt,
 		CreatedByID: createdBy,
 		IsActive:    true,
@@ -122,6 +136,8 @@ func (s *TokenService) Resolve(tokenStr string) (*models.APIToken, error) {
 
 	// Update last used (best-effort; ignore error).
 	_ = s.repo.UpdateUsage(token.ID, time.Now())
+	canonical, _ := permissions.CanonicalizeList([]string(token.Permissions))
+	token.Permissions = models.StringSlice(canonical)
 	return token, nil
 }
 
@@ -136,10 +152,8 @@ func (s *TokenService) Validate(tokenStr string, requiredPerm string) (bool, uin
 	if requiredPerm == "" {
 		return true, token.CreatedByID, nil
 	}
-	for _, p := range token.Permissions {
-		if p == "*" || p == requiredPerm {
-			return true, token.CreatedByID, nil
-		}
+	if permissions.Grants([]string(token.Permissions), requiredPerm) {
+		return true, token.CreatedByID, nil
 	}
 
 	return false, token.CreatedByID, errors.New("insufficient token permissions")

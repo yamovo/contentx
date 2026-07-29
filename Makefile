@@ -1,4 +1,4 @@
-.PHONY: build test lint clean dev migrate migrate-down migrate-status seed backup restore-backup check install-hooks
+.PHONY: build test lint clean dev migrate migrate-down migrate-status seed backup restore-backup check frontend-check install-hooks
 
 # Build variables
 BINARY=contentx
@@ -64,8 +64,12 @@ install-hooks:
 	@echo "Installed pre-commit hook to .git/hooks/pre-commit"
 
 # Run all local checks before committing (Round 6 / F1)
-check: fmt vet swagger lint test
+check: fmt vet swagger lint test frontend-check
 	@echo "All checks passed."
+
+# Run frontend checks
+frontend-check:
+	cd web && npm run check
 
 # Build Docker image
 docker:

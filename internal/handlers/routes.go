@@ -14,6 +14,7 @@ import (
 	"github.com/yamovo/contentx/internal/graphql"
 	"github.com/yamovo/contentx/internal/mcp"
 	"github.com/yamovo/contentx/internal/middleware"
+	"github.com/yamovo/contentx/internal/permissions"
 	"github.com/yamovo/contentx/internal/plugin"
 	"github.com/yamovo/contentx/internal/services"
 	"github.com/yamovo/contentx/internal/storage"
@@ -29,14 +30,18 @@ func RegisterRoutes(
 	cfg *config.Config,
 	jwtMgr *auth.JWTManager,
 	blacklist auth.TokenStore,
-	guard *auth.LoginGuard,
+	guard auth.LoginLimiter,
 	cacheDriver cache.Driver,
 	backupMgr *backup.Manager,
 	promCollector *middleware.PrometheusCollector,
 ) *middleware.IPRateLimit {
 	// Create services.
 	articleSvc := services.NewArticleService(db, cfg.Server.BaseURL)
-	authSvc := services.NewAuthService(db, jwtMgr, blacklist, guard)
+	authSvc := services.NewAuthService(db, jwtMgr, blacklist, guard, cfg.Auth)
+	totpSvc := services.NewTOTPService(db)
+	// Wire the TOTP second factor into login (checked after password, before
+	// token generation).
+	authSvc.SetTOTPVerifier(totpSvc)
 	userSvc := services.NewUserService(db)
 	roleSvc := services.NewRoleService(db)
 	categorySvc := services.NewCategoryService(db)
@@ -101,6 +106,7 @@ func RegisterRoutes(
 
 	// Create handlers.
 	authH := NewAuthHandler(authSvc)
+	totpH := NewTOTPHandler(totpSvc)
 	articleH := NewArticleHandler(articleSvc)
 	categoryH := NewCategoryHandler(categorySvc)
 	tagH := NewTagHandler(tagSvc)
@@ -199,211 +205,213 @@ func RegisterRoutes(
 			authP.GET("/me", authH.Me)
 			authP.PUT("/profile", authH.UpdateProfile)
 			authP.PUT("/password", authH.ChangePassword)
+
+			// TOTP two-factor authentication (current user).
+			authP.GET("/totp/status", totpH.Status)
+			authP.POST("/totp/setup", totpH.Setup)
+			authP.POST("/totp/enable", totpH.Enable)
+			authP.POST("/totp/disable", totpH.Disable)
 		}
 
 		// Articles.
 		articles := protected.Group("/articles")
 		{
-			articles.GET("", articleH.List)
-			articles.GET("/:id", articleH.Get)
-			articles.POST("", middleware.RequirePermission("articles.create"), articleH.Create)
-			articles.PUT("/:id", middleware.RequirePermission("articles.edit"), articleH.Update)
-			articles.DELETE("/:id", middleware.RequirePermission("articles.delete"), articleH.Delete)
-			articles.POST("/bulk", middleware.RequireEditor(), articleH.BulkAction)
-			articles.GET("/:id/revisions", articleH.Revisions)
-			articles.POST("/:id/revisions/:revision_id/restore", articleH.RestoreRevision)
+			articles.GET("", middleware.RequirePermission(permissions.ArticlesRead), articleH.List)
+			articles.GET("/:id", middleware.RequirePermission(permissions.ArticlesRead), articleH.Get)
+			articles.POST("", middleware.RequirePermission(permissions.ArticlesCreate), articleH.Create)
+			articles.PUT("/:id", middleware.RequirePermission(permissions.ArticlesUpdate), articleH.Update)
+			articles.DELETE("/:id", middleware.RequirePermission(permissions.ArticlesDelete), articleH.Delete)
+			// BulkAction selects the exact permission after parsing the action.
+			articles.POST("/bulk", articleH.BulkAction)
+			articles.GET("/:id/revisions", middleware.RequirePermission(permissions.ArticlesRead), articleH.Revisions)
+			articles.POST("/:id/revisions/:revision_id/restore", middleware.RequirePermission(permissions.ArticlesUpdate), articleH.RestoreRevision)
 			articles.POST("/:id/like", articleH.LikeArticle)
 
 			// Publication workflow (P2-3): single-article status transitions.
-			// Reuse articles.edit for publish/unpublish/schedule/archive and
-			// RequireEditor for the review-approval step.
-			articles.POST("/:id/publish", middleware.RequirePermission("articles.edit"), articleH.Publish)
-			articles.POST("/:id/unpublish", middleware.RequirePermission("articles.edit"), articleH.Unpublish)
-			articles.POST("/:id/submit-review", middleware.RequirePermission("articles.edit"), articleH.SubmitForReview)
-			articles.POST("/:id/approve", middleware.RequireEditor(), articleH.Approve)
-			articles.POST("/:id/schedule", middleware.RequirePermission("articles.edit"), articleH.Schedule)
-			articles.POST("/:id/archive", middleware.RequirePermission("articles.edit"), articleH.Archive)
+			articles.POST("/:id/publish", middleware.RequirePermission(permissions.ArticlesPublish), articleH.Publish)
+			articles.POST("/:id/unpublish", middleware.RequirePermission(permissions.ArticlesPublish), articleH.Unpublish)
+			articles.POST("/:id/submit-review", middleware.RequirePermission(permissions.ArticlesUpdate), articleH.SubmitForReview)
+			articles.POST("/:id/approve", middleware.RequirePermission(permissions.ArticlesPublish), articleH.Approve)
+			articles.POST("/:id/schedule", middleware.RequirePermission(permissions.ArticlesPublish), articleH.Schedule)
+			articles.POST("/:id/archive", middleware.RequirePermission(permissions.ArticlesPublish), articleH.Archive)
 
 			// i18n: article translations.
-			articles.GET("/:id/translations", articleH.ListTranslations)
-			articles.POST("/:id/translations", middleware.RequirePermission("articles.create"), articleH.CreateTranslation)
+			articles.GET("/:id/translations", middleware.RequirePermission(permissions.ArticlesRead), articleH.ListTranslations)
+			articles.POST("/:id/translations", middleware.RequirePermission(permissions.ArticlesCreate), articleH.CreateTranslation)
 		}
 
 		// Categories.
 		categories := protected.Group("/categories")
 		{
-			categories.GET("", categoryH.List)
-			categories.GET("/:id", categoryH.Get)
-			categories.POST("", middleware.RequirePermission("categories.manage"), categoryH.Create)
-			categories.PUT("/:id", middleware.RequirePermission("categories.manage"), categoryH.Update)
-			categories.DELETE("/:id", middleware.RequirePermission("categories.manage"), categoryH.Delete)
-			categories.PUT("/reorder", middleware.RequirePermission("categories.manage"), categoryH.Reorder)
+			categories.GET("", middleware.RequirePermission(permissions.CategoriesRead), categoryH.List)
+			categories.GET("/:id", middleware.RequirePermission(permissions.CategoriesRead), categoryH.Get)
+			categories.POST("", middleware.RequirePermission(permissions.CategoriesCreate), categoryH.Create)
+			categories.PUT("/:id", middleware.RequirePermission(permissions.CategoriesUpdate), categoryH.Update)
+			categories.DELETE("/:id", middleware.RequirePermission(permissions.CategoriesDelete), categoryH.Delete)
+			categories.PUT("/reorder", middleware.RequirePermission(permissions.CategoriesUpdate), categoryH.Reorder)
 		}
 
 		// Tags.
 		tags := protected.Group("/tags")
 		{
-			tags.GET("", tagH.List)
-			tags.GET("/:id", tagH.Get)
-			tags.POST("", middleware.RequirePermission("tags.manage"), tagH.Create)
-			tags.PUT("/:id", middleware.RequirePermission("tags.manage"), tagH.Update)
-			tags.DELETE("/:id", middleware.RequirePermission("tags.manage"), tagH.Delete)
-			tags.POST("/merge", middleware.RequirePermission("tags.manage"), tagH.Merge)
+			tags.GET("", middleware.RequirePermission(permissions.TagsRead), tagH.List)
+			tags.GET("/:id", middleware.RequirePermission(permissions.TagsRead), tagH.Get)
+			tags.POST("", middleware.RequirePermission(permissions.TagsCreate), tagH.Create)
+			tags.PUT("/:id", middleware.RequirePermission(permissions.TagsUpdate), tagH.Update)
+			tags.DELETE("/:id", middleware.RequirePermission(permissions.TagsDelete), tagH.Delete)
+			tags.POST("/merge", middleware.RequirePermission(permissions.TagsUpdate), tagH.Merge)
 		}
 
 		// Comments.
 		comments := protected.Group("/comments")
 		{
-			comments.GET("", commentH.List)
-			comments.GET("/:id", commentH.Get)
-			comments.POST("", middleware.GroupRateLimit(rl, "comment"), commentH.Create)
-			comments.PUT("/:id", commentH.Update)
-			comments.POST("/:id/approve", middleware.RequirePermission("comments.moderate"), commentH.Approve)
-			comments.POST("/:id/spam", middleware.RequirePermission("comments.moderate"), commentH.Spam)
-			comments.POST("/:id/trash", middleware.RequirePermission("comments.moderate"), commentH.Trash)
-			comments.POST("/bulk", middleware.RequirePermission("comments.moderate"), commentH.BulkAction)
-			comments.GET("/stats", middleware.RequirePermission("comments.view"), commentH.Stats)
+			comments.GET("", middleware.RequirePermission(permissions.CommentsRead), commentH.List)
+			comments.GET("/:id", middleware.RequirePermission(permissions.CommentsRead), commentH.Get)
+			comments.POST("", middleware.GroupRateLimit(rl, "comment"), middleware.RequirePermission(permissions.CommentsCreate), commentH.Create)
+			comments.PUT("/:id", middleware.RequirePermission(permissions.CommentsUpdate), commentH.Update)
+			comments.POST("/:id/approve", middleware.RequirePermission(permissions.CommentsModerate), commentH.Approve)
+			comments.POST("/:id/spam", middleware.RequirePermission(permissions.CommentsModerate), commentH.Spam)
+			comments.POST("/:id/trash", middleware.RequirePermission(permissions.CommentsModerate), commentH.Trash)
+			comments.POST("/bulk", middleware.RequirePermission(permissions.CommentsModerate), commentH.BulkAction)
+			comments.GET("/stats", middleware.RequirePermission(permissions.CommentsRead), commentH.Stats)
 		}
 
 		// Media.
 		media := protected.Group("/media")
 		media.Use(middleware.GroupRateLimit(rl, "upload"))
 		{
-			media.GET("", mediaH.List)
-			media.GET("/folders", mediaH.Folders)
-			media.GET("/stats", mediaH.Stats)
-			media.GET("/:id", mediaH.Get)
-			media.POST("/upload", middleware.RequirePermission("media.upload"), mediaH.Upload)
-			media.PUT("/:id", mediaH.Update)
-			media.DELETE("/:id", middleware.RequirePermission("media.delete"), mediaH.Delete)
-			media.POST("/bulk-delete", middleware.RequirePermission("media.delete"), mediaH.BulkDelete)
+			media.GET("", middleware.RequirePermission(permissions.MediaRead), mediaH.List)
+			media.GET("/folders", middleware.RequirePermission(permissions.MediaRead), mediaH.Folders)
+			media.GET("/stats", middleware.RequirePermission(permissions.MediaRead), mediaH.Stats)
+			media.GET("/:id", middleware.RequirePermission(permissions.MediaRead), mediaH.Get)
+			media.POST("/upload", middleware.RequirePermission(permissions.MediaUpload), mediaH.Upload)
+			media.PUT("/:id", middleware.RequirePermission(permissions.MediaUpdate), mediaH.Update)
+			media.DELETE("/:id", middleware.RequirePermission(permissions.MediaDelete), mediaH.Delete)
+			media.POST("/bulk-delete", middleware.RequirePermission(permissions.MediaDelete), mediaH.BulkDelete)
 		}
 
 		// Users.
 		users := protected.Group("/users")
 		{
-			users.GET("", middleware.RequirePermission("users.view"), userH.List)
-			users.GET("/:id", middleware.RequirePermission("users.view"), userH.Get)
-			users.POST("", middleware.RequirePermission("users.create"), userH.Create)
-			users.PUT("/:id", middleware.RequirePermission("users.edit"), userH.Update)
-			users.DELETE("/:id", middleware.RequirePermission("users.delete"), userH.Delete)
-			users.POST("/:id/reset-password", middleware.RequirePermission("users.edit"), userH.ResetPassword)
+			users.GET("", middleware.RequirePermission(permissions.UsersRead), userH.List)
+			users.GET("/:id", middleware.RequirePermission(permissions.UsersRead), userH.Get)
+			users.POST("", middleware.RequirePermission(permissions.UsersCreate), userH.Create)
+			users.PUT("/:id", middleware.RequirePermission(permissions.UsersUpdate), userH.Update)
+			users.DELETE("/:id", middleware.RequirePermission(permissions.UsersDelete), userH.Delete)
+			users.POST("/:id/reset-password", middleware.RequirePermission(permissions.UsersUpdate), userH.ResetPassword)
 		}
 
 		// Roles.
 		roles := protected.Group("/roles")
 		{
-			roles.GET("", middleware.RequirePermission("roles.view"), roleH.List)
-			roles.POST("", middleware.RequirePermission("roles.manage"), roleH.Create)
-			roles.PUT("/:id", middleware.RequirePermission("roles.manage"), roleH.Update)
-			roles.DELETE("/:id", middleware.RequirePermission("roles.manage"), roleH.Delete)
-			roles.GET("/permissions", roleH.Permissions)
+			roles.GET("", middleware.RequirePermission(permissions.RolesRead), roleH.List)
+			roles.POST("", middleware.RequirePermission(permissions.RolesCreate), roleH.Create)
+			roles.PUT("/:id", middleware.RequirePermission(permissions.RolesUpdate), roleH.Update)
+			roles.DELETE("/:id", middleware.RequirePermission(permissions.RolesDelete), roleH.Delete)
+			roles.GET("/permissions", middleware.RequirePermission(permissions.RolesRead), roleH.Permissions)
 		}
 
 		// Settings.
 		settings := protected.Group("/settings")
 		{
-			settings.GET("", middleware.RequirePermission("settings.view"), settingsH.List)
-			settings.GET("/:key", settingsH.Get)
-			settings.PUT("", middleware.RequirePermission("settings.manage"), settingsH.Update)
+			settings.GET("", middleware.RequirePermission(permissions.SettingsRead), settingsH.List)
+			settings.GET("/:key", middleware.RequirePermission(permissions.SettingsRead), settingsH.Get)
+			settings.PUT("", middleware.RequirePermission(permissions.SettingsUpdate), settingsH.Update)
 		}
 
 		// SEO.
 		seo := protected.Group("/seo")
 		{
-			seo.GET("/:type/:id", seoH.GetSEOSetting)
-			seo.PUT("/:type/:id", middleware.RequirePermission("seo.manage"), seoH.UpdateSEOSetting)
-			seo.GET("/redirects", seoH.ListRedirects)
-			seo.POST("/redirects", middleware.RequirePermission("seo.manage"), seoH.CreateRedirect)
-			seo.DELETE("/redirects/:id", middleware.RequirePermission("seo.manage"), seoH.DeleteRedirect)
+			seo.GET("/:type/:id", middleware.RequirePermission(permissions.SEORead), seoH.GetSEOSetting)
+			seo.PUT("/:type/:id", middleware.RequirePermission(permissions.SEOUpdate), seoH.UpdateSEOSetting)
+			seo.GET("/redirects", middleware.RequirePermission(permissions.SEORead), seoH.ListRedirects)
+			seo.POST("/redirects", middleware.RequirePermission(permissions.SEOUpdate), seoH.CreateRedirect)
+			seo.DELETE("/redirects/:id", middleware.RequirePermission(permissions.SEOUpdate), seoH.DeleteRedirect)
 		}
 
 		// Menus.
 		menus := protected.Group("/menus")
 		{
-			menus.GET("", menuH.List)
-			menus.GET("/:id", menuH.Get)
-			menus.POST("", middleware.RequirePermission("menus.manage"), menuH.Create)
-			menus.PUT("/:id", middleware.RequirePermission("menus.manage"), menuH.Update)
-			menus.DELETE("/:id", middleware.RequirePermission("menus.manage"), menuH.Delete)
-			menus.POST("/:id/items", middleware.RequirePermission("menus.manage"), menuH.AddItem)
-			menus.PUT("/:id/items/:item_id", middleware.RequirePermission("menus.manage"), menuH.UpdateItem)
-			menus.DELETE("/:id/items/:item_id", middleware.RequirePermission("menus.manage"), menuH.DeleteItem)
-			menus.PUT("/:id/items/reorder", middleware.RequirePermission("menus.manage"), menuH.ReorderItems)
+			menus.GET("", middleware.RequirePermission(permissions.MenusRead), menuH.List)
+			menus.GET("/:id", middleware.RequirePermission(permissions.MenusRead), menuH.Get)
+			menus.POST("", middleware.RequirePermission(permissions.MenusCreate), menuH.Create)
+			menus.PUT("/:id", middleware.RequirePermission(permissions.MenusUpdate), menuH.Update)
+			menus.DELETE("/:id", middleware.RequirePermission(permissions.MenusDelete), menuH.Delete)
+			menus.POST("/:id/items", middleware.RequirePermission(permissions.MenusUpdate), menuH.AddItem)
+			menus.PUT("/:id/items/:item_id", middleware.RequirePermission(permissions.MenusUpdate), menuH.UpdateItem)
+			menus.DELETE("/:id/items/:item_id", middleware.RequirePermission(permissions.MenusUpdate), menuH.DeleteItem)
+			menus.PUT("/:id/items/reorder", middleware.RequirePermission(permissions.MenusUpdate), menuH.ReorderItems)
 		}
 
 		// Analytics.
 		analytics := protected.Group("/analytics")
 		{
-			analytics.GET("/dashboard", middleware.RequirePermission("analytics.view"), analyticsH.Dashboard)
-			analytics.GET("/views", middleware.RequirePermission("analytics.view"), analyticsH.ViewsOverTime)
-			analytics.GET("/referrers", middleware.RequirePermission("analytics.view"), analyticsH.TopReferrers)
-			analytics.GET("/devices", middleware.RequirePermission("analytics.view"), analyticsH.DeviceBreakdown)
+			analytics.GET("/dashboard", middleware.RequirePermission(permissions.AnalyticsRead), analyticsH.Dashboard)
+			analytics.GET("/views", middleware.RequirePermission(permissions.AnalyticsRead), analyticsH.ViewsOverTime)
+			analytics.GET("/referrers", middleware.RequirePermission(permissions.AnalyticsRead), analyticsH.TopReferrers)
+			analytics.GET("/devices", middleware.RequirePermission(permissions.AnalyticsRead), analyticsH.DeviceBreakdown)
 		}
 
 		// Plugins.
 		plugins := protected.Group("/plugins")
 		{
-			plugins.GET("", pluginH.List)
-			plugins.POST("/:id/enable", middleware.RequirePermission("plugins.manage"), pluginH.Enable)
-			plugins.POST("/:id/disable", middleware.RequirePermission("plugins.manage"), pluginH.Disable)
-			plugins.PUT("/:id/config", middleware.RequirePermission("plugins.manage"), pluginH.UpdateConfig)
+			plugins.GET("", middleware.RequirePermission(permissions.PluginsRead), pluginH.List)
+			plugins.POST("/:id/enable", middleware.RequirePermission(permissions.PluginsUpdate), pluginH.Enable)
+			plugins.POST("/:id/disable", middleware.RequirePermission(permissions.PluginsUpdate), pluginH.Disable)
+			plugins.PUT("/:id/config", middleware.RequirePermission(permissions.PluginsUpdate), pluginH.UpdateConfig)
 		}
 
 		// Themes.
 		themes := protected.Group("/themes")
 		{
-			themes.GET("", themeH.List)
-			themes.POST("/:id/activate", middleware.RequirePermission("themes.manage"), themeH.Activate)
-			themes.PUT("/:id/config", middleware.RequirePermission("themes.manage"), themeH.UpdateConfig)
+			themes.GET("", middleware.RequirePermission(permissions.ThemesRead), themeH.List)
+			themes.POST("/:id/activate", middleware.RequirePermission(permissions.ThemesUpdate), themeH.Activate)
+			themes.PUT("/:id/config", middleware.RequirePermission(permissions.ThemesUpdate), themeH.UpdateConfig)
 		}
 
 		// System.
 		system := protected.Group("/system")
 		{
-			system.GET("/info", systemH.Info)
-			system.GET("/activity", middleware.RequirePermission("system.activity_log"), systemH.ActivityLog)
+			system.GET("/info", middleware.RequirePermission(permissions.SystemRead), systemH.Info)
+			system.GET("/activity", middleware.RequirePermission(permissions.SystemActivityLog), systemH.ActivityLog)
 
-			// API Tokens (admin only).
-			system.GET("/tokens", middleware.RequireAdmin(), tokenH.List)
-			system.POST("/tokens", middleware.RequireAdmin(), tokenH.Create)
-			system.DELETE("/tokens/:id", middleware.RequireAdmin(), tokenH.Delete)
+			system.GET("/tokens", middleware.RequirePermission(permissions.APITokensRead), tokenH.List)
+			system.POST("/tokens", middleware.RequirePermission(permissions.APITokensCreate), tokenH.Create)
+			system.DELETE("/tokens/:id", middleware.RequirePermission(permissions.APITokensDelete), tokenH.Delete)
 		}
 
-		// Content Types (admin only).
 		contentTypes := protected.Group("/content-types")
 		{
-			contentTypes.GET("", middleware.RequireAdmin(), contentTypeH.ListTypes)
-			contentTypes.GET("/:uid", middleware.RequireAdmin(), contentTypeH.GetType)
-			contentTypes.POST("", middleware.RequireAdmin(), contentTypeH.CreateType)
-			contentTypes.DELETE("/:uid", middleware.RequireAdmin(), contentTypeH.DeleteType)
+			contentTypes.GET("", middleware.RequirePermission(permissions.ContentTypesRead), contentTypeH.ListTypes)
+			contentTypes.GET("/:uid", middleware.RequirePermission(permissions.ContentTypesRead), contentTypeH.GetType)
+			contentTypes.POST("", middleware.RequirePermission(permissions.ContentTypesCreate), contentTypeH.CreateType)
+			contentTypes.DELETE("/:uid", middleware.RequirePermission(permissions.ContentTypesDelete), contentTypeH.DeleteType)
 		}
 
 		// Content Entries (dynamic).
 		content := protected.Group("/content")
 		{
-			content.GET("/:uid", contentTypeH.ListEntries)
-			content.GET("/:uid/export", middleware.RequireAdmin(), contentTypeH.ExportEntries)
-			content.POST("/:uid/import", middleware.RequireAdmin(), contentTypeH.ImportEntries)
-			content.GET("/:uid/:documentId", contentTypeH.GetEntry)
-			content.POST("/:uid", middleware.RequirePermission("content.create"), contentTypeH.CreateEntry)
-			content.PUT("/:uid/:documentId", middleware.RequirePermission("content.update"), contentTypeH.UpdateEntry)
-			content.DELETE("/:uid/:documentId", middleware.RequirePermission("content.delete"), contentTypeH.DeleteEntry)
-			content.POST("/:uid/:documentId/publish", middleware.RequirePermission("content.publish"), contentTypeH.PublishEntry)
-			content.POST("/:uid/:documentId/unpublish", middleware.RequirePermission("content.publish"), contentTypeH.UnpublishEntry)
+			content.GET("/:uid", middleware.RequirePermission(permissions.ContentRead), contentTypeH.ListEntries)
+			content.GET("/:uid/export", middleware.RequirePermission(permissions.ContentRead), contentTypeH.ExportEntries)
+			content.POST("/:uid/import", middleware.RequirePermission(permissions.ContentCreate), contentTypeH.ImportEntries)
+			content.GET("/:uid/:documentId", middleware.RequirePermission(permissions.ContentRead), contentTypeH.GetEntry)
+			content.POST("/:uid", middleware.RequirePermission(permissions.ContentCreate), contentTypeH.CreateEntry)
+			content.PUT("/:uid/:documentId", middleware.RequirePermission(permissions.ContentUpdate), contentTypeH.UpdateEntry)
+			content.DELETE("/:uid/:documentId", middleware.RequirePermission(permissions.ContentDelete), contentTypeH.DeleteEntry)
+			content.POST("/:uid/:documentId/publish", middleware.RequirePermission(permissions.ContentPublish), contentTypeH.PublishEntry)
+			content.POST("/:uid/:documentId/unpublish", middleware.RequirePermission(permissions.ContentPublish), contentTypeH.UnpublishEntry)
 
 			// i18n: content entry translations.
-			content.GET("/:uid/:documentId/translations", contentTypeH.ListEntryTranslations)
-			content.POST("/:uid/:documentId/translations", middleware.RequirePermission("content.create"), contentTypeH.CreateEntryTranslation)
+			content.GET("/:uid/:documentId/translations", middleware.RequirePermission(permissions.ContentRead), contentTypeH.ListEntryTranslations)
+			content.POST("/:uid/:documentId/translations", middleware.RequirePermission(permissions.ContentCreate), contentTypeH.CreateEntryTranslation)
 		}
 
-		// Webhooks (admin only).
 		webhooks := protected.Group("/webhooks")
 		{
-			webhooks.GET("", middleware.RequireAdmin(), webhookH.List)
-			webhooks.POST("", middleware.RequireAdmin(), webhookH.Create)
-			webhooks.DELETE("/:id", middleware.RequireAdmin(), webhookH.Delete)
-			webhooks.GET("/:id/logs", middleware.RequireAdmin(), webhookH.Logs)
+			webhooks.GET("", middleware.RequirePermission(permissions.WebhooksRead), webhookH.List)
+			webhooks.POST("", middleware.RequirePermission(permissions.WebhooksCreate), webhookH.Create)
+			webhooks.DELETE("/:id", middleware.RequirePermission(permissions.WebhooksDelete), webhookH.Delete)
+			webhooks.GET("/:id/logs", middleware.RequirePermission(permissions.WebhooksRead), webhookH.Logs)
 		}
 
 		// Search (admin: cross-status search + manual reindex).
@@ -413,14 +421,13 @@ func RegisterRoutes(
 			searchAdmin.POST("/reindex", middleware.RequireAdmin(), searchH.Reindex)
 		}
 
-		// Backup & restore (admin only).
 		backupGroup := protected.Group("/admin/backup")
 		{
-			backupGroup.GET("", middleware.RequireAdmin(), backupH.List)
-			backupGroup.POST("", middleware.RequireAdmin(), backupH.Create)
-			backupGroup.GET("/:file/download", middleware.RequireAdmin(), backupH.Download)
-			backupGroup.POST("/:file/restore", middleware.RequireAdmin(), backupH.Restore)
-			backupGroup.DELETE("/:file", middleware.RequireAdmin(), backupH.Delete)
+			backupGroup.GET("", middleware.RequirePermission(permissions.BackupsRead), backupH.List)
+			backupGroup.POST("", middleware.RequirePermission(permissions.BackupsCreate), backupH.Create)
+			backupGroup.GET("/:file/download", middleware.RequirePermission(permissions.BackupsRead), backupH.Download)
+			backupGroup.POST("/:file/restore", middleware.RequirePermission(permissions.BackupsRestore), backupH.Restore)
+			backupGroup.DELETE("/:file", middleware.RequirePermission(permissions.BackupsDelete), backupH.Delete)
 		}
 	}
 

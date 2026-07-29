@@ -327,7 +327,7 @@ func (h *ArticleHandler) RestoreRevision(c *gin.Context) {
 		return
 	}
 
-	if err := h.svc.RestoreRevision(uint(id), uint(revisionID), user.ID); err != nil {
+	if err := h.svc.RestoreRevision(uint(id), uint(revisionID), user.ID, user.IsEditor()); err != nil {
 		handleServiceError(c, err)
 		return
 	}

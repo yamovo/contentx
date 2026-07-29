@@ -1,6 +1,8 @@
 package repository
 
 import (
+	"regexp"
+
 	"github.com/yamovo/contentx/internal/models"
 	"gorm.io/gorm"
 )
@@ -103,7 +105,7 @@ type ContentEntryListFilter struct {
 	Status   string
 	Search   string
 	Sort     string
-	Filters  map[string]string // field_name=value (applied via json_extract)
+	Filters  map[string]string // field_name=value (applied via dialect-aware JSON extraction)
 	Locale   string            // i18n: filter by locale (exact match)
 }
 
@@ -124,6 +126,28 @@ type ContentEntryRepository interface {
 	// FindTranslationInLocale returns the entry in the given translation
 	// group for the requested locale, or gorm.ErrRecordNotFound.
 	FindTranslationInLocale(typeID, groupID uint, locale string) (*models.ContentEntry, error)
+}
+
+// validJSONFieldName restricts JSON filter fields to safe identifiers,
+// matching how ContentField names are defined.
+var validJSONFieldName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+
+// jsonFieldEqual builds a dialect-specific WHERE condition comparing a JSON
+// field inside the text `data` column against a value. The path/key and the
+// value stay fully parameterized on every dialect.
+//
+// json_extract is SQLite syntax; MySQL needs JSON_UNQUOTE to strip the JSON
+// string quoting before comparison; PostgreSQL stores `data` as text and
+// needs a jsonb cast plus the ->> text operator.
+func jsonFieldEqual(dialect, field, value string) (string, []interface{}) {
+	switch dialect {
+	case "postgres":
+		return "data::jsonb ->> ? = ?", []interface{}{field, value}
+	case "mysql":
+		return "JSON_UNQUOTE(JSON_EXTRACT(data, ?)) = ?", []interface{}{"$." + field, value}
+	default: // sqlite
+		return "json_extract(data, ?) = ?", []interface{}{"$." + field, value}
+	}
 }
 
 // gormContentEntryRepository implements ContentEntryRepository with GORM.
@@ -167,9 +191,15 @@ func (r *gormContentEntryRepository) List(filter ContentEntryListFilter) ([]mode
 		query = query.Where("locale = ?", filter.Locale)
 	}
 
-	// JSON field filters.
+	// JSON field filters (dialect-aware; see jsonFieldEqual). Field names
+	// come from arbitrary query params, so invalid identifiers are skipped
+	// instead of producing a malformed JSON path error.
 	for field, value := range filter.Filters {
-		query = query.Where("json_extract(data, ?) = ?", "$."+field, value)
+		if !validJSONFieldName.MatchString(field) {
+			continue
+		}
+		clause, args := jsonFieldEqual(r.db.Name(), field, value)
+		query = query.Where(clause, args...)
 	}
 
 	// Search in text fields.

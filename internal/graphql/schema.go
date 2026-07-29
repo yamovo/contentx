@@ -358,6 +358,15 @@ func Handler(schema graphql.Schema) gin.HandlerFunc {
 			return
 		}
 
+		// SEC-11: reject queries exceeding the cost ceiling (depth alone does
+		// not stop wide queries with many sibling list fields).
+		if cost := queryComplexity(query); cost > maxQueryComplexity {
+			c.JSON(http.StatusBadRequest, gin.H{"errors": []map[string]string{
+				{"message": fmt.Sprintf("query complexity %d exceeds maximum allowed complexity of %d", cost, maxQueryComplexity)},
+			}})
+			return
+		}
+
 		// Bound execution time to prevent slow/malicious queries from tying up resources.
 		ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
 		defer cancel()

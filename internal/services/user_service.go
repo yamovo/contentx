@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/yamovo/contentx/internal/auth"
+	"github.com/yamovo/contentx/internal/errs"
 	"github.com/yamovo/contentx/internal/models"
 	"github.com/yamovo/contentx/internal/repository"
 	"gorm.io/gorm"
@@ -163,12 +164,21 @@ func (s *UserService) Create(req CreateUserRequest) (*models.User, error) {
 }
 
 // Update applies partial updates to a user and returns the refreshed record.
-func (s *UserService) Update(id uint, req UpdateUserRequest) (*models.User, error) {
-	if _, err := s.repo.FindByID(id); err != nil {
+// SEC-5 垂直越权防护：非 admin 操作者不得修改 admin 账户，也不得变更任何
+// 用户的角色（防止持有 users.edit 权限的自定义角色自我/他人提权）。
+func (s *UserService) Update(id uint, req UpdateUserRequest, actorIsAdmin bool) (*models.User, error) {
+	target, err := s.repo.GetByID(id)
+	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrUserNotFound
 		}
 		return nil, fmt.Errorf("find user: %w", err)
+	}
+	if target.IsAdmin() && !actorIsAdmin {
+		return nil, errs.ErrForbidden.WithMessage("Only admins can modify admin accounts")
+	}
+	if req.RoleID != nil && !actorIsAdmin {
+		return nil, errs.ErrForbidden.WithMessage("Only admins can change user roles")
 	}
 
 	updates := map[string]interface{}{}
@@ -233,12 +243,17 @@ func (s *UserService) Delete(id uint) error {
 }
 
 // ResetPassword hashes the new password and updates the user record.
-func (s *UserService) ResetPassword(id uint, newPassword string) error {
-	if _, err := s.repo.FindByID(id); err != nil {
+// SEC-5 垂直越权防护：非 admin 操作者不得重置 admin 账户密码（防账户接管）。
+func (s *UserService) ResetPassword(id uint, newPassword string, actorIsAdmin bool) error {
+	target, err := s.repo.GetByID(id)
+	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return ErrUserNotFound
 		}
 		return fmt.Errorf("find user: %w", err)
+	}
+	if target.IsAdmin() && !actorIsAdmin {
+		return errs.ErrForbidden.WithMessage("Only admins can reset admin passwords")
 	}
 
 	hashedPw, err := auth.HashPassword(newPassword)

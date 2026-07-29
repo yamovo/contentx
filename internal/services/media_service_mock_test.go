@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/yamovo/contentx/internal/config"
+	"github.com/yamovo/contentx/internal/errs"
 	"github.com/yamovo/contentx/internal/models"
 	"github.com/yamovo/contentx/internal/repository"
 	"gorm.io/gorm"
@@ -296,7 +297,7 @@ func TestMockMedia_Update_Success(t *testing.T) {
 		Alt:    "new alt",
 		Title:  "new title",
 		Folder: "newfolder",
-	})
+	}, 0, true)
 	if err != nil {
 		t.Fatalf("Update failed: %v", err)
 	}
@@ -321,7 +322,7 @@ func TestMockMedia_Update_NotFound(t *testing.T) {
 	}
 	s := NewMediaServiceWithRepo(repo, newTestUploadConfig(t))
 
-	err := s.Update(99, UpdateMediaRequest{Alt: "x"})
+	err := s.Update(99, UpdateMediaRequest{Alt: "x"}, 0, true)
 	if err != gorm.ErrRecordNotFound {
 		t.Errorf("expected ErrRecordNotFound, got %v", err)
 	}
@@ -342,7 +343,7 @@ func TestMockMedia_Delete_Success(t *testing.T) {
 		URLPrefix:   "/uploads",
 	})
 
-	if err := s.Delete(7); err != nil {
+	if err := s.Delete(7, 0, true); err != nil {
 		t.Fatalf("Delete failed: %v", err)
 	}
 	if len(repo.DeletedMedia) != 1 {
@@ -360,7 +361,7 @@ func TestMockMedia_Delete_NotFound(t *testing.T) {
 	}
 	s := NewMediaServiceWithRepo(repo, newTestUploadConfig(t))
 
-	err := s.Delete(404)
+	err := s.Delete(404, 0, true)
 	if err != gorm.ErrRecordNotFound {
 		t.Errorf("expected ErrRecordNotFound, got %v", err)
 	}
@@ -382,7 +383,7 @@ func TestMockMedia_BulkDelete_Success(t *testing.T) {
 	}
 	s := NewMediaServiceWithRepo(repo, config.UploadConfig{StoragePath: dir, URLPrefix: "/uploads"})
 
-	n, err := s.BulkDelete([]uint{1, 2})
+	n, err := s.BulkDelete([]uint{1, 2}, 0, true)
 	if err != nil {
 		t.Fatalf("BulkDelete failed: %v", err)
 	}
@@ -435,5 +436,85 @@ func TestMockMedia_Stats_Error(t *testing.T) {
 	_, err := s.Stats()
 	if err == nil {
 		t.Fatal("expected error from Stats")
+	}
+}
+
+// ─── SEC-5：ownership 复核（防 IDOR）─────────────────────────────────────
+
+// assertForbidden 断言错误为 errs.ErrForbidden。
+func assertForbidden(t *testing.T, err error) {
+	t.Helper()
+	var appErr *errs.AppError
+	if !errs.Is(err, &appErr) || appErr.Code != errs.ErrForbidden.Code {
+		t.Fatalf("expected forbidden error, got %v", err)
+	}
+}
+
+func TestMockMedia_Update_NonOwnerForbidden(t *testing.T) {
+	repo := &MockMediaRepository{
+		FindMedia: &models.Media{BaseModel: models.BaseModel{ID: 3}, UploaderID: 100},
+	}
+	s := NewMediaServiceWithRepo(repo, newTestUploadConfig(t))
+
+	// 非上传者、非 editor → Forbidden
+	assertForbidden(t, s.Update(3, UpdateMediaRequest{Alt: "x"}, 200, false))
+	if len(repo.UpdatedFields) != 0 {
+		t.Fatal("repo.UpdateFields should not be called on forbidden update")
+	}
+}
+
+func TestMockMedia_Update_OwnerAllowed(t *testing.T) {
+	repo := &MockMediaRepository{
+		FindMedia: &models.Media{BaseModel: models.BaseModel{ID: 3}, UploaderID: 100},
+	}
+	s := NewMediaServiceWithRepo(repo, newTestUploadConfig(t))
+
+	if err := s.Update(3, UpdateMediaRequest{Alt: "mine"}, 100, false); err != nil {
+		t.Fatalf("owner should update own media: %v", err)
+	}
+}
+
+func TestMockMedia_Delete_NonOwnerForbidden(t *testing.T) {
+	repo := &MockMediaRepository{
+		FindMedia: &models.Media{BaseModel: models.BaseModel{ID: 7}, UploaderID: 100},
+	}
+	s := NewMediaServiceWithRepo(repo, newTestUploadConfig(t))
+
+	assertForbidden(t, s.Delete(7, 200, false))
+	if len(repo.DeletedMedia) != 0 {
+		t.Fatal("repo.Delete should not be called on forbidden delete")
+	}
+}
+
+func TestMockMedia_Delete_EditorCanDeleteOthers(t *testing.T) {
+	dir := t.TempDir()
+	filePath := filepath.Join(dir, "editor-del.bin")
+	if err := os.WriteFile(filePath, []byte("x"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	repo := &MockMediaRepository{
+		FindMedia: &models.Media{BaseModel: models.BaseModel{ID: 7}, UploaderID: 100, FilePath: filePath},
+	}
+	s := NewMediaServiceWithRepo(repo, config.UploadConfig{StoragePath: dir, URLPrefix: "/uploads"})
+
+	if err := s.Delete(7, 200, true); err != nil {
+		t.Fatalf("editor should delete others' media: %v", err)
+	}
+}
+
+func TestMockMedia_BulkDelete_NonOwnerForbidden(t *testing.T) {
+	repo := &MockMediaRepository{
+		FindByIDsRes: []models.Media{
+			{BaseModel: models.BaseModel{ID: 1}, UploaderID: 200},
+			{BaseModel: models.BaseModel{ID: 2}, UploaderID: 100}, // 他人的文件
+		},
+	}
+	s := NewMediaServiceWithRepo(repo, newTestUploadConfig(t))
+
+	// 批次中含他人文件 → 整批拒绝
+	_, err := s.BulkDelete([]uint{1, 2}, 200, false)
+	assertForbidden(t, err)
+	if repo.DeleteByIDsCalls != 0 {
+		t.Fatal("repo.DeleteByIDs should not be called on forbidden bulk delete")
 	}
 }
