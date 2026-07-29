@@ -167,6 +167,7 @@ import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useAppStore } from '@/stores/app'
+import type { PermissionSlug } from '@/shared/auth/permissions'
 
 const route = useRoute()
 const router = useRouter()
@@ -226,7 +227,7 @@ interface ResolvedMenuItem {
   title: string
   path: string
   icon: string
-  permission?: string
+  permission?: PermissionSlug
   adminOnly?: boolean
   children?: ResolvedMenuItem[]
 }
@@ -234,7 +235,7 @@ interface ResolvedMenuItem {
 // Build a path → meta lookup from the router so we can pull title/icon/permission
 // from the single source of truth (route definitions).
 const routeMetaMap = computed(() => {
-  const map = new Map<string, { title?: string; icon?: string; permission?: string; adminOnly?: boolean }>()
+  const map = new Map<string, { title?: string; icon?: string; permission?: PermissionSlug; adminOnly?: boolean }>()
   for (const r of router.getRoutes()) {
     // Only index routes that carry a menu title. Without this filter the
     // parent layout route (path '/admin', empty meta) can overwrite the
@@ -244,7 +245,7 @@ const routeMetaMap = computed(() => {
       map.set(r.path, {
         title: r.meta.title as string,
         icon: r.meta.icon as string | undefined,
-        permission: r.meta.permission as string | undefined,
+        permission: r.meta.permission,
         adminOnly: r.meta.adminOnly as boolean | undefined,
       })
     }
@@ -296,7 +297,7 @@ const defaultOpeneds = computed(() =>
     .map((item) => `group-${item.path}`),
 )
 
-function hasPermission(perm?: string): boolean {
+function hasPermission(perm?: PermissionSlug): boolean {
   if (!perm) return true
   return authStore.hasPermission(perm)
 }

@@ -67,8 +67,7 @@ test.describe('Article list', () => {
   test('displays article titles in the list', async ({ page }) => {
     await mockArticleList(page, [draftArticle, publishedArticle])
 
-    await page.goto('/admin/articles')
-    await page.waitForLoadState('networkidle')
+    await page.goto('/admin/articles', { waitUntil: 'domcontentloaded' })
 
     await expect(page.getByText('测试草稿文章')).toBeVisible()
     await expect(page.getByText('已发布文章')).toBeVisible()
@@ -78,7 +77,6 @@ test.describe('Article list', () => {
     await mockArticleList(page, [])
 
     await page.goto('/admin/articles')
-    await page.waitForLoadState('networkidle')
 
     // Table should be empty — Element Plus empty state uses .el-table__empty-text
     // or a generic "暂无数据" / "No data" text.
@@ -90,7 +88,6 @@ test.describe('Article list', () => {
     await mockArticleList(page, [])
 
     await page.goto('/admin/articles')
-    await page.waitForLoadState('networkidle')
 
     // Click the "写文章" / "新建" / create button in the header area.
     const createBtn = page.getByRole('link', { name: /写文章|新建/ }).first()
@@ -119,7 +116,6 @@ test.describe('Article detail & edit', () => {
     await mockArticleDetail(page, draftArticle)
 
     await page.goto('/admin/articles/1/edit')
-    await page.waitForLoadState('networkidle')
 
     // The title input should contain the article title.
     const titleInput = page.locator('input[placeholder*="标题"], input[name="title"]').first()
@@ -128,7 +124,6 @@ test.describe('Article detail & edit', () => {
 
   test('editor page loads blank form for new article', async ({ page }) => {
     await page.goto('/admin/articles/create')
-    await page.waitForLoadState('networkidle')
 
     // Title input should be empty for a new article.
     const titleInput = page.locator('input[placeholder*="标题"], input[name="title"]').first()
@@ -158,14 +153,20 @@ test.describe('Article delete', () => {
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify({
-          data: articles,
-          meta: { page: 1, page_size: 20, total: articles.length, has_next: false, has_prev: false },
+          data: {
+            items: articles,
+            page: 1,
+            page_size: 20,
+            total: articles.length,
+            total_pages: 1,
+            has_next: false,
+            has_prev: false,
+          },
         }),
       })
     })
 
     await page.goto('/admin/articles')
-    await page.waitForLoadState('networkidle')
 
     // Click the delete button/action for the first article.
     // Element Plus table rows have action buttons — look for a delete icon/button.
@@ -195,7 +196,6 @@ test.describe('Page management (post_type=page)', () => {
     await mockArticleList(page, [pageArticle])
 
     await page.goto('/admin/pages')
-    await page.waitForLoadState('networkidle')
 
     await expect(page.getByText('关于我们')).toBeVisible()
     // Post-type articles should not appear on the pages route.
@@ -206,7 +206,6 @@ test.describe('Page management (post_type=page)', () => {
     await mockArticleList(page, [])
 
     await page.goto('/admin/pages')
-    await page.waitForLoadState('networkidle')
 
     const createBtn = page.getByRole('link', { name: /新建页面|新建/ }).first()
     if (await createBtn.isVisible()) {
@@ -229,7 +228,6 @@ test.describe('Article status change', () => {
     await mockArticleStatusChange(page)
 
     await page.goto('/admin/articles')
-    await page.waitForLoadState('networkidle')
 
     // Look for a publish action button/link in the article row.
     const publishBtn = page.locator('button, .el-button, a').filter({ hasText: /发布/ }).first()

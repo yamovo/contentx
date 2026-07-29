@@ -173,6 +173,7 @@
 </template>
 
 <script setup lang="ts">
+import { Plus } from '@element-plus/icons-vue'
 import { ref, reactive, computed } from 'vue'
 import { type Category } from '@/api'
 import { ElMessage } from 'element-plus'

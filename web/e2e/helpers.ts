@@ -80,10 +80,23 @@ export async function mockLoginFailure(page: Page) {
  * Mock the /api/v1/auth/me endpoint (used by fetchUser/fetchPermissions after
  * login and on page reload when a token is present).
  */
-export async function mockAuthMe(page: Page) {
+export async function mockAuthMe(page: Page, installSession = true) {
+  if (installSession) {
+    await installMockSession(page)
+  }
   await page.route(/\/api\/v1\/auth\/me$/, (route) =>
     fulfil(route, { data: { user: adminUser, permissions: ['*'] } }),
   )
+}
+
+async function installMockSession(page: Page) {
+  await page.addInitScript(({ accessToken, refreshToken }) => {
+    localStorage.setItem('access_token', accessToken)
+    localStorage.setItem('refresh_token', refreshToken)
+  }, {
+    accessToken: tokenPair.access_token,
+    refreshToken: tokenPair.refresh_token,
+  })
 }
 
 /**
@@ -127,6 +140,7 @@ const defaultMeta = (total: number, page = 1, pageSize = 20) => ({
   page,
   page_size: pageSize,
   total,
+  total_pages: Math.max(1, Math.ceil(total / pageSize)),
   has_next: false,
   has_prev: false,
 })
@@ -137,7 +151,7 @@ const defaultMeta = (total: number, page = 1, pageSize = 20) => ({
  */
 export async function mockArticleList(page: Page, articles: MockArticle[]) {
   await page.route(/\/api\/v1\/articles/, (route) => {
-    return fulfil(route, { data: articles, meta: defaultMeta(articles.length) })
+    return fulfil(route, { data: { items: articles, ...defaultMeta(articles.length) } })
   })
 }
 
@@ -179,14 +193,14 @@ export async function mockArticleStatusChange(page: Page) {
 /** Mock the categories list (needed by article editor). */
 export async function mockCategoryList(page: Page, categories: { id: number; name: string; slug: string }[] = []) {
   await page.route(/\/api\/v1\/categories/, (route) =>
-    fulfil(route, { data: categories, meta: defaultMeta(categories.length, 1, 100) }),
+    fulfil(route, { data: { items: categories, ...defaultMeta(categories.length, 1, 100) } }),
   )
 }
 
 /** Mock the tags list (needed by article editor). */
 export async function mockTagList(page: Page, tags: { id: number; name: string; slug: string }[] = []) {
   await page.route(/\/api\/v1\/tags/, (route) =>
-    fulfil(route, { data: tags, meta: defaultMeta(tags.length, 1, 100) }),
+    fulfil(route, { data: { items: tags, ...defaultMeta(tags.length, 1, 100) } }),
   )
 }
 
@@ -211,6 +225,7 @@ const rolePermissions: Record<RoleSlug, string[]> = {
  * Mock /api/v1/auth/me with a specific role and its default permission set.
  */
 export async function mockAuthMeAs(page: Page, role: RoleSlug) {
+  await installMockSession(page)
   const user = {
     ...adminUser,
     role: {

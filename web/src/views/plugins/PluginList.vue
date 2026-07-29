@@ -11,7 +11,7 @@
         </el-tag>
         <el-button
           :loading="loading"
-          @click="refetch"
+          @click="() => refetch()"
         >
           刷新
         </el-button>

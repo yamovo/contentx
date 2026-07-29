@@ -122,7 +122,7 @@
 
 <script setup lang="ts">
 import { ref, reactive, computed } from 'vue'
-import { Search } from '@element-plus/icons-vue'
+import { Plus, Search } from '@element-plus/icons-vue'
 import { type Tag } from '@/api'
 import { ElMessage } from 'element-plus'
 import { getApiError } from '@/utils'

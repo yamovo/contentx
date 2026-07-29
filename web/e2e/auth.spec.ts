@@ -25,7 +25,7 @@ test.describe('Login flow', () => {
     // 404 fallback FIRST so the specific mocks below take precedence.
     await mockUnmockedApiAs404(page)
     await mockLoginSuccess(page)
-    await mockAuthMe(page)
+    await mockAuthMe(page, false)
   })
 
   test('successful login redirects to /admin', async ({ page }) => {
@@ -94,7 +94,7 @@ test.describe('Logout flow', () => {
     // Fallback first (lowest precedence), specific mocks last (highest).
     await mockUnmockedApiAs404(page)
     await mockLoginSuccess(page)
-    await mockAuthMe(page)
+    await mockAuthMe(page, false)
     await mockLogout(page)
   })
 

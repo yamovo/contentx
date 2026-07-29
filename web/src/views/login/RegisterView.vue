@@ -52,7 +52,7 @@
             <el-input
               v-model="form.password"
               type="password"
-              placeholder="密码（至少6位）"
+              placeholder="密码（至少8位，含大小写字母和数字）"
               :prefix-icon="Lock"
               size="large"
               show-password
@@ -106,6 +106,7 @@ import { useAuthStore } from '@/stores/auth'
 import { User, Lock, Message, UserFilled } from '@element-plus/icons-vue'
 import { ElMessage, type FormInstance } from 'element-plus'
 import { getApiError } from '@/utils'
+import { validatePasswordStrength } from '@/shared/auth/password'
 
 const router = useRouter()
 const authStore = useAuthStore()
@@ -131,7 +132,14 @@ const rules = {
   ],
   password: [
     { required: true, message: '请输入密码', trigger: 'blur' },
-    { min: 6, message: '密码至少6个字符', trigger: 'blur' },
+    {
+      validator: (_r: unknown, value: string, callback: (err?: Error) => void) => {
+        const result = validatePasswordStrength(value)
+        if (!result.valid) callback(new Error(result.message))
+        else callback()
+      },
+      trigger: 'blur',
+    },
   ],
   confirmPassword: [
     { required: true, message: '请确认密码', trigger: 'blur' },

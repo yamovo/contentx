@@ -12,22 +12,16 @@ test.describe('Public pages smoke', () => {
     await mockUnmockedApiAs404(page)
   })
 
-  test('home page renders hero and feature cards', async ({ page }) => {
+  test('production root redirects to login', async ({ page }) => {
     await page.goto('/')
-    // Logo / brand.
-    await expect(page.locator('.hero .logo')).toHaveText('ContentX')
-    // Hero headline.
-    await expect(page.locator('.hero-content h1')).toHaveText('现代化内容管理系统')
-    // Feature cards are rendered from a static array of 6.
-    await expect(page.locator('.feature-card')).toHaveCount(6)
-    // Footer copyright.
-    await expect(page.locator('.footer p')).toContainText('© 2026 ContentX')
+    await expect(page).toHaveURL(/\/login$/)
+    await expect(page.locator('.login-header .logo-text')).toHaveText('ContentX')
   })
 
-  test('home page "进入后台" button navigates to login', async ({ page }) => {
+  test('root entry renders the login form', async ({ page }) => {
     await page.goto('/')
-    await page.getByRole('button', { name: '进入后台' }).click()
     await expect(page).toHaveURL(/\/login$/)
+    await expect(page.getByRole('button', { name: /登\s*录/ })).toBeVisible()
   })
 
   test('login page renders form, logo, and register link', async ({ page }) => {
@@ -63,10 +57,10 @@ test.describe('Public pages smoke', () => {
     await expect(page.getByRole('button', { name: '返回首页' })).toBeVisible()
   })
 
-  test('404 "返回首页" button navigates to home', async ({ page }) => {
+  test('404 "返回首页" button navigates to the production login entry', async ({ page }) => {
     await page.goto('/no-such-page')
     await page.getByRole('button', { name: '返回首页' }).click()
-    await expect(page).toHaveURL('/')
+    await expect(page).toHaveURL(/\/login$/)
   })
 
   test('unauthenticated access to /admin redirects to login with redirect query', async ({ page }) => {

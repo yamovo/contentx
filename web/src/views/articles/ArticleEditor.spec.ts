@@ -15,7 +15,7 @@ vi.mock('element-plus', async (importOriginal) => {
 
 import { mountWithPlugins } from '@/test/utils'
 import { articleApi, tagApi, categoryApi } from '@/api'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import ArticleEditor from './ArticleEditor.vue'
 
 const mockTags = [
@@ -41,6 +41,43 @@ describe('ArticleEditor', () => {
     // component reads `route.meta.postType` which is undefined here and
     // defaults to 'post' via `|| 'post'`.
     return mountWithPlugins(ArticleEditor)
+  }
+
+  async function mountEditEditor(version = 3) {
+    vi.mocked(articleApi.get).mockResolvedValue({
+      data: {
+        id: 11,
+        version,
+        title: 'Existing Article',
+        slug: 'existing-article',
+        content: 'existing body',
+        excerpt: '',
+        category_id: null,
+        tags: [],
+        featured_image: '',
+        status: 'draft',
+        post_type: 'post',
+        format: 'standard',
+        visibility: 'public',
+        is_pinned: false,
+        is_featured: false,
+        allow_comment: true,
+        meta_title: '',
+        meta_desc: '',
+        meta_keywords: '',
+      } as any,
+    } as any)
+
+    const wrapper = mountEditor()
+    wrapper.vm.$router.addRoute({
+      path: '/admin/articles/:id',
+      name: 'ArticleEdit',
+      component: { template: '<div />' },
+      meta: { postType: 'post' },
+    })
+    await wrapper.vm.$router.push('/admin/articles/11')
+    await flushPromises()
+    return wrapper
   }
 
   it('loads tags and categories on mount in create mode', async () => {
@@ -109,7 +146,7 @@ describe('ArticleEditor', () => {
 
     expect(articleApi.create).toHaveBeenCalledWith(expect.objectContaining({ title: 'New Title', content: 'body' }))
     expect(ElMessage.success).toHaveBeenCalledWith('文章已保存')
-    expect(replaceSpy).toHaveBeenCalledWith('/admin/articles/42/edit')
+    expect(replaceSpy).toHaveBeenCalledWith({ name: 'ArticleEdit', params: { id: 42 } })
   })
 
   it('save() shows ElMessage.error when articleApi.create rejects with response.error', async () => {
@@ -140,6 +177,50 @@ describe('ArticleEditor', () => {
     expect(ElMessage.error).toHaveBeenCalledWith('保存失败')
   })
 
+  it('save() sends the loaded version and advances it after a successful update', async () => {
+    vi.mocked(articleApi.update).mockResolvedValue({
+      data: { id: 11, version: 4, title: 'Updated Article' } as any,
+    } as any)
+    const wrapper = await mountEditEditor(3)
+    const vm = wrapper.vm as any
+
+    vm.form.title = 'Updated Article'
+    await vm.save()
+    await flushPromises()
+
+    expect(articleApi.update).toHaveBeenCalledWith(11, expect.objectContaining({
+      title: 'Updated Article',
+      expected_version: 3,
+    }))
+    expect(vm.currentVersion).toBe(4)
+    expect(ElMessage.success).toHaveBeenCalledWith('文章已更新')
+  })
+
+  it('save() shows a reload prompt when the server rejects a stale version', async () => {
+    vi.mocked(articleApi.update).mockRejectedValue({
+      status: 409,
+      code: 'CONCURRENT_MODIFICATION',
+      message: 'stale version',
+    })
+    const wrapper = await mountEditEditor(2)
+    const vm = wrapper.vm as any
+
+    vm.form.title = 'Stale Local Edit'
+    await vm.save()
+    await flushPromises()
+
+    expect(articleApi.update).toHaveBeenCalledWith(11, expect.objectContaining({
+      expected_version: 2,
+    }))
+    expect(ElMessageBox.confirm).toHaveBeenCalledWith(
+      expect.stringContaining('已被其他编辑者修改'),
+      '并发冲突',
+      expect.objectContaining({ type: 'warning' }),
+    )
+    expect(articleApi.get).toHaveBeenCalledTimes(2)
+    expect(ElMessage.error).not.toHaveBeenCalledWith('保存失败')
+  })
+
   it('saveDraft() sets status to draft and calls save', async () => {
     vi.mocked(articleApi.create).mockResolvedValueOnce({
       data: { id: 7, title: 'd', slug: 'd' } as any,
@@ -160,6 +241,9 @@ describe('ArticleEditor', () => {
     vi.mocked(articleApi.create).mockResolvedValueOnce({
       data: { id: 8, title: 'p', slug: 'p' } as any,
     } as any)
+    vi.mocked(articleApi.publish).mockResolvedValueOnce({
+      data: { id: 8, title: 'p', slug: 'p', status: 'published' } as any,
+    } as any)
     const wrapper = mountEditor()
     await flushPromises()
 
@@ -170,6 +254,28 @@ describe('ArticleEditor', () => {
 
     expect(vm.form.status).toBe('published')
     expect(articleApi.create).toHaveBeenCalled()
+    expect(articleApi.publish).toHaveBeenCalledWith(8)
+  })
+
+  it('creates pages as drafts and navigates to the page edit route', async () => {
+    vi.mocked(articleApi.create).mockResolvedValueOnce({
+      data: { id: 10, title: 'Page', slug: 'page', status: 'draft', post_type: 'page' } as any,
+    } as any)
+    const wrapper = mountEditor()
+    await flushPromises()
+    const replaceSpy = vi.spyOn(wrapper.vm.$router, 'replace')
+
+    const vm = wrapper.vm as any
+    vm.form.title = 'Page'
+    vm.form.post_type = 'page'
+    await vm.saveDraft()
+    await flushPromises()
+
+    expect(articleApi.create).toHaveBeenCalledWith(expect.objectContaining({
+      title: 'Page',
+      post_type: 'page',
+    }))
+    expect(replaceSpy).toHaveBeenCalledWith({ name: 'PageEdit', params: { id: 10 } })
   })
 
   it('publish() does not downgrade an already-published article', async () => {

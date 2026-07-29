@@ -14,6 +14,8 @@ import { createMemoryHistory, createRouter } from 'vue-router'
 import { setActivePinia, createPinia } from 'pinia'
 import { VueQueryPlugin, QueryClient } from '@tanstack/vue-query'
 
+/* eslint-disable vue/one-component-per-file -- shared test stubs intentionally live together */
+
 /**
  * Factory that builds a fresh localStorage mock backed by an in-memory store.
  * Eliminates the boilerplate duplicated in auth.spec.ts and app.spec.ts.
@@ -66,6 +68,10 @@ const slotStub = { template: '<div><slot/></div>' }
 const inputStub = {
   template:
     '<input :value="modelValue" @input="$emit(\'update:modelValue\', $event.target.value)" @keyup.enter="$emit(\'keyup.enter\', $event)" />',
+  props: {
+    modelValue: { type: [String, Number], default: '' },
+    size: { type: String, default: undefined },
+  },
 }
 // Injection key for the smart el-table / el-table-column stubs. The table
 // provides its `data` prop as a computed ref; each column injects it and
@@ -82,10 +88,10 @@ const tableStub = defineComponent({
 const tableColumnStub = defineComponent({
   name: 'ElTableColumn',
   props: {
-    label: String,
-    prop: String,
-    width: [String, Number],
-    align: String,
+    label: { type: String, default: '' },
+    prop: { type: String, default: '' },
+    width: { type: [String, Number], default: undefined },
+    align: { type: String, default: '' },
   },
   setup(props, { slots }) {
     const dataRef = inject(tableDataKey, computed(() => []))
@@ -241,10 +247,15 @@ export function mountWithPlugins(
   component: Component,
   options: ComponentMountingOptions<any> = {},
 ) {
+  Object.defineProperty(window, 'scrollTo', {
+    value: vi.fn(),
+    configurable: true,
+    writable: true,
+  })
   setActivePinia(createPinia())
   const router = createRouter({
     history: createMemoryHistory(),
-    routes: [{ path: '/', component: { template: '<div/>' } }],
+    routes: [{ path: '/:pathMatch(.*)*', component: { template: '<div/>' } }],
   })
 
   const { global: globalOverride, ...rest } = options

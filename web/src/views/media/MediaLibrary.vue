@@ -226,7 +226,7 @@
         :total="total"
         layout="total, prev, pager, next"
         background
-        @current-change="refetch"
+        @current-change="() => refetch()"
       />
     </div>
 
@@ -332,6 +332,7 @@
 </template>
 
 <script setup lang="ts">
+import { DataAnalysis, Document, Upload } from '@element-plus/icons-vue'
 import { ref, reactive, computed } from 'vue'
 import { useQueryClient } from '@tanstack/vue-query'
 import { type Media } from '@/api'

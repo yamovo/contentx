@@ -319,6 +319,7 @@ import { totpApi } from '@/api'
 import { useAuthStore } from '@/stores/auth'
 import { formatDate, getApiError } from '@/utils'
 import { useProfileMutation } from '@/features/settings/use-profile-mutation'
+import { validatePasswordStrength } from '@/shared/auth/password'
 
 const authStore = useAuthStore()
 const { updateProfile, changePassword } = useProfileMutation()
@@ -349,7 +350,14 @@ const pwdRules: FormRules = {
   old_password: [{ required: true, message: '请输入当前密码', trigger: 'blur' }],
   new_password: [
     { required: true, message: '请输入新密码', trigger: 'blur' },
-    { min: 8, message: '密码至少 8 位', trigger: 'blur' },
+    {
+      validator: (_rule: unknown, value: string, cb: (err?: Error) => void) => {
+        const result = validatePasswordStrength(value)
+        if (!result.valid) cb(new Error(result.message))
+        else cb()
+      },
+      trigger: 'blur',
+    },
   ],
   confirm_password: [
     { required: true, message: '请确认新密码', trigger: 'blur' },

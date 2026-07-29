@@ -25,13 +25,25 @@ export default defineConfig({
   projects: [
     {
       name: 'chromium',
-      use: { ...devices['Desktop Chrome'] },
+      use: {
+        ...devices['Desktop Chrome'],
+        // Local Windows verification can reuse an installed Chrome when the
+        // Playwright-managed browser download is unavailable. CI keeps using
+        // the pinned Playwright Chromium by default.
+        ...(process.env.PLAYWRIGHT_USE_SYSTEM_CHROME ? { channel: 'chrome' as const } : {}),
+      },
     },
   ],
-  webServer: {
-    command: 'npm run dev',
+  webServer: process.env.PLAYWRIGHT_EXTERNAL_SERVER ? undefined : {
+    // Launch Vite directly. On Windows, launching it through npm leaves the
+    // child process attached after the suite and Playwright never exits.
+    command: 'node ./node_modules/vite/bin/vite.js --host 127.0.0.1',
     url: 'http://localhost:3000',
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,
+    gracefulShutdown: {
+      signal: 'SIGTERM',
+      timeout: 1_000,
+    },
   },
 })

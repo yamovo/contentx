@@ -321,7 +321,7 @@
 <script setup lang="ts">
 import { ref, reactive, computed, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import { Search } from '@element-plus/icons-vue'
+import { Plus, Search, StarFilled, Top } from '@element-plus/icons-vue'
 import { type Article } from '@/api'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { formatDate } from '@/utils'
@@ -408,7 +408,14 @@ async function handleCommand(cmd: string, article: Article) {
 }
 
 function statusTone(s: string): 'success' | 'info' | 'warning' | 'danger' | 'neutral' {
-  return { published: 'success', draft: 'info', pending: 'warning', scheduled: 'warning', trash: 'danger' }[s] || 'neutral'
+  const tones: Record<string, 'success' | 'info' | 'warning' | 'danger' | 'neutral'> = {
+    published: 'success',
+    draft: 'info',
+    pending: 'warning',
+    scheduled: 'warning',
+    trash: 'danger',
+  }
+  return tones[s] || 'neutral'
 }
 function statusLabel(s: string) {
   return { published: '已发布', draft: '草稿', pending: '待审', scheduled: '定时', trash: '回收站' }[s] || s

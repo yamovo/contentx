@@ -178,7 +178,7 @@
           v-model:current-page="page"
           :total="total"
           layout="total, prev, pager, next"
-          @current-change="refetch"
+          @current-change="() => refetch()"
         />
       </div>
     </el-card>
@@ -217,6 +217,7 @@
             v-model="form.password"
             type="password"
             show-password
+            placeholder="至少8位，含大小写字母和数字"
           />
         </el-form-item>
         <el-form-item label="显示名">
@@ -281,6 +282,7 @@ import { formatDate, getApiError } from '@/utils'
 import { useUserListQuery } from '@/features/users/use-user-list-query'
 import { useUserMutations } from '@/features/users/use-user-mutations'
 import { useRoleListQuery } from '@/features/roles/use-role-list-query'
+import { validatePasswordStrength, PASSWORD_RULE_HINT } from '@/shared/auth/password'
 
 const page = ref(1)
 const dialogVisible = ref(false)
@@ -334,7 +336,12 @@ async function saveUser() {
       await updateUser.mutateAsync({ id: editingId.value, ...form })
       ElMessage.success('用户已更新')
     } else {
-      await createUser.mutateAsync({ ...form, password: form.password || 'default' })
+      const pwdCheck = validatePasswordStrength(form.password)
+      if (!pwdCheck.valid) {
+        ElMessage.error(pwdCheck.message || PASSWORD_RULE_HINT)
+        return
+      }
+      await createUser.mutateAsync({ ...form, password: form.password })
       ElMessage.success('用户已创建')
     }
     dialogVisible.value = false
@@ -351,8 +358,11 @@ async function deleteUser(id: number) {
 }
 
 async function resetPassword(user: User) {
-  const { value } = await ElMessageBox.prompt('输入新密码', '重置密码', {
-    inputValidator: (v) => v.length >= 8 ? true : '密码至少8个字符',
+  const { value } = await ElMessageBox.prompt(`输入新密码（${PASSWORD_RULE_HINT}）`, '重置密码', {
+    inputValidator: (v) => {
+      const result = validatePasswordStrength(v)
+      return result.valid ? true : (result.message || '密码不合规')
+    },
   })
   try {
     await resetPasswordMutation.mutateAsync({ id: user.id, new_password: value })

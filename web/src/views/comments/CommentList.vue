@@ -198,7 +198,7 @@
           v-model:page-size="pageSize"
           :total="total"
           layout="total, prev, pager, next"
-          @current-change="refetch"
+          @current-change="() => refetch()"
         />
       </div>
     </el-card>

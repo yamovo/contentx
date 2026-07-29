@@ -35,6 +35,7 @@ export interface Article {
   meta_desc: string
   meta_keywords: string
   comment_count: number
+  version: number
   created_at: string
   updated_at: string
 }
@@ -58,11 +59,14 @@ export interface ArticleCreateInput {
   meta_keywords?: string
 }
 
-export type ArticleUpdateInput = Omit<ArticleCreateInput, 'post_type'> & {
+export type ArticleUpdateInput = Partial<Omit<ArticleCreateInput, 'post_type'>> & {
   post_type?: never
   status?: never
   published_at?: never
   scheduled_at?: never
+  // 乐观锁：客户端读取文章时的 version，后端用 WHERE version = ? 做原子检查，
+  // 不匹配返回 409 CONCURRENT_MODIFICATION。
+  expected_version?: number
 }
 
 export interface Revision {

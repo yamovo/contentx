@@ -26,7 +26,7 @@
       <el-button
         text
         type="primary"
-        @click="refetch"
+        @click="() => refetch()"
       >
         重试
       </el-button>

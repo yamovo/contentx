@@ -54,7 +54,6 @@ test.describe('Admin role — full access', () => {
     await setupRoleMocks(page, 'admin')
 
     await page.goto('/admin/articles')
-    await page.waitForLoadState('networkidle')
 
     // Article should be visible.
     await expect(page.getByText('权限测试文章')).toBeVisible()
@@ -67,7 +66,6 @@ test.describe('Admin role — full access', () => {
     await setupRoleMocks(page, 'admin')
 
     await page.goto('/admin/articles/create')
-    await page.waitForLoadState('networkidle')
 
     // Should land on the create page, not be redirected to forbidden.
     await expect(page).toHaveURL(/\/admin\/articles\/create/)
@@ -79,7 +77,6 @@ test.describe('Editor role — can publish but not delete', () => {
     await setupRoleMocks(page, 'editor')
 
     await page.goto('/admin/articles')
-    await page.waitForLoadState('networkidle')
 
     await expect(page.getByText('权限测试文章')).toBeVisible()
     await expect(page).toHaveURL(/\/admin\/articles/)
@@ -89,7 +86,6 @@ test.describe('Editor role — can publish but not delete', () => {
     await setupRoleMocks(page, 'editor')
 
     await page.goto('/admin/articles/create')
-    await page.waitForLoadState('networkidle')
 
     await expect(page).toHaveURL(/\/admin\/articles\/create/)
   })
@@ -107,7 +103,6 @@ test.describe('Editor role — can publish but not delete', () => {
     )
 
     await page.goto('/admin/articles/1/edit')
-    await page.waitForLoadState('networkidle')
 
     await expect(page).toHaveURL(/\/admin\/articles\/1\/edit/)
   })
@@ -118,7 +113,6 @@ test.describe('Author role — read/create/update, no publish', () => {
     await setupRoleMocks(page, 'author')
 
     await page.goto('/admin/articles')
-    await page.waitForLoadState('networkidle')
 
     await expect(page.getByText('权限测试文章')).toBeVisible()
     await expect(page).toHaveURL(/\/admin\/articles/)
@@ -128,7 +122,6 @@ test.describe('Author role — read/create/update, no publish', () => {
     await setupRoleMocks(page, 'author')
 
     await page.goto('/admin/articles/create')
-    await page.waitForLoadState('networkidle')
 
     await expect(page).toHaveURL(/\/admin\/articles\/create/)
   })
@@ -139,14 +132,8 @@ test.describe('Author role — read/create/update, no publish', () => {
     // System settings typically require admin permissions.
     // The router guard should redirect to /admin/forbidden or show a 403 page.
     await page.goto('/admin/settings')
-    await page.waitForLoadState('networkidle')
 
-    // Either redirected to forbidden page or shown a 403 component.
-    const isForbidden = await page.locator('.forbidden-page, .forbidden').isVisible().catch(() => false)
-    const is403 = await page.getByText('403').isVisible().catch(() => false)
-    const isRedirected = !page.url().includes('/admin/settings')
-
-    expect(isForbidden || is403 || isRedirected).toBeTruthy()
+    await expect(page.getByRole('heading', { name: '没有管理后台权限' })).toBeVisible()
   })
 })
 
@@ -155,27 +142,16 @@ test.describe('Subscriber role — no article permissions', () => {
     await setupRoleMocks(page, 'subscriber')
 
     await page.goto('/admin/articles')
-    await page.waitForLoadState('networkidle')
 
-    // Should be redirected away from articles or shown a forbidden view.
-    const isForbidden = await page.locator('.forbidden-page, .forbidden').isVisible().catch(() => false)
-    const is403 = await page.getByText('403').isVisible().catch(() => false)
-    const isRedirected = !page.url().includes('/admin/articles')
-
-    expect(isForbidden || is403 || isRedirected).toBeTruthy()
+    await expect(page.getByRole('heading', { name: '没有管理后台权限' })).toBeVisible()
   })
 
   test('subscriber is denied access to article create', async ({ page }) => {
     await setupRoleMocks(page, 'subscriber')
 
     await page.goto('/admin/articles/create')
-    await page.waitForLoadState('networkidle')
 
-    const isForbidden = await page.locator('.forbidden-page, .forbidden').isVisible().catch(() => false)
-    const is403 = await page.getByText('403').isVisible().catch(() => false)
-    const isRedirected = !page.url().includes('/admin/articles/create')
-
-    expect(isForbidden || is403 || isRedirected).toBeTruthy()
+    await expect(page.getByRole('heading', { name: '没有管理后台权限' })).toBeVisible()
   })
 })
 
@@ -185,7 +161,6 @@ test.describe('Unauthenticated access', () => {
     // No auth mock — simulates an unauthenticated session.
 
     await page.goto('/admin/articles')
-    await page.waitForLoadState('networkidle')
 
     await expect(page).toHaveURL(/\/login/)
   })
@@ -194,7 +169,6 @@ test.describe('Unauthenticated access', () => {
     await mockUnmockedApiAs404(page)
 
     await page.goto('/admin/articles/create')
-    await page.waitForLoadState('networkidle')
 
     await expect(page).toHaveURL(/\/login/)
   })
