@@ -5,126 +5,30 @@ import (
 	"context"
 	"io"
 	"net/http"
-	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/minio/minio-go/v7"
 )
 
-// newTestS3Driver creates an S3Driver pointing at the given test server.
-func newTestS3Driver(t *testing.T, srv *httptest.Server, pathStyle bool) *S3Driver {
+// newTestS3Driver creates an S3Driver with the given config. Used by config-
+// level tests that don't make network calls.
+func newTestS3Driver(t *testing.T, cfg S3Config) *S3Driver {
 	t.Helper()
-	cfg := S3Config{
-		Endpoint:  srv.URL[strings.Index(srv.URL, "://")+3:],
-		Bucket:    "test-bucket",
-		Region:    "us-east-1",
-		AccessKey: "test-access",
-		SecretKey: "test-secret",
-		UseSSL:    false,
-		PathStyle: pathStyle,
-	}
+	// Avoid panicking on bad config in tests by recovering; tests that
+	// intentionally pass bad config should call NewS3Driver directly.
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("NewS3Driver panicked: %v", r)
+		}
+	}()
 	return NewS3Driver(cfg)
 }
 
-func TestS3Driver_Upload_Success(t *testing.T) {
-	var (
-		gotMethod string
-		gotPath   string
-		gotBody   []byte
-	)
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotMethod = r.Method
-		gotPath = r.URL.Path
-		gotBody, _ = io.ReadAll(r.Body)
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer srv.Close()
-
-	d := newTestS3Driver(t, srv, true)
-	content := []byte("file content")
-	url, err := d.Upload(context.Background(), "dir/file.txt", bytes.NewReader(content), "text/plain")
-	if err != nil {
-		t.Fatalf("Upload: %v", err)
-	}
-
-	if gotMethod != http.MethodPut {
-		t.Fatalf("expected PUT, got %s", gotMethod)
-	}
-	if !strings.Contains(gotPath, "dir/file.txt") {
-		t.Fatalf("path should contain key, got %s", gotPath)
-	}
-	if !bytes.Equal(gotBody, content) {
-		t.Fatalf("body mismatch: got %q, want %q", gotBody, content)
-	}
-	if !strings.Contains(url, "dir/file.txt") {
-		t.Fatalf("URL should contain key: %s", url)
-	}
-}
-
-func TestS3Driver_Upload_ServerError(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusInternalServerError)
-	}))
-	defer srv.Close()
-
-	d := newTestS3Driver(t, srv, true)
-	_, err := d.Upload(context.Background(), "file.txt", strings.NewReader("x"), "text/plain")
-	if err == nil {
-		t.Fatal("Upload should fail on 500")
-	}
-	if !strings.Contains(err.Error(), "status 500") {
-		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
-func TestS3Driver_Delete_Success(t *testing.T) {
-	var gotMethod string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotMethod = r.Method
-		w.WriteHeader(http.StatusNoContent)
-	}))
-	defer srv.Close()
-
-	d := newTestS3Driver(t, srv, true)
-	if err := d.Delete(context.Background(), "file.txt"); err != nil {
-		t.Fatalf("Delete: %v", err)
-	}
-	if gotMethod != http.MethodDelete {
-		t.Fatalf("expected DELETE, got %s", gotMethod)
-	}
-}
-
-func TestS3Driver_Delete_NotFound_NoError(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusNotFound)
-	}))
-	defer srv.Close()
-
-	d := newTestS3Driver(t, srv, true)
-	// 404 should be treated as success (idempotent delete).
-	if err := d.Delete(context.Background(), "missing.txt"); err != nil {
-		t.Fatalf("Delete on 404 should return nil, got: %v", err)
-	}
-}
-
-func TestS3Driver_Delete_ServerError(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusForbidden)
-	}))
-	defer srv.Close()
-
-	d := newTestS3Driver(t, srv, true)
-	err := d.Delete(context.Background(), "file.txt")
-	if err == nil {
-		t.Fatal("Delete should fail on 403")
-	}
-	if !strings.Contains(err.Error(), "status 403") {
-		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
 func TestS3Driver_GetURL(t *testing.T) {
-	d := NewS3Driver(S3Config{
+	d := newTestS3Driver(t, S3Config{
 		Endpoint:  "s3.example.com",
 		Bucket:    "mybucket",
 		PublicURL: "https://cdn.example.com",
@@ -192,7 +96,7 @@ func TestS3Driver_NewS3Driver_PublicURLDerivation(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			d := NewS3Driver(c.cfg)
+			d := newTestS3Driver(t, c.cfg)
 			if d.publicURL != c.wantURL {
 				t.Fatalf("publicURL: got %q, want %q", d.publicURL, c.wantURL)
 			}
@@ -200,52 +104,203 @@ func TestS3Driver_NewS3Driver_PublicURLDerivation(t *testing.T) {
 	}
 }
 
-func TestS3Driver_ObjectURL_PathStyle_Scheme(t *testing.T) {
-	// Regression test for Round 6 / F6: PathStyle used to hardcode "http://"
-	// regardless of UseSSL. Now both styles derive scheme from UseSSL.
-	d := NewS3Driver(S3Config{
-		Endpoint:  "minio.local:9000",
-		Bucket:    "test",
-		UseSSL:    true,
+func TestS3Driver_NewS3Driver_StripsSchemeFromEndpoint(t *testing.T) {
+	// Regression: if the user configures Endpoint as "https://minio.local:9000"
+	// (with scheme), minio-go would fail. NewS3Driver must strip the scheme.
+	cases := []string{"minio.local:9000", "http://minio.local:9000", "https://minio.local:9000"}
+	for _, ep := range cases {
+		d := newTestS3Driver(t, S3Config{Endpoint: ep, Bucket: "b", UseSSL: false, PathStyle: true})
+		if d.client == nil {
+			t.Fatalf("client should not be nil for endpoint %q", ep)
+		}
+		if d.GetURL("file.txt") != "http://minio.local:9000/b/file.txt" {
+			t.Fatalf("derived URL retained endpoint scheme for %q: %s", ep, d.GetURL("file.txt"))
+		}
+	}
+}
+
+func TestS3Driver_Client_returnsUnderlyingClient(t *testing.T) {
+	d := newTestS3Driver(t, S3Config{Endpoint: "s3.example.com", Bucket: "b"})
+	if d.Client() == nil {
+		t.Fatal("Client() should return non-nil minio.Client")
+	}
+}
+
+func TestS3Driver_isNotFound(t *testing.T) {
+	if isNotFound(nil) {
+		t.Error("nil should not be not-found")
+	}
+}
+
+// ─── Integration tests ─────────────────────────────────────────────────────
+//
+// These tests require a real S3-compatible service (MinIO, R2, AWS S3).
+// They are skipped unless the S3_TEST_ENDPOINT environment variable is set.
+//
+// Quick local setup with Docker:
+//   docker run -p 9000:9000 -p 9001:9001 \
+//     -e MINIO_ROOT_USER=minioadmin -e MINIO_ROOT_PASSWORD=minioadmin \
+//     minio/minio server /data --console-address ":9001"
+//
+// Then run:
+//   S3_TEST_ENDPOINT=localhost:9000 \
+//   S3_TEST_ACCESS_KEY=minioadmin \
+//   S3_TEST_SECRET_KEY=minioadmin \
+//   go test ./internal/storage/ -run TestS3Integration -v -count=1
+
+func integrationConfig(t *testing.T) S3Config {
+	t.Helper()
+	ep := os.Getenv("S3_TEST_ENDPOINT")
+	if ep == "" {
+		t.Skip("S3_TEST_ENDPOINT not set; skipping S3 integration test")
+	}
+	return S3Config{
+		Endpoint:  ep,
+		Bucket:    "contentx-test-" + strings.ToLower(strings.ReplaceAll(strings.ReplaceAll(t.Name(), "/", "-"), "_", "-")),
+		Region:    "us-east-1",
+		AccessKey: os.Getenv("S3_TEST_ACCESS_KEY"),
+		SecretKey: os.Getenv("S3_TEST_SECRET_KEY"),
+		UseSSL:    os.Getenv("S3_TEST_USE_SSL") == "true",
 		PathStyle: true,
-	})
-	url := d.objectURL("file.txt")
-	if !strings.HasPrefix(url, "https://") {
-		t.Fatalf("PathStyle with UseSSL=true should use https, got %s", url)
-	}
-	if !strings.Contains(url, "file.txt") {
-		t.Fatalf("URL should contain key: %s", url)
 	}
 }
 
-func TestS3Driver_GetSignedURL(t *testing.T) {
-	d := NewS3Driver(S3Config{
-		Endpoint:  "s3.example.com",
-		Bucket:    "mybucket",
-		SecretKey: "secret",
-		UseSSL:    true,
-	})
-	url := d.GetSignedURL("file.txt", 1*time.Hour)
-	if !strings.Contains(url, "Expires=") {
-		t.Fatalf("signed URL should contain Expires: %s", url)
+func TestS3Integration_UploadDeleteRoundTrip(t *testing.T) {
+	cfg := integrationConfig(t)
+	d := NewS3Driver(cfg)
+	ctx := context.Background()
+
+	content := []byte("hello minio integration test")
+	key := "test/upload-delete-roundtrip.txt"
+
+	// Upload
+	publicURL, err := d.Upload(ctx, key, bytes.NewReader(content), "text/plain")
+	if err != nil {
+		t.Fatalf("Upload: %v", err)
 	}
-	if !strings.Contains(url, "Signature=") {
-		t.Fatalf("signed URL should contain Signature: %s", url)
+	if !strings.Contains(publicURL, key) {
+		t.Errorf("publicURL %q should contain key %q", publicURL, key)
+	}
+
+	// Verify the object exists via the SDK directly (independent of our driver).
+	obj, err := d.Client().GetObject(ctx, cfg.Bucket, key, minio.GetObjectOptions{})
+	if err != nil {
+		t.Fatalf("GetObject: %v", err)
+	}
+	defer obj.Close()
+	body, err := io.ReadAll(obj)
+	if err != nil {
+		t.Fatalf("read uploaded object: %v", err)
+	}
+	if !bytes.Equal(body, content) {
+		t.Errorf("body mismatch: got %q, want %q", body, content)
+	}
+
+	// Delete (idempotent)
+	if err := d.Delete(ctx, key); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+	if _, err := d.Client().StatObject(ctx, cfg.Bucket, key, minio.StatObjectOptions{}); !isNotFound(err) {
+		t.Fatalf("StatObject after Delete error = %v, want not found", err)
+	}
+	// Delete again — should not error (idempotent).
+	if err := d.Delete(ctx, key); err != nil {
+		t.Errorf("Delete of missing key should be idempotent, got: %v", err)
 	}
 }
 
-func TestS3Driver_SignRequest_AddsAuthHeader(t *testing.T) {
-	d := NewS3Driver(S3Config{
-		Endpoint:  "s3.example.com",
-		Bucket:    "mybucket",
-		AccessKey: "AKIA123",
-		SecretKey: "secret",
-	})
-	req, _ := http.NewRequest("PUT", "http://example.com/bucket/key", nil)
-	req.Header.Set("Date", "Mon, 02 Jan 2026 15:04:05 GMT")
-	d.signRequest(req, "PUT", "key")
-	auth := req.Header.Get("Authorization")
-	if !strings.HasPrefix(auth, "AWS AKIA123:") {
-		t.Fatalf("Authorization header should start with 'AWS AKIA123:', got %q", auth)
+func TestS3Integration_GetSignedURL(t *testing.T) {
+	cfg := integrationConfig(t)
+	d := NewS3Driver(cfg)
+	ctx := context.Background()
+
+	key := "test/signed-url.txt"
+	content := []byte("signed url content")
+	_, err := d.Upload(ctx, key, bytes.NewReader(content), "text/plain")
+	if err != nil {
+		t.Fatalf("Upload: %v", err)
+	}
+	defer d.Delete(ctx, key)
+
+	signed := d.GetSignedURL(key, 5*time.Minute)
+	if !strings.Contains(signed, "X-Amz-Signature=") {
+		t.Fatalf("signed URL should contain AWS V4 signature param: %s", signed)
+	}
+	resp, err := http.Get(signed) // #nosec G107 -- test URL points to configured local MinIO.
+	if err != nil {
+		t.Fatalf("GET signed URL: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET signed URL status = %d, want 200", resp.StatusCode)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read signed URL response: %v", err)
+	}
+	if !bytes.Equal(body, content) {
+		t.Fatalf("signed URL body mismatch: got %q, want %q", body, content)
+	}
+}
+
+func TestS3Integration_BucketAutoCreate(t *testing.T) {
+	cfg := integrationConfig(t)
+	d := NewS3Driver(cfg)
+	ctx := context.Background()
+
+	// Upload to a fresh bucket — ensureBucket should auto-create it.
+	_, err := d.Upload(ctx, "test/bucket-auto-create.txt", strings.NewReader("x"), "text/plain")
+	if err != nil {
+		t.Fatalf("Upload with auto bucket create: %v", err)
+	}
+	defer d.Delete(ctx, "test/bucket-auto-create.txt")
+
+	exists, err := d.Client().BucketExists(ctx, cfg.Bucket)
+	if err != nil {
+		t.Fatalf("BucketExists: %v", err)
+	}
+	if !exists {
+		t.Error("bucket should exist after upload")
+	}
+}
+
+func TestS3Integration_MultipartUpload(t *testing.T) {
+	cfg := integrationConfig(t)
+	d := NewS3Driver(cfg)
+	ctx := context.Background()
+
+	// minio-go uses multipart upload for unknown-size streams larger than its
+	// 16 MiB part size. Crossing that boundary exercises multipart signing and
+	// completion against the real compatible service.
+	content := bytes.Repeat([]byte("m"), 17<<20)
+	key := "test/multipart.bin"
+	_, err := d.Upload(ctx, key, bytes.NewReader(content), "application/octet-stream")
+	if err != nil {
+		t.Fatalf("multipart Upload: %v", err)
+	}
+	defer d.Delete(ctx, key)
+
+	info, err := d.Client().StatObject(ctx, cfg.Bucket, key, minio.StatObjectOptions{})
+	if err != nil {
+		t.Fatalf("StatObject multipart upload: %v", err)
+	}
+	if info.Size != int64(len(content)) {
+		t.Fatalf("multipart object size = %d, want %d", info.Size, len(content))
+	}
+}
+
+func TestS3Integration_InvalidCredentialsRejected(t *testing.T) {
+	cfg := integrationConfig(t)
+	cfg.SecretKey = "definitely-wrong-secret"
+	d := NewS3Driver(cfg)
+
+	_, err := d.Upload(
+		context.Background(),
+		"test/should-not-upload.txt",
+		strings.NewReader("denied"),
+		"text/plain",
+	)
+	if err == nil {
+		t.Fatal("Upload with invalid credentials should fail")
 	}
 }
