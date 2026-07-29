@@ -29,7 +29,7 @@
             v-model="filters.status"
             placeholder="状态"
             clearable
-            @change="fetchComments"
+            @change="onFilterChange"
           >
             <el-option
               label="待审核"
@@ -54,13 +54,13 @@
             v-model="filters.search"
             placeholder="搜索评论..."
             clearable
-            @clear="fetchComments"
+            @clear="onFilterChange"
           />
         </el-form-item>
         <el-form-item>
           <el-button
             type="primary"
-            @click="fetchComments"
+            @click="onFilterChange"
           >
             搜索
           </el-button>
@@ -198,7 +198,7 @@
           v-model:page-size="pageSize"
           :total="total"
           layout="total, prev, pager, next"
-          @current-change="fetchComments"
+          @current-change="refetch"
         />
       </div>
     </el-card>
@@ -237,58 +237,69 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue'
-import { commentApi, type Comment } from '@/api'
+import { ref, reactive, computed } from 'vue'
+import { type Comment } from '@/api'
 import { ElMessage } from 'element-plus'
 import { formatDate } from '@/utils'
+import { useCommentListQuery, useCommentStatsQuery } from '@/features/comments/use-comment-list-query'
+import { useCommentMutations } from '@/features/comments/use-comment-mutations'
 
-const comments = ref<Comment[]>([])
-const loading = ref(false)
 const page = ref(1)
 const pageSize = ref(20)
-const total = ref(0)
 const selectedIds = ref<number[]>([])
-interface CommentStats {
-  total: number
-  pending: number
-  approved: number
-  spam: number
-  today: number
-}
-
-const stats = ref<CommentStats | null>(null)
 const replyVisible = ref(false)
 const replyTarget = ref<Comment | null>(null)
 const replyContent = ref('')
 
 const filters = reactive({ status: '', search: '' })
 
-async function fetchComments() {
-  loading.value = true
-  try {
-    const res = await commentApi.list({ page: page.value, page_size: pageSize.value, ...filters })
-    comments.value = res.items
-    total.value = res.total
-  } catch { comments.value = [] }
-  finally { loading.value = false }
-}
+const queryParams = computed(() => ({
+  page: page.value,
+  page_size: pageSize.value,
+  ...(filters.status ? { status: filters.status } : {}),
+  ...(filters.search ? { search: filters.search } : {}),
+}))
 
-async function fetchStats() {
-  try { stats.value = (await commentApi.stats()).data } catch {}
+const { data: listData, isLoading: loading, refetch } = useCommentListQuery(queryParams)
+const comments = computed(() => listData.value?.items ?? [])
+const total = computed(() => listData.value?.total ?? 0)
+
+const { data: statsData } = useCommentStatsQuery()
+const stats = computed(() => statsData.value?.data ?? null)
+
+const { approveComment, spamComment, bulkAction, createComment } = useCommentMutations()
+
+function onFilterChange() {
+  page.value = 1
+  refetch()
 }
 
 async function approve(id: number) {
-  await commentApi.approve(id); ElMessage.success('已批准'); fetchComments(); fetchStats()
+  try {
+    await approveComment.mutateAsync(id)
+    ElMessage.success('已批准')
+  } catch { /* mutation handles invalidation */ }
 }
+
 async function markSpam(id: number) {
-  await commentApi.spam(id); ElMessage.success('已标记垃圾'); fetchComments(); fetchStats()
+  try {
+    await spamComment.mutateAsync(id)
+    ElMessage.success('已标记垃圾')
+  } catch { /* mutation handles invalidation */ }
 }
+
 async function deleteComment(id: number) {
-  await commentApi.bulk({ comment_ids: [id], action: 'delete' }); ElMessage.success('已删除'); fetchComments(); fetchStats()
+  try {
+    await bulkAction.mutateAsync({ comment_ids: [id], action: 'delete' })
+    ElMessage.success('已删除')
+  } catch { /* mutation handles invalidation */ }
 }
+
 async function bulk(action: string) {
-  await commentApi.bulk({ comment_ids: selectedIds.value, action })
-  ElMessage.success('操作成功'); fetchComments(); fetchStats()
+  try {
+    await bulkAction.mutateAsync({ comment_ids: selectedIds.value, action })
+    ElMessage.success('操作成功')
+  } catch { /* mutation handles invalidation */ }
 }
 
 function replyTo(comment: Comment) {
@@ -299,22 +310,20 @@ function replyTo(comment: Comment) {
 
 async function submitReply() {
   if (!replyContent.value.trim() || !replyTarget.value) return
-  await commentApi.create({
-    article_id: replyTarget.value.article_id,
-    parent_id: replyTarget.value.id,
-    content: replyContent.value,
-  })
-  ElMessage.success('回复已提交')
-  replyVisible.value = false
-  fetchComments()
+  try {
+    await createComment.mutateAsync({
+      article_id: replyTarget.value.article_id,
+      parent_id: replyTarget.value.id,
+      content: replyContent.value,
+    })
+    ElMessage.success('回复已提交')
+    replyVisible.value = false
+  } catch { /* mutation handles invalidation */ }
 }
 
 function statusType(s: string) {
   return s === 'approved' ? 'success' : s === 'pending' ? 'warning' : 'danger'
 }
-
-
-onMounted(() => { fetchComments(); fetchStats() })
 </script>
 
 <style lang="scss" scoped>

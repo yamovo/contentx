@@ -6,6 +6,11 @@ const mocks = vi.hoisted(() => ({
   post: vi.fn(),
   put: vi.fn(),
   del: vi.fn(),
+  // Raw axios instance methods (used by authApi.refresh / backupApi.download).
+  httpGet: vi.fn(),
+  httpPost: vi.fn(),
+  // getList is used by list endpoints (articleApi.list, etc.)
+  getList: vi.fn(),
 }))
 
 vi.mock('./http', () => ({
@@ -13,7 +18,11 @@ vi.mock('./http', () => ({
   post: mocks.post,
   put: mocks.put,
   del: mocks.del,
-  default: {},
+  default: { get: mocks.httpGet, post: mocks.httpPost },
+}))
+
+vi.mock('./helpers', () => ({
+  getList: mocks.getList,
 }))
 
 import {
@@ -43,6 +52,10 @@ describe('API module', () => {
     mocks.post.mockResolvedValue({ data: {} })
     mocks.put.mockResolvedValue({ data: {} })
     mocks.del.mockResolvedValue({ data: {} })
+    mocks.getList.mockResolvedValue({ items: [], total: 0 })
+    // Axios instance methods resolve to a raw response: {data: envelope}.
+    mocks.httpGet.mockResolvedValue({ data: {} })
+    mocks.httpPost.mockResolvedValue({ data: { data: {} } })
   })
 
   describe('authApi', () => {
@@ -51,9 +64,9 @@ describe('API module', () => {
       expect(mocks.post).toHaveBeenCalledWith('/auth/login', { username: 'u', password: 'p' })
     })
 
-    it('refresh posts refresh_token', () => {
+    it('refresh posts refresh_token with _retry flag', () => {
       authApi.refresh('rt')
-      expect(mocks.post).toHaveBeenCalledWith('/auth/refresh', { refresh_token: 'rt' })
+      expect(mocks.httpPost).toHaveBeenCalledWith('/auth/refresh', { refresh_token: 'rt' }, { _retry: true })
     })
 
     it('me gets /auth/me', () => {
@@ -65,7 +78,7 @@ describe('API module', () => {
   describe('articleApi', () => {
     it('list calls /articles with params', () => {
       articleApi.list({ page: 1, status: 'published' })
-      expect(mocks.get).toHaveBeenCalledWith('/articles', { page: 1, status: 'published' })
+      expect(mocks.getList).toHaveBeenCalledWith('/articles', { page: 1, status: 'published' }, undefined)
     })
 
     it('get calls /articles/:id', () => {
@@ -74,8 +87,8 @@ describe('API module', () => {
     })
 
     it('create posts to /articles', () => {
-      articleApi.create({ title: 'New' })
-      expect(mocks.post).toHaveBeenCalledWith('/articles', { title: 'New' })
+      articleApi.create({ title: 'New', post_type: 'post' })
+      expect(mocks.post).toHaveBeenCalledWith('/articles', { title: 'New', post_type: 'post' })
     })
 
     it('update puts to /articles/:id', () => {
@@ -131,7 +144,7 @@ describe('API module', () => {
   describe('commentApi', () => {
     it('list calls /comments with params', () => {
       commentApi.list({ page: 1 })
-      expect(mocks.get).toHaveBeenCalledWith('/comments', { page: 1 })
+      expect(mocks.getList).toHaveBeenCalledWith('/comments', { page: 1 })
     })
 
     it('approve posts to /comments/:id/approve', () => {
@@ -148,7 +161,7 @@ describe('API module', () => {
   describe('mediaApi', () => {
     it('list calls /media with params', () => {
       mediaApi.list({ page: 1 })
-      expect(mocks.get).toHaveBeenCalledWith('/media', { page: 1 })
+      expect(mocks.getList).toHaveBeenCalledWith('/media', { page: 1 })
     })
 
     it('upload posts FormData to /media/upload', () => {
@@ -171,7 +184,7 @@ describe('API module', () => {
   describe('userApi', () => {
     it('list calls /users with params', () => {
       userApi.list()
-      expect(mocks.get).toHaveBeenCalledWith('/users', undefined)
+      expect(mocks.getList).toHaveBeenCalledWith('/users', undefined)
     })
 
     it('resetPassword posts to /users/:id/reset-password', () => {

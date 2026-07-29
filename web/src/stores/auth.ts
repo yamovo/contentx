@@ -1,25 +1,41 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import { authApi, type User, type TokenPair } from '@/api'
+import { authApi, type User, type TokenPair } from '@/api/domains/auth'
+import {
+  ADMIN_WORKSPACE_PERMISSIONS,
+  isPermissionSlug,
+  type PermissionSlug,
+} from '@/shared/auth/permissions'
+import { isApiError } from '@/shared/api/types'
 
 export const useAuthStore = defineStore('auth', () => {
   // State.
   const user = ref<User | null>(null)
   const token = ref<string>(localStorage.getItem('access_token') || '')
   const refreshToken = ref<string>(localStorage.getItem('refresh_token') || '')
-  const permissions = ref<string[]>([])
+  const permissions = ref<PermissionSlug[]>([])
   const loading = ref(false)
+  const restoreError = ref<unknown>(null)
 
   // Getters.
   const isAuthenticated = computed(() => !!token.value)
   const isAdmin = computed(() => user.value?.role?.slug === 'admin')
   const isEditor = computed(() => ['admin', 'editor'].includes(user.value?.role?.slug || ''))
+  const canAccessAdmin = computed(() => {
+    if (isAdmin.value) return true
+    if (!user.value || user.value.role?.slug === 'subscriber') return false
+    return ADMIN_WORKSPACE_PERMISSIONS.some((slug) => permissions.value.includes(slug))
+  })
+
+  function setSessionPermissions(values: string[]) {
+    permissions.value = values.filter(isPermissionSlug)
+  }
 
   // Actions.
-  async function login(username: string, password: string) {
+  async function login(username: string, password: string, totpCode?: string) {
     loading.value = true
     try {
-      const res = await authApi.login({ username, password })
+      const res = await authApi.login({ username, password, totp_code: totpCode })
       setTokens(res.data.token)
       user.value = res.data.user
       await fetchPermissions()
@@ -44,12 +60,18 @@ export const useAuthStore = defineStore('auth', () => {
 
   async function fetchUser() {
     if (!token.value) return
+    restoreError.value = null
     try {
       const res = await authApi.me()
       user.value = res.data.user
-      permissions.value = res.data.permissions
-    } catch {
-      clearAuth()
+      setSessionPermissions(res.data.permissions)
+    } catch (error) {
+      if (isApiError(error) && error.status === 401) {
+        clearAuth()
+        return
+      }
+      restoreError.value = error
+      throw error
     }
   }
 
@@ -72,13 +94,9 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   async function fetchPermissions() {
-    try {
-      const res = await authApi.me()
-      user.value = res.data.user
-      permissions.value = res.data.permissions
-    } catch {
-      // Ignore.
-    }
+    const res = await authApi.me()
+    user.value = res.data.user
+    setSessionPermissions(res.data.permissions)
   }
 
   async function refreshAccessToken() {
@@ -102,6 +120,7 @@ export const useAuthStore = defineStore('auth', () => {
     token.value = ''
     refreshToken.value = ''
     permissions.value = []
+    restoreError.value = null
     localStorage.removeItem('access_token')
     localStorage.removeItem('refresh_token')
   }
@@ -121,9 +140,14 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
-  function hasPermission(slug: string): boolean {
+  function hasPermission(slug: PermissionSlug): boolean {
     if (isAdmin.value) return true
     return permissions.value.includes(slug)
+  }
+
+  function hasAnyPermission(slugs: readonly PermissionSlug[]): boolean {
+    if (isAdmin.value) return true
+    return slugs.some((slug) => permissions.value.includes(slug))
   }
 
   // Initialize: fetch user if token exists.
@@ -132,9 +156,9 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   return {
-    user, token, refreshToken, permissions, loading,
-    isAuthenticated, isAdmin, isEditor,
+    user, token, refreshToken, permissions, loading, restoreError,
+    isAuthenticated, isAdmin, isEditor, canAccessAdmin,
     login, register, fetchUser, fetchPermissions, refreshAccessToken,
-    ensureUserLoaded, setTokens, logout, clearAuth, hasPermission,
+    ensureUserLoaded, setTokens, logout, clearAuth, hasPermission, hasAnyPermission,
   }
 })

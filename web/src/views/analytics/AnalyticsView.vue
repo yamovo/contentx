@@ -1,9 +1,40 @@
 <template>
   <div class="analytics-page">
-    <h2>数据分析</h2>
+    <div class="page-header">
+      <div>
+        <h2>数据分析</h2>
+        <p>访问趋势、设备分布与内容表现均来自真实统计接口。</p>
+      </div>
+      <el-button
+        :loading="loading"
+        @click="loadAll"
+      >
+        刷新
+      </el-button>
+    </div>
+
+    <el-alert
+      v-if="errorMessage"
+      type="error"
+      :closable="false"
+      show-icon
+      class="error-alert"
+      :title="errorMessage"
+    >
+      <el-button
+        text
+        type="primary"
+        @click="loadAll"
+      >
+        重试
+      </el-button>
+    </el-alert>
 
     <el-row :gutter="16">
-      <el-col :span="16">
+      <el-col
+        :xs="24"
+        :lg="16"
+      >
         <el-card shadow="never">
           <template #header>
             <div class="card-header">
@@ -11,7 +42,6 @@
               <el-radio-group
                 v-model="days"
                 size="small"
-                @change="fetchViews"
               >
                 <el-radio-button :value="7">
                   7天
@@ -25,22 +55,23 @@
               </el-radio-group>
             </div>
           </template>
-          <v-chart
-            class="chart-lg"
-            :option="lineOption"
-            autoresize
+          <SimpleLineChart
+            :data="lineData"
+            title="访问趋势"
           />
         </el-card>
       </el-col>
-      <el-col :span="8">
+      <el-col
+        :xs="24"
+        :lg="8"
+      >
         <el-card shadow="never">
           <template #header>
             <span>设备分布</span>
           </template>
-          <v-chart
-            class="chart-md"
-            :option="pieOption"
-            autoresize
+          <SimpleDonutChart
+            :data="devices"
+            title="设备分布"
           />
         </el-card>
       </el-col>
@@ -50,7 +81,10 @@
       :gutter="16"
       style="margin-top: 16px"
     >
-      <el-col :span="12">
+      <el-col
+        :xs="24"
+        :lg="12"
+      >
         <el-card shadow="never">
           <template #header>
             <span>热门文章</span>
@@ -67,9 +101,17 @@
             <span class="rank-title">{{ a.title }}</span>
             <span class="rank-value">{{ a.view_count }} 次</span>
           </div>
+          <el-empty
+            v-if="!topArticles.length"
+            description="暂无热门内容数据"
+            :image-size="60"
+          />
         </el-card>
       </el-col>
-      <el-col :span="12">
+      <el-col
+        :xs="24"
+        :lg="12"
+      >
         <el-card shadow="never">
           <template #header>
             <span>来源站点</span>
@@ -95,80 +137,90 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
-import VChart from 'vue-echarts'
-import { use } from 'echarts/core'
-import { CanvasRenderer } from 'echarts/renderers'
-import { LineChart, PieChart } from 'echarts/charts'
-import { GridComponent, TooltipComponent, LegendComponent } from 'echarts/components'
-import { analyticsApi, articleApi, type Article } from '@/api'
-
-use([CanvasRenderer, LineChart, PieChart, GridComponent, TooltipComponent, LegendComponent])
+import { ref, computed } from 'vue'
+import { articleApi, type Article } from '@/api'
+import SimpleLineChart from '@/features/analytics/SimpleLineChart.vue'
+import SimpleDonutChart from '@/features/analytics/SimpleDonutChart.vue'
+import { useViewsOverTimeQuery, useDeviceBreakdownQuery, useTopReferrersQuery } from '@/features/analytics/use-dashboard-query'
 
 const days = ref(30)
-const viewsData = ref<{ date: string; views: number }[]>([])
-const devices = ref<any[]>([])
+
+// Passing the ref keeps the views query reactive to the day-range selector.
+const { data: viewsData, refetch: refetchViews } = useViewsOverTimeQuery(days)
+const { data: devicesData, refetch: refetchDevices } = useDeviceBreakdownQuery()
+const { data: referrersData, refetch: refetchReferrers } = useTopReferrersQuery()
+
+// Top articles still uses manual fetch since no dedicated composable exists.
 const topArticles = ref<Article[]>([])
-const referrers = ref<{ referrer: string; count: number }[]>([])
+const loading = ref(false)
+const errorMessage = ref('')
 
-const lineOption = computed(() => ({
-  tooltip: { trigger: 'axis' },
-  grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
-  xAxis: { type: 'category', data: viewsData.value.map(d => d.date.slice(5)) },
-  yAxis: { type: 'value' },
-  series: [{
-    data: viewsData.value.map(d => d.views), type: 'line', smooth: true,
-    areaStyle: { opacity: 0.15 }, itemStyle: { color: '#409eff' },
-  }],
-}))
+const lineData = computed(() => (viewsData.value?.data ?? []).map((item: { date: string; views: number }) => ({
+  label: item.date,
+  value: item.views,
+})))
 
-const pieOption = computed(() => ({
-  tooltip: { trigger: 'item' },
-  series: [{
-    type: 'pie', radius: ['40%', '70%'], padAngle: 2,
-    itemStyle: { borderRadius: 6 },
-    label: { formatter: '{b}: {d}%' },
-    data: devices.value,
-  }],
-}))
+const devices = computed(() =>
+  (devicesData.value?.data?.devices ?? []).map((d: { name: string; count: number }) => ({ name: d.name, value: d.count })),
+)
 
-async function fetchViews() {
-  try { viewsData.value = (await analyticsApi.viewsOverTime(days.value)).data } catch {}
-}
-async function fetchDevices() {
-  try {
-    const res = await analyticsApi.deviceBreakdown()
-    devices.value = (res.data?.devices || []).map((d) => ({ name: d.name, value: d.count }))
-  } catch {}
-}
+const referrers = computed(() => referrersData.value?.data ?? [])
+
 async function fetchTop() {
-  try {
-    const res = await articleApi.list({ sort: 'views', page_size: 10, status: 'published' })
-    topArticles.value = res.items
-  } catch {}
-}
-async function fetchReferrers() {
-  try { referrers.value = (await analyticsApi.topReferrers()).data } catch {}
+  const res = await articleApi.list({ sort: 'views', page_size: 10, status: 'published' })
+  topArticles.value = res.items || []
 }
 
-onMounted(() => { fetchViews(); fetchDevices(); fetchTop(); fetchReferrers() })
+async function loadAll() {
+  loading.value = true
+  errorMessage.value = ''
+  const results = await Promise.allSettled([
+    refetchViews(),
+    refetchDevices(),
+    refetchReferrers(),
+    fetchTop(),
+  ])
+  const failed = results.filter(result => result.status === 'rejected').length
+  if (failed) {
+    errorMessage.value = failed === results.length
+      ? '分析数据加载失败，请检查网络后重试。'
+      : `有 ${failed} 组分析数据暂时无法加载，其余数据仍可查看。`
+  }
+  loading.value = false
+}
+
+// Initial load for top articles.
+fetchTop()
 </script>
 
 <style lang="scss" scoped>
 .analytics-page {
-  h2 { margin-bottom: 16px; }
+  .page-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 16px;
+    h2 { margin: 0; }
+    p { margin: 6px 0 0; color: var(--app-text-muted, #6b7280); font-size: 13px; }
+  }
+  .error-alert { margin-bottom: 16px; }
   .card-header { display: flex; justify-content: space-between; align-items: center; }
-  .chart-lg { height: 360px; }
-  .chart-md { height: 300px; }
   .rank-item {
-    display: flex; align-items: center; padding: 10px 0; border-bottom: 1px solid #f0f0f0;
+    display: flex; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--app-border-subtle, #e8eaed);
     &:last-child { border-bottom: none; }
-    .rank-num { width: 24px; height: 24px; border-radius: 50%; background: #f0f0f0;
+    .rank-num { width: 24px; height: 24px; border-radius: 50%; background: var(--app-surface-muted, #f3f4f6);
       display: flex; align-items: center; justify-content: center; font-size: 12px;
       font-weight: 600; margin-right: 12px; flex-shrink: 0;
-      &.top { background: #409eff; color: #fff; } }
+      &.top { background: var(--app-color-primary, #2563eb); color: #fff; } }
     .rank-title { flex: 1; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .rank-value { font-size: 13px; color: #909399; margin-left: 12px; flex-shrink: 0; }
+    .rank-value { font-size: 13px; color: var(--app-text-muted, #6b7280); margin-left: 12px; flex-shrink: 0; }
+  }
+}
+
+@media (max-width: 1199px) {
+  .analytics-page :deep(.el-col) {
+    margin-bottom: 16px;
   }
 }
 </style>

@@ -143,10 +143,9 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, watch, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
-import { marked } from 'marked'
-import DOMPurify from 'dompurify'
+import { renderSafeMarkdown, waitForMarkdownDeps } from '@/shared/lib/safe-markdown'
 import { useAnime } from '@/composables/useAnime'
 import { formatDate } from '@/utils'
 import type { Article, Category, Comment } from '@/api'
@@ -165,10 +164,13 @@ const commentBody = ref('')
 const pageRef = ref<HTMLElement>()
 const headerRef = ref<HTMLElement>()
 
-const renderedContent = computed(() => {
-  if (!article.value?.content) return ''
-  return DOMPurify.sanitize(marked(article.value.content) as string)
-})
+const renderedContent = ref('')
+
+watch(
+  () => article.value?.content,
+  (content) => { renderedContent.value = content ? renderSafeMarkdown(content) : '' },
+  { immediate: true },
+)
 
 async function fetchArticle() {
   loading.value = true
@@ -229,8 +231,15 @@ async function toggleLike() {
   } catch {}
 }
 
-onMounted(() => {
+onMounted(async () => {
   fetchArticle()
+  // Re-render markdown once the lazy deps arrive (in case the article
+  // content was set before marked/DOMPurify finished loading).
+  waitForMarkdownDeps().then(() => {
+    if (article.value?.content) {
+      renderedContent.value = renderSafeMarkdown(article.value.content)
+    }
+  })
   if (headerRef.value) {
     animate(headerRef.value, { opacity: { from: 0 }, translateY: { from: 20 }, duration: 700, ease: 'outQuint' })
   }

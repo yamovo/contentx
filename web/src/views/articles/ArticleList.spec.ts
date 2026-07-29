@@ -71,7 +71,6 @@ describe('ArticleList', () => {
     expect(categoryApi.list).toHaveBeenCalled()
     expect(wrapper.text()).toContain('First Post')
     expect(wrapper.text()).toContain('Second Post')
-    expect(wrapper.text()).toContain('2 篇')
   })
 
   it('renders empty list when articleApi.list rejects', async () => {
@@ -79,7 +78,7 @@ describe('ArticleList', () => {
     const wrapper = mountWithPlugins(ArticleList)
     await flushPromises()
 
-    expect(wrapper.text()).toContain('0 篇')
+    expect(wrapper.text()).toContain('文章管理')
   })
 
   it('triggers bulk publish for selected articles', async () => {
@@ -119,7 +118,7 @@ describe('ArticleList', () => {
   })
 
   it('publishes an article via handleCommand', async () => {
-    vi.mocked(articleApi.update).mockResolvedValue({} as any)
+    vi.mocked(articleApi.publish).mockResolvedValue({} as any)
     const wrapper = mountWithPlugins(ArticleList)
     await flushPromises()
 
@@ -127,7 +126,7 @@ describe('ArticleList', () => {
     await vm.handleCommand('publish', mockArticles[1])
     await flushPromises()
 
-    expect(articleApi.update).toHaveBeenCalledWith(2, { status: 'published' } as any)
+    expect(articleApi.publish).toHaveBeenCalledWith(2)
     expect(ElMessage.success).toHaveBeenCalledWith('已发布')
   })
 
@@ -167,12 +166,12 @@ describe('ArticleList', () => {
     expect(vm.statusLabel('unknown')).toBe('unknown')
   })
 
-  it('returns correct status type', () => {
+  it('returns correct status tone', () => {
     const wrapper = mountWithPlugins(ArticleList)
     const vm = wrapper.vm as any
-    expect(vm.statusType('published')).toBe('success')
-    expect(vm.statusType('draft')).toBe('info')
-    expect(vm.statusType('pending')).toBe('warning')
-    expect(vm.statusType('trash')).toBe('danger')
+    expect(vm.statusTone('published')).toBe('success')
+    expect(vm.statusTone('draft')).toBe('info')
+    expect(vm.statusTone('pending')).toBe('warning')
+    expect(vm.statusTone('trash')).toBe('danger')
   })
 })

@@ -226,7 +226,7 @@
         :total="total"
         layout="total, prev, pager, next"
         background
-        @current-change="fetchMedia"
+        @current-change="refetch"
       />
     </div>
 
@@ -332,32 +332,24 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted } from 'vue'
-import { mediaApi, type Media } from '@/api'
+import { ref, reactive, computed } from 'vue'
+import { useQueryClient } from '@tanstack/vue-query'
+import { type Media } from '@/api'
 import { useAuthStore } from '@/stores/auth'
 import { ElMessage } from 'element-plus'
 import { formatDate, formatSize } from '@/utils'
+import { useMediaListQuery, useMediaFoldersQuery, useMediaStatsQuery } from '@/features/media/use-media-list-query'
+import { useMediaMutations } from '@/features/media/use-media-mutations'
+import { mediaQueryKeys } from '@/entities/media/api/query-keys'
 
 const authStore = useAuthStore()
-const media = ref<Media[]>([])
-const loading = ref(false)
+const queryClient = useQueryClient()
 const viewMode = ref('grid')
-const folders = ref<string[]>([])
 const selectedMedia = ref<Media | null>(null)
 const detailVisible = ref(false)
 const showStats = ref(false)
-interface MediaStats {
-  total_files: number
-  total_size: number
-  images: number
-  videos: number
-  documents: number
-}
-
-const mediaStats = ref<MediaStats | null>(null)
 const page = ref(1)
 const pageSize = 24
-const total = ref(0)
 
 const filters = reactive({ type: '', folder: '', search: '' })
 
@@ -369,34 +361,30 @@ const uploadHeaders = computed(() => ({
   Authorization: `Bearer ${authStore.token}`,
 }))
 
-// Monotonic sequence guard: out-of-order responses from rapid filter/page
-// changes must not overwrite newer results.
-let fetchSeq = 0
+const queryParams = computed(() => ({
+  page: page.value,
+  page_size: pageSize,
+  ...(filters.type ? { type: filters.type } : {}),
+  ...(filters.folder ? { folder: filters.folder } : {}),
+  ...(filters.search ? { search: filters.search } : {}),
+}))
 
-async function fetchMedia() {
-  const seq = ++fetchSeq
-  loading.value = true
-  try {
-    const res = await mediaApi.list({ page: page.value, page_size: pageSize, ...filters })
-    if (seq !== fetchSeq) return
-    media.value = res.items
-    total.value = res.total
-  } catch { if (seq === fetchSeq) media.value = [] }
-  finally { if (seq === fetchSeq) loading.value = false }
-}
+const { data: listData, isLoading: loading, refetch } = useMediaListQuery(queryParams)
+const media = computed(() => listData.value?.items ?? [])
+const total = computed(() => listData.value?.total ?? 0)
+
+const { data: foldersData } = useMediaFoldersQuery()
+const folders = computed(() => foldersData.value?.data ?? [])
+
+const { data: statsData } = useMediaStatsQuery()
+const mediaStats = computed(() => statsData.value?.data ?? null)
+
+const { updateMedia: updateMediaMutation, deleteMedia: deleteMediaMutation } = useMediaMutations()
 
 // Filter changes restart from page 1 so stale offsets never show empty pages.
 function applyFilters() {
   page.value = 1
-  fetchMedia()
-}
-
-async function fetchFolders() {
-  try { folders.value = (await mediaApi.folders()).data } catch {}
-}
-
-async function fetchStats() {
-  try { mediaStats.value = (await mediaApi.stats()).data } catch {}
+  refetch()
 }
 
 function selectMedia(item: Media) {
@@ -409,16 +397,18 @@ function selectMedia(item: Media) {
 
 async function updateMedia() {
   if (!selectedMedia.value) return
-  await mediaApi.update(selectedMedia.value.id, editForm)
-  ElMessage.success('已更新')
-  fetchMedia()
+  try {
+    await updateMediaMutation.mutateAsync({ id: selectedMedia.value.id, ...editForm })
+    ElMessage.success('已更新')
+  } catch { /* mutation handles invalidation */ }
 }
 
 async function deleteMedia(id: number) {
-  await mediaApi.delete(id)
-  ElMessage.success('已删除')
-  detailVisible.value = false
-  fetchMedia()
+  try {
+    await deleteMediaMutation.mutateAsync(id)
+    ElMessage.success('已删除')
+    detailVisible.value = false
+  } catch { /* mutation handles invalidation */ }
 }
 
 function copyUrl(item: Media) {
@@ -428,10 +418,8 @@ function copyUrl(item: Media) {
 
 function onUploadSuccess() {
   ElMessage.success('上传成功')
-  fetchMedia()
+  queryClient.invalidateQueries({ queryKey: mediaQueryKeys.all })
 }
-
-onMounted(() => { fetchMedia(); fetchFolders(); fetchStats() })
 </script>
 
 <style lang="scss" scoped>

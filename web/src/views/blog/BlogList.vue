@@ -130,13 +130,12 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch, nextTick } from 'vue'
 import { useRoute } from 'vue-router'
-import { stagger } from 'animejs/utils'
 import { useAnime } from '@/composables/useAnime'
 import { formatDate } from '@/utils'
 
 const route = useRoute()
 // Tracked animations are cancelled on unmount.
-const { animate } = useAnime()
+const { animate, stagger } = useAnime()
 const articles = ref<any[]>([])
 const categories = ref<any[]>([])
 const tags = ref<any[]>([])

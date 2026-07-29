@@ -18,18 +18,13 @@
           shadow="hover"
           class="stat-card"
           :body-style="{ padding: '20px' }"
+          @click="$router.push(card.to)"
         >
           <div class="stat-content">
             <div class="stat-info">
               <span class="stat-label">{{ card.label }}</span>
               <span class="stat-value">{{ displayValues[idx] ?? card.value }}</span>
-              <span
-                class="stat-change"
-                :class="card.trend"
-              >
-                <el-icon><Top v-if="card.trend === 'up'" /><Bottom v-else /></el-icon>
-                {{ card.change }}
-              </span>
+              <span class="stat-change">—</span>
             </div>
             <div
               class="stat-icon"
@@ -44,66 +39,12 @@
       </el-col>
     </el-row>
 
-    <!-- Charts Row -->
-    <el-row
-      :gutter="16"
-      class="chart-row"
-    >
-      <el-col
-        :xs="24"
-        :lg="16"
-      >
-        <el-card
-          shadow="hover"
-          class="chart-card-left"
-        >
-          <template #header>
-            <div class="card-header">
-              <span>访问趋势</span>
-              <el-radio-group
-                v-model="chartDays"
-                size="small"
-                @change="fetchViews"
-              >
-                <el-radio-button :value="7">
-                  7天
-                </el-radio-button>
-                <el-radio-button :value="30">
-                  30天
-                </el-radio-button>
-                <el-radio-button :value="90">
-                  90天
-                </el-radio-button>
-              </el-radio-group>
-            </div>
-          </template>
-          <v-chart
-            class="chart"
-            :option="viewsChartOption"
-            autoresize
-          />
-        </el-card>
-      </el-col>
-
-      <el-col
-        :xs="24"
-        :lg="8"
-      >
-        <el-card
-          shadow="hover"
-          class="chart-card-right"
-        >
-          <template #header>
-            <span>设备分布</span>
-          </template>
-          <v-chart
-            class="chart"
-            :option="deviceChartOption"
-            autoresize
-          />
-        </el-card>
-      </el-col>
-    </el-row>
+    <!-- Charts Row (lazy-loaded) -->
+    <DashboardCharts
+      v-model:days="chartDays"
+      :views-data="viewsData"
+      :device-data="deviceData"
+    />
 
     <!-- Recent Activity -->
     <el-row :gutter="16">
@@ -132,11 +73,13 @@
               v-for="article in recentArticles"
               :key="article.id"
               class="article-item"
+              @click="$router.push('/admin/articles/' + article.id + '/edit')"
             >
               <div class="article-info">
                 <router-link
                   :to="'/admin/articles/' + article.id + '/edit'"
                   class="article-title"
+                  @click.stop
                 >
                   {{ article.title }}
                 </router-link>
@@ -223,22 +166,17 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, reactive, nextTick } from 'vue'
-import VChart from 'vue-echarts'
-import { use } from 'echarts/core'
-import { CanvasRenderer } from 'echarts/renderers'
-import { LineChart, PieChart } from 'echarts/charts'
-import { GridComponent, TooltipComponent, LegendComponent, TitleComponent } from 'echarts/components'
-import { analyticsApi, type DashboardStats, type Article, type Comment } from '@/api'
+import { ref, computed, watch, reactive, nextTick, defineAsyncComponent } from 'vue'
+import { type DashboardStats, type Article, type Comment } from '@/api'
 import { formatDate } from '@/utils'
 import { useAnime } from '@/composables/useAnime'
-import { stagger } from 'animejs/utils'
+import { useDashboardQuery, useViewsOverTimeQuery, useDeviceBreakdownQuery } from '@/features/analytics/use-dashboard-query'
 
-use([CanvasRenderer, LineChart, PieChart, GridComponent, TooltipComponent, LegendComponent, TitleComponent])
+const DashboardCharts = defineAsyncComponent(() => import('@/features/analytics/DashboardCharts.vue'))
 
 // Tracked animations are cancelled on unmount so counter/entrance tweens
 // never outlive the page.
-const { animate } = useAnime()
+const { animate, stagger } = useAnime()
 
 const stats = ref<DashboardStats>({
   total_articles: 0, published_articles: 0, total_comments: 0,
@@ -252,46 +190,40 @@ const viewsData = ref<{ date: string; views: number }[]>([])
 const deviceData = ref<any[]>([])
 const pageRef = ref<HTMLElement>()
 
+// Vue Query composables replace manual onMounted fetches; passing the ref
+// keeps the views query reactive to the day-range selector.
+const { data: dashboardData } = useDashboardQuery()
+const { data: viewsQueryData } = useViewsOverTimeQuery(chartDays)
+const { data: deviceQueryData } = useDeviceBreakdownQuery()
+
+// Sync query data → local refs (kept mutable for animation / chartDays change)
+watch(() => dashboardData.value, (d) => {
+  if (d?.data) {
+    stats.value = d.data.stats
+    recentArticles.value = d.data.recent_articles ?? []
+    recentComments.value = d.data.recent_comments ?? []
+    nextTick(() => animateCounters())
+  }
+}, { immediate: true })
+
+watch(() => viewsQueryData.value, (d) => {
+  viewsData.value = d?.data ?? []
+}, { immediate: true })
+
+watch(() => deviceQueryData.value, (d) => {
+  deviceData.value = (d?.data?.devices || []).map((d) => ({ name: d.name, value: d.count }))
+}, { immediate: true })
+
 const displayValues = reactive<(number | string)[]>([0, 0, 0, 0])
 
 const statCards = computed(() => [
-  { label: '文章总数', value: stats.value.total_articles, icon: 'Document', color: '#409eff', change: '+12', trend: 'up' },
-  { label: '今日访问', value: stats.value.views_today, icon: 'View', color: '#67c23a', change: '+8%', trend: 'up' },
-  { label: '待审评论', value: stats.value.pending_comments, icon: 'ChatDotSquare', color: '#e6a23c', change: '', trend: '' },
-  { label: '用户总数', value: stats.value.total_users, icon: 'User', color: '#909399', change: '+3', trend: 'up' },
+  { label: '文章总数', value: stats.value.total_articles, icon: 'Document', color: '#409eff', to: '/admin/articles' },
+  { label: '今日访问', value: stats.value.views_today, icon: 'View', color: '#67c23a', to: '/admin/analytics' },
+  { label: '待审评论', value: stats.value.pending_comments, icon: 'ChatDotSquare', color: '#e6a23c', to: '/admin/comments' },
+  { label: '用户总数', value: stats.value.total_users, icon: 'User', color: '#909399', to: '/admin/users' },
 ])
 
-const viewsChartOption = computed(() => ({
-  tooltip: { trigger: 'axis' },
-  grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
-  xAxis: {
-    type: 'category',
-    data: viewsData.value.map(d => d.date),
-    axisLabel: { formatter: (v: string) => v.slice(5) },
-  },
-  yAxis: { type: 'value' },
-  series: [{
-    data: viewsData.value.map(d => d.views),
-    type: 'line',
-    smooth: true,
-    areaStyle: { opacity: 0.15 },
-    lineStyle: { width: 2 },
-    itemStyle: { color: '#409eff' },
-  }],
-}))
 
-const deviceChartOption = computed(() => ({
-  tooltip: { trigger: 'item' },
-  series: [{
-    type: 'pie',
-    radius: ['40%', '70%'],
-    avoidLabelOverlap: false,
-    padAngle: 2,
-    itemStyle: { borderRadius: 6 },
-    label: { show: true, formatter: '{b}: {d}%' },
-    data: deviceData.value,
-  }],
-}))
 
 function statusType(s: string) {
   return s === 'published' ? 'success' : s === 'draft' ? 'info' : s === 'pending' ? 'warning' : 'danger'
@@ -332,7 +264,7 @@ function animateEntrance() {
     duration: 600,
     delay: stagger(100),
     ease: 'outQuint',
-  })
+  } as any)
 
   animate('.chart-card-left, .chart-card-right', {
     opacity: { from: 0 },
@@ -340,7 +272,7 @@ function animateEntrance() {
     duration: 700,
     delay: stagger(120, { start: 300 }),
     ease: 'outQuint',
-  })
+  } as any)
 
   animate('.activity-card', {
     opacity: { from: 0 },
@@ -348,53 +280,11 @@ function animateEntrance() {
     duration: 700,
     delay: stagger(100, { start: 500 }),
     ease: 'outQuint',
-  })
+  } as any)
 }
 
-async function fetchDashboard() {
-  try {
-    const res = await analyticsApi.dashboard()
-    const data = res.data
-    stats.value = data.stats
-    recentArticles.value = data.recent_articles ?? []
-    recentComments.value = data.recent_comments ?? []
-    await nextTick()
-    animateCounters()
-  } catch {
-    // ignore
-  }
-}
-
-async function fetchViews() {
-  try {
-    const res = await analyticsApi.viewsOverTime(chartDays.value)
-    viewsData.value = res.data
-  } catch {
-    viewsData.value = []
-  }
-}
-
-async function fetchDevices() {
-  try {
-    const res = await analyticsApi.deviceBreakdown()
-    deviceData.value = (res.data?.devices || []).map((d) => ({
-      name: d.name, value: d.count,
-    }))
-  } catch {
-    deviceData.value = [
-      { name: 'Desktop', value: 60 },
-      { name: 'Mobile', value: 30 },
-      { name: 'Tablet', value: 10 },
-    ]
-  }
-}
-
-onMounted(() => {
-  animateEntrance()
-  fetchDashboard()
-  fetchViews()
-  fetchDevices()
-})
+// Entrance animation runs once when the page mounts
+animateEntrance()
 </script>
 
 <style lang="scss" scoped>
@@ -402,6 +292,7 @@ onMounted(() => {
   .stats-row { margin-bottom: 16px; }
 
   .stat-card {
+    cursor: pointer;
     .stat-content {
       display: flex;
       justify-content: space-between;
@@ -426,15 +317,6 @@ onMounted(() => {
     }
   }
 
-  .chart-row { margin-bottom: 16px; }
-  .chart { height: 320px; }
-
-  .card-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-  }
-
   .article-item {
     display: flex;
     justify-content: space-between;
@@ -442,6 +324,7 @@ onMounted(() => {
     padding: 12px 0;
     border-bottom: 1px solid #f0f0f0;
     transition: background 0.2s;
+    cursor: pointer;
     &:hover { background: #fafafa; border-radius: 6px; }
     &:last-child { border-bottom: none; }
   }

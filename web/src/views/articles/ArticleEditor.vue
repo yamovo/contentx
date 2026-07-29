@@ -52,14 +52,18 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, watch, onMounted, onUnmounted } from 'vue'
+import { ref, reactive, computed, watch, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { articleApi, categoryApi, tagApi, type Article, type Category, type Tag } from '@/api'
+import { type Article, type Category, type Tag } from '@/api'
+import { useTagMutations } from '@/features/tags/use-tag-mutations'
 import { useAuthStore } from '@/stores/auth'
 import { ElMessage } from 'element-plus'
-import { marked } from 'marked'
-import DOMPurify from 'dompurify'
+import { renderSafeMarkdown } from '@/shared/lib/safe-markdown'
 import { buildTree, getApiError } from '@/utils'
+import { useArticleDetailQuery } from '@/features/articles/use-article-detail-query'
+import { useArticleMutations } from '@/features/articles/use-article-mutations'
+import { useTagListQuery } from '@/features/tags/use-tag-list-query'
+import { useCategoryListQuery } from '@/features/categories/use-category-list-query'
 import EditorTopbar from './components/EditorTopbar.vue'
 import ArticleMainEditor from './components/ArticleMainEditor.vue'
 import ArticleSeoPanel from './components/ArticleSeoPanel.vue'
@@ -71,11 +75,24 @@ const authStore = useAuthStore()
 
 const treeSelectProps = { label: 'name', value: 'id', children: 'children' } as const
 
+const articleId = computed(() => Number(route.params.id) || 0)
 const isEdit = computed(() => !!route.params.id)
 const saving = ref(false)
 const editorMode = ref('markdown')
+
+// Vue Query composables for data fetching
+const { data: articleData } = useArticleDetailQuery(articleId)
+const { data: tagsData } = useTagListQuery({})
+const { data: categoriesData } = useCategoryListQuery({})
+const { createArticle, updateArticle } = useArticleMutations()
+const { createTag: createTagMutation } = useTagMutations()
+
+// Local refs synced from query data (kept mutable for createTag / form population)
 const allTags = ref<Tag[]>([])
 const categories = ref<Category[]>([])
+
+watch(() => tagsData.value, (v) => { if (v?.data) allTags.value = [...v.data] }, { immediate: true })
+watch(() => categoriesData.value, (v) => { if (v?.data) categories.value = [...v.data] }, { immediate: true })
 
 type ArticleStatus = Article['status']
 type ArticleVisibility = Article['visibility']
@@ -114,7 +131,7 @@ watch(() => form.content, (content) => {
   if (previewTimer) clearTimeout(previewTimer)
   previewTimer = setTimeout(() => {
     previewTimer = null
-    try { renderedContent.value = DOMPurify.sanitize(marked(content || '') as string) } catch { renderedContent.value = content }
+    try { renderedContent.value = renderSafeMarkdown(content || '') } catch { renderedContent.value = content }
   }, 300)
 }, { immediate: true })
 
@@ -137,7 +154,7 @@ function autoSlug() {
 
 async function createTag(name: string) {
   try {
-    const res = await tagApi.create({ name })
+    const res = await createTagMutation.mutateAsync({ name })
     allTags.value.push(res.data)
     form.tag_ids.push(res.data.id)
   } catch {
@@ -149,6 +166,21 @@ function handleImageUpload(res: unknown) {
   const data = (res as { data?: { url?: string } })?.data
   if (data?.url) form.featured_image = data.url
 }
+
+// Populate form when editing and article data loads
+watch(() => articleData.value, (a) => {
+  if (a?.data && isEdit.value) {
+    const d = a.data
+    Object.assign(form, {
+      title: d.title, slug: d.slug, content: d.content || '', excerpt: d.excerpt,
+      category_id: d.category_id, tag_ids: d.tags?.map((t: any) => t.id) || [],
+      featured_image: d.featured_image, status: d.status, visibility: d.visibility,
+      is_pinned: d.is_pinned, is_featured: d.is_featured, allow_comment: d.allow_comment,
+      scheduled_at: d.scheduled_at, meta_title: d.meta_title, meta_desc: d.meta_desc,
+      meta_keywords: d.meta_keywords,
+    })
+  }
+}, { immediate: true })
 
 async function saveDraft() {
   form.status = 'draft'
@@ -178,12 +210,12 @@ async function save() {
   try {
     const payload = buildPayload()
     if (isEdit.value) {
-      await articleApi.update(Number(route.params.id), payload)
+      await updateArticle.mutateAsync({ id: articleId.value, ...payload } as any)
       ElMessage.success('文章已更新')
     } else {
-      const res = await articleApi.create(payload)
+      const res = await createArticle.mutateAsync(payload as any)
       ElMessage.success('文章已保存')
-      router.replace(`/admin/articles/${res.data.id}/edit`)
+      router.replace(`/admin/articles/${(res as any).data.id}/edit`)
     }
   } catch (err) {
     ElMessage.error(getApiError(err, '保存失败'))
@@ -191,25 +223,4 @@ async function save() {
     saving.value = false
   }
 }
-
-async function fetchData() {
-  const [tagRes, catRes] = await Promise.all([tagApi.list(), categoryApi.list()])
-  allTags.value = tagRes.data
-  categories.value = catRes.data
-
-  if (isEdit.value) {
-    const res = await articleApi.get(Number(route.params.id))
-    const a = res.data
-    Object.assign(form, {
-      title: a.title, slug: a.slug, content: DOMPurify.sanitize(a.content || ''), excerpt: a.excerpt,
-      category_id: a.category_id, tag_ids: a.tags?.map(t => t.id) || [],
-      featured_image: a.featured_image, status: a.status, visibility: a.visibility,
-      is_pinned: a.is_pinned, is_featured: a.is_featured, allow_comment: a.allow_comment,
-      scheduled_at: a.scheduled_at, meta_title: a.meta_title, meta_desc: a.meta_desc,
-      meta_keywords: a.meta_keywords,
-    })
-  }
-}
-
-onMounted(fetchData)
 </script>

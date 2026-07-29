@@ -1,15 +1,17 @@
 <template>
   <div class="tag-page">
-    <div class="page-header">
-      <h2>标签管理</h2>
-      <div class="header-actions">
+    <PageHeader
+      title="标签管理"
+      description="管理内容标签"
+    >
+      <template #actions>
         <el-input
           v-model="search"
           placeholder="搜索标签..."
           :prefix-icon="Search"
           clearable
           style="width: 200px; margin-right: 12px"
-          @input="fetchTags"
+          @input="onSearchInput"
         />
         <el-button
           type="primary"
@@ -17,58 +19,62 @@
         >
           <el-icon><Plus /></el-icon> 新建标签
         </el-button>
-      </div>
-    </div>
+      </template>
+    </PageHeader>
 
-    <el-card shadow="never">
-      <div class="tag-cloud">
-        <div
-          v-for="tag in tags"
-          :key="tag.id"
-          class="tag-card"
-        >
-          <div class="tag-info">
-            <el-tag
-              :color="tag.color"
-              effect="dark"
-              size="large"
-              class="tag-name"
-            >
-              {{ tag.name }}
-            </el-tag>
-            <span class="tag-slug">/{{ tag.slug }}</span>
-            <span class="tag-count">{{ tag.count }} 篇文章</span>
-          </div>
-          <div class="tag-actions">
-            <el-button
-              text
-              size="small"
-              @click="openDialog(tag)"
-            >
-              编辑
-            </el-button>
-            <el-popconfirm
-              title="确认删除？"
-              @confirm="deleteTag(tag.id)"
-            >
-              <template #reference>
-                <el-button
-                  text
-                  size="small"
-                  type="danger"
-                >
-                  删除
-                </el-button>
-              </template>
-            </el-popconfirm>
+    <AsyncState
+      :loading="loading"
+      :error="error"
+      :empty="!tags.length"
+      empty-text="暂无标签"
+      @retry="refetch"
+    >
+      <el-card shadow="never">
+        <div class="tag-cloud">
+          <div
+            v-for="tag in tags"
+            :key="tag.id"
+            class="tag-card"
+          >
+            <div class="tag-info">
+              <el-tag
+                :color="tag.color"
+                effect="dark"
+                size="large"
+                class="tag-name"
+              >
+                {{ tag.name }}
+              </el-tag>
+              <span class="tag-slug">/{{ tag.slug }}</span>
+              <span class="tag-count">{{ tag.count }} 篇文章</span>
+            </div>
+            <div class="tag-actions">
+              <el-button
+                text
+                size="small"
+                @click="openDialog(tag)"
+              >
+                编辑
+              </el-button>
+              <el-popconfirm
+                title="确认删除？"
+                @confirm="handleDeleteTag(tag.id)"
+              >
+                <template #reference>
+                  <el-button
+                    text
+                    size="small"
+                    type="danger"
+                  >
+                    删除
+                  </el-button>
+                </template>
+              </el-popconfirm>
+            </div>
           </div>
         </div>
-      </div>
-      <el-empty
-        v-if="!tags.length"
-        description="暂无标签"
-      />
-    </el-card>
+      </el-card>
+    </AsyncState>
 
     <!-- Dialog -->
     <el-dialog
@@ -115,23 +121,29 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, computed } from 'vue'
 import { Search } from '@element-plus/icons-vue'
-import { tagApi, type Tag } from '@/api'
+import { type Tag } from '@/api'
 import { ElMessage } from 'element-plus'
 import { getApiError } from '@/utils'
+import { PageHeader, AsyncState } from '@/shared/ui'
+import { useTagListQuery } from '@/features/tags/use-tag-list-query'
+import { useTagMutations } from '@/features/tags/use-tag-mutations'
 
-const tags = ref<Tag[]>([])
 const search = ref('')
+const { data: queryData, isLoading: loading, error, refetch } = useTagListQuery(
+  computed(() => ({ search: search.value })),
+)
+const tags = computed(() => queryData.value?.data ?? [])
+
+const { createTag, updateTag, deleteTag: deleteTagMutation } = useTagMutations()
+
 const dialogVisible = ref(false)
 const editingId = ref<number | null>(null)
 const form = reactive({ name: '', slug: '', color: '#409eff' })
 
-async function fetchTags() {
-  try {
-    const res = await tagApi.list({ search: search.value })
-    tags.value = res.data
-  } catch { tags.value = [] }
+function onSearchInput() {
+  refetch()
 }
 
 function openDialog(tag?: Tag) {
@@ -149,37 +161,28 @@ async function saveTag() {
   if (!form.name.trim()) { ElMessage.warning('请输入标签名称'); return }
   try {
     if (editingId.value) {
-      await tagApi.update(editingId.value, form)
+      await updateTag.mutateAsync({ id: editingId.value, ...form })
       ElMessage.success('标签已更新')
     } else {
-      await tagApi.create(form)
+      await createTag.mutateAsync(form)
       ElMessage.success('标签已创建')
     }
     dialogVisible.value = false
-    fetchTags()
   } catch (err) {
     ElMessage.error(getApiError(err, '保存失败'))
   }
 }
 
-async function deleteTag(id: number) {
+async function handleDeleteTag(id: number) {
   try {
-    await tagApi.delete(id)
+    await deleteTagMutation.mutateAsync(id)
     ElMessage.success('标签已删除')
-    fetchTags()
   } catch { ElMessage.error('删除失败') }
 }
-
-onMounted(fetchTags)
 </script>
 
 <style lang="scss" scoped>
 .tag-page {
-  .page-header {
-    display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;
-    h2 { margin: 0; font-size: 20px; }
-    .header-actions { display: flex; align-items: center; }
-  }
   .tag-cloud { display: flex; flex-wrap: wrap; gap: 12px; }
   .tag-card {
     display: flex; align-items: center; justify-content: space-between;

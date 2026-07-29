@@ -1,7 +1,24 @@
-import axios, { type AxiosInstance, type AxiosRequestConfig, type AxiosResponse } from 'axios'
+import axios, {
+  type AxiosError,
+  type AxiosInstance,
+  type AxiosRequestConfig,
+  type AxiosResponse,
+} from 'axios'
 import { useAuthStore } from '@/stores/auth'
-import { ElMessage } from 'element-plus'
 import router from '@/router'
+import {
+  ApiRequestError,
+  type ApiEnvelope,
+  type ApiError,
+} from '@/shared/api/types'
+
+// _retry 是拦截器的内部标记：置为 true 的请求在 401 时不再走 refresh
+// 重试流程（见下方响应拦截器与 authApi.refresh）。
+declare module 'axios' {
+  export interface AxiosRequestConfig {
+    _retry?: boolean
+  }
+}
 
 const config: AxiosRequestConfig = {
   baseURL: '/api/v1',
@@ -31,6 +48,48 @@ const processQueue = (error: unknown, token: string | null = null) => {
   failedQueue = []
 }
 
+const statusMessages: Record<number, string> = {
+  400: '请求参数有误',
+  401: '登录状态已失效',
+  403: '当前账号没有执行此操作的权限',
+  404: '请求的资源不存在',
+  409: '数据状态已发生变化，请刷新后重试',
+  422: '提交的数据未通过校验',
+  429: '请求过于频繁，请稍后再试',
+  500: '服务器内部错误',
+}
+
+export function normalizeApiError(error: unknown): ApiRequestError {
+  const axiosError = error as AxiosError<ApiEnvelope<unknown> & { error?: string }>
+  const response = axiosError.response
+  const status = response?.status ?? 0
+  const body = response?.data
+  const headerRequestId = response?.headers?.['x-request-id']
+  const requestId = typeof headerRequestId === 'string'
+    ? headerRequestId
+    : undefined
+
+  const normalized: ApiError = {
+    status,
+    code: body?.err_code || (status ? `HTTP_${status}` : 'NETWORK_ERROR'),
+    message: body?.message || body?.error || statusMessages[status] || (
+      status ? '请求未能完成' : '网络连接失败，请检查连接后重试'
+    ),
+    requestId,
+  }
+
+  return new ApiRequestError(normalized)
+}
+
+function navigateToLogin() {
+  if (router.currentRoute.value.path !== '/login') {
+    void router.replace({
+      path: '/login',
+      query: { redirect: router.currentRoute.value.fullPath },
+    })
+  }
+}
+
 // Request interceptor: attach JWT token.
 http.interceptors.request.use(
   (cfg) => {
@@ -46,18 +105,17 @@ http.interceptors.request.use(
 // Response interceptor: handle errors globally.
 http.interceptors.response.use(
   (response: AxiosResponse) => response,
-  (error) => {
+  (error: AxiosError<ApiEnvelope<unknown>>) => {
     const { response } = error
 
     if (!response) {
-      ElMessage.error('网络错误，请检查连接')
-      return Promise.reject(error)
+      return Promise.reject(normalizeApiError(error))
     }
 
     const originalRequest = error.config
 
     // Handle 401 with token refresh queue to prevent concurrent refreshes.
-    if (response.status === 401 && !originalRequest._retry) {
+    if (response.status === 401 && originalRequest && !originalRequest._retry) {
       if (isRefreshing) {
         return new Promise((resolve, reject) => {
           failedQueue.push({ resolve, reject })
@@ -73,9 +131,9 @@ http.interceptors.response.use(
       const authStore = useAuthStore()
       if (!authStore.refreshToken) {
         authStore.clearAuth()
-        router.push('/login')
+        navigateToLogin()
         isRefreshing = false
-        return Promise.reject(error)
+        return Promise.reject(normalizeApiError(error))
       }
 
       return authStore
@@ -88,7 +146,7 @@ http.interceptors.response.use(
         .catch((err) => {
           processQueue(err, null)
           authStore.clearAuth()
-          router.push('/login')
+          navigateToLogin()
           return Promise.reject(err)
         })
         .finally(() => {
@@ -96,27 +154,7 @@ http.interceptors.response.use(
         })
     }
 
-    switch (response.status) {
-      case 403:
-        ElMessage.error('权限不足')
-        break
-      case 404:
-        ElMessage.error('资源不存在')
-        break
-      case 422:
-        ElMessage.error(response.data?.error || '数据验证失败')
-        break
-      case 429:
-        ElMessage.warning('请求过于频繁，请稍后再试')
-        break
-      case 500:
-        ElMessage.error('服务器内部错误')
-        break
-      default:
-        ElMessage.error(response.data?.error || '请求失败')
-    }
-
-    return Promise.reject(error)
+    return Promise.reject(normalizeApiError(error))
   }
 )
 

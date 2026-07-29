@@ -61,7 +61,7 @@
           <template #default="{ row }">
             <el-popconfirm
               title="确认删除？"
-              @confirm="deleteRedirect(row.id)"
+              @confirm="handleDeleteRedirect(row.id)"
             >
               <template #reference>
                 <el-button
@@ -131,20 +131,19 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue'
-import { seoApi, type Redirect } from '@/api'
+import { ref, reactive, computed } from 'vue'
+import { type Redirect } from '@/api'
 import { ElMessage } from 'element-plus'
+import { useSeoRedirectsQuery } from '@/features/seo/use-seo-redirects-query'
+import { useSeoMutations } from '@/features/seo/use-seo-mutations'
 
-const redirects = ref<Redirect[]>([])
-const loading = ref(false)
+const { data: queryData, isLoading: loading } = useSeoRedirectsQuery()
+const redirects = computed<Redirect[]>(() => queryData.value?.data ?? [])
+
+const { createRedirect, deleteRedirect } = useSeoMutations()
+
 const dialogVisible = ref(false)
 const form = reactive({ from_path: '', to_path: '', status_code: 301, note: '' })
-
-async function fetchRedirects() {
-  loading.value = true
-  try { redirects.value = (await seoApi.listRedirects()).data } catch {}
-  finally { loading.value = false }
-}
 
 function openDialog() {
   Object.assign(form, { from_path: '', to_path: '', status_code: 301, note: '' })
@@ -152,19 +151,15 @@ function openDialog() {
 }
 
 async function createRule() {
-  await seoApi.createRedirect(form)
+  await createRedirect.mutateAsync(form)
   ElMessage.success('规则已添加')
   dialogVisible.value = false
-  fetchRedirects()
 }
 
-async function deleteRedirect(id: number) {
-  await seoApi.deleteRedirect(id)
+async function handleDeleteRedirect(id: number) {
+  await deleteRedirect.mutateAsync(id)
   ElMessage.success('规则已删除')
-  fetchRedirects()
 }
-
-onMounted(fetchRedirects)
 </script>
 
 <style lang="scss" scoped>

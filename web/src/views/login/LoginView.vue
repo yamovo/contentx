@@ -46,6 +46,20 @@
             />
           </el-form-item>
 
+          <!-- Second factor: only revealed after the backend answers
+               TOTP_REQUIRED, so regular accounts never see it. -->
+          <el-form-item v-if="totpRequired">
+            <el-input
+              v-model="form.totpCode"
+              placeholder="动态验证码或备用码"
+              :prefix-icon="Key"
+              size="large"
+              maxlength="16"
+              clearable
+              @keyup.enter="handleLogin"
+            />
+          </el-form-item>
+
           <el-form-item>
             <div class="login-options">
               <el-checkbox v-model="rememberMe">
@@ -106,7 +120,7 @@
 import { ref, reactive, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
-import { User, Lock } from '@element-plus/icons-vue'
+import { User, Lock, Key } from '@element-plus/icons-vue'
 import { ElMessage, type FormInstance } from 'element-plus'
 import { useAnime } from '@/composables/useAnime'
 import { getApiError } from '@/utils'
@@ -128,8 +142,10 @@ const c3Ref = ref<HTMLElement>()
 const form = reactive({
   username: '',
   password: '',
+  totpCode: '',
 })
 const rememberMe = ref(false)
+const totpRequired = ref(false)
 
 const rules = {
   username: [{ required: true, message: '请输入用户名', trigger: 'blur' }],
@@ -144,12 +160,24 @@ async function handleLogin() {
   if (!valid) return
 
   try {
-    await authStore.login(form.username, form.password)
+    await authStore.login(form.username, form.password, form.totpCode || undefined)
     ElMessage.success('登录成功')
 
     const redirect = (route.query.redirect as string) || '/admin'
     router.push(redirect)
   } catch (err) {
+    // 后端密码验证通过但要求二次验证：展示验证码输入框而非报错。
+    const errCode = (err as { response?: { data?: { err_code?: string } } })?.response?.data?.err_code
+    if (errCode === 'TOTP_REQUIRED') {
+      totpRequired.value = true
+      ElMessage.info('请输入身份验证器的动态验证码')
+      return
+    }
+    if (errCode === 'TOTP_INVALID') {
+      totpRequired.value = true
+      ElMessage.error('验证码错误，请重试')
+      return
+    }
     ElMessage.error(getApiError(err, '登录失败'))
   }
 }

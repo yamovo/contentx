@@ -1,90 +1,101 @@
 <template>
   <div class="category-page">
-    <div class="page-header">
-      <h2>分类管理</h2>
-      <el-button
-        type="primary"
-        @click="openDialog()"
-      >
-        <el-icon><Plus /></el-icon> 新建分类
-      </el-button>
-    </div>
+    <PageHeader
+      title="分类管理"
+      description="管理内容分类结构"
+    >
+      <template #actions>
+        <el-button
+          type="primary"
+          @click="openDialog()"
+        >
+          <el-icon><Plus /></el-icon> 新建分类
+        </el-button>
+      </template>
+    </PageHeader>
 
-    <el-card shadow="never">
-      <el-table
-        v-loading="loading"
-        :data="categories"
-        row-key="id"
-        default-expand-all
-      >
-        <el-table-column
-          label="名称"
-          min-width="250"
+    <AsyncState
+      :loading="loading"
+      :error="error"
+      :empty="!categories.length"
+      empty-text="暂无分类"
+      @retry="refetch"
+    >
+      <el-card shadow="never">
+        <el-table
+          :data="categories"
+          row-key="id"
+          default-expand-all
         >
-          <template #default="{ row }">
-            <div class="cat-name">
-              <span
-                class="color-dot"
-                :style="{ background: row.color || '#409eff' }"
-              />
-              <strong>{{ row.name }}</strong>
-              <el-tag
-                v-if="!row.is_active"
-                type="danger"
-                size="small"
-              >
-                已禁用
-              </el-tag>
-            </div>
-          </template>
-        </el-table-column>
-        <el-table-column
-          label="别名"
-          prop="slug"
-          width="150"
-        />
-        <el-table-column
-          label="文章数"
-          prop="post_count"
-          width="80"
-          align="center"
-        />
-        <el-table-column
-          label="排序"
-          prop="sort_order"
-          width="80"
-          align="center"
-        />
-        <el-table-column
-          label="操作"
-          width="200"
-        >
-          <template #default="{ row }">
-            <el-button
-              text
-              size="small"
-              @click="openDialog(row as Category)"
-            >
-              编辑
-            </el-button>
-            <el-popconfirm
-              title="确认删除？文章将移至未分类"
-              @confirm="deleteCategory(row.id)"
-            >
-              <template #reference>
-                <el-button
-                  text
-                  size="small"
+          <el-table-column
+            label="名称"
+            min-width="250"
+          >
+            <template #default="{ row }">
+              <div class="cat-name">
+                <span
+                  class="color-dot"
+                  :style="{ background: row.color || '#409eff' }"
+                />
+                <strong>{{ row.name }}</strong>
+                <el-tag
+                  v-if="!row.is_active"
                   type="danger"
+                  size="small"
                 >
-                  删除
-                </el-button>
-              </template>
-            </el-popconfirm>
-          </template>
-        </el-table-column>
-      </el-table>
-    </el-card>
+                  已禁用
+                </el-tag>
+              </div>
+            </template>
+          </el-table-column>
+          <el-table-column
+            label="别名"
+            prop="slug"
+            width="150"
+          />
+          <el-table-column
+            label="文章数"
+            prop="post_count"
+            width="80"
+            align="center"
+          />
+          <el-table-column
+            label="排序"
+            prop="sort_order"
+            width="80"
+            align="center"
+          />
+          <el-table-column
+            label="操作"
+            width="200"
+          >
+            <template #default="{ row }">
+              <el-button
+                text
+                size="small"
+                @click="openDialog(row as Category)"
+              >
+                编辑
+              </el-button>
+              <el-popconfirm
+                title="确认删除？文章将移至未分类"
+                @confirm="handleDeleteCategory(row.id)"
+              >
+                <template #reference>
+                  <el-button
+                    text
+                    size="small"
+                    type="danger"
+                  >
+                    删除
+                  </el-button>
+                </template>
+              </el-popconfirm>
+            </template>
+          </el-table-column>
+        </el-table>
+      </el-card>
+    </AsyncState>
 
     <!-- Dialog -->
     <el-dialog
@@ -162,15 +173,22 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted } from 'vue'
-import { categoryApi, type Category } from '@/api'
+import { ref, reactive, computed } from 'vue'
+import { type Category } from '@/api'
 import { ElMessage } from 'element-plus'
 import { buildTree, getApiError } from '@/utils'
+import { PageHeader, AsyncState } from '@/shared/ui'
+import { useCategoryListQuery } from '@/features/categories/use-category-list-query'
+import { useCategoryMutations } from '@/features/categories/use-category-mutations'
 
-const categories = ref<Category[]>([])
-const loading = ref(false)
+const { data: queryData, isLoading: loading, error, refetch } = useCategoryListQuery({ all: 'true' })
+const categories = computed(() => queryData.value?.data ?? [])
+
+const { createCategory, updateCategory, deleteCategory: deleteCategoryMutation } = useCategoryMutations()
+
+const saving = computed(() => createCategory.isPending.value || updateCategory.isPending.value)
+
 const dialogVisible = ref(false)
-const saving = ref(false)
 const editingId = ref<number | null>(null)
 
 const treeSelectProps = { label: 'name', value: 'id', children: 'children' }
@@ -181,18 +199,6 @@ const form = reactive({
 })
 
 const categoryTree = computed(() => buildTree(categories.value))
-
-async function fetchCategories() {
-  loading.value = true
-  try {
-    const res = await categoryApi.list({ all: 'true' })
-    categories.value = res.data
-  } catch {
-    categories.value = []
-  } finally {
-    loading.value = false
-  }
-}
 
 function openDialog(cat?: Category) {
   if (cat) {
@@ -217,43 +223,32 @@ async function saveCategory() {
     ElMessage.warning('请输入分类名称')
     return
   }
-  saving.value = true
   try {
     if (editingId.value) {
-      await categoryApi.update(editingId.value, form)
+      await updateCategory.mutateAsync({ id: editingId.value, ...form })
       ElMessage.success('分类已更新')
     } else {
-      await categoryApi.create(form)
+      await createCategory.mutateAsync(form)
       ElMessage.success('分类已创建')
     }
     dialogVisible.value = false
-    fetchCategories()
   } catch (err) {
     ElMessage.error(getApiError(err, '保存失败'))
-  } finally {
-    saving.value = false
   }
 }
 
-async function deleteCategory(id: number) {
+async function handleDeleteCategory(id: number) {
   try {
-    await categoryApi.delete(id)
+    await deleteCategoryMutation.mutateAsync(id)
     ElMessage.success('分类已删除')
-    fetchCategories()
   } catch {
     ElMessage.error('删除失败')
   }
 }
-
-onMounted(fetchCategories)
 </script>
 
 <style lang="scss" scoped>
 .category-page {
-  .page-header {
-    display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;
-    h2 { margin: 0; font-size: 20px; }
-  }
   .cat-name {
     display: flex; align-items: center; gap: 8px;
     .color-dot {

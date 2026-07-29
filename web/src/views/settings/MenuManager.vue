@@ -157,27 +157,28 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue'
-import { menuApi, type Menu, type MenuItem } from '@/api'
+import { ref, reactive, computed } from 'vue'
+import { type Menu, type MenuItem } from '@/api'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { useMenuListQuery } from '@/features/menus/use-menu-list-query'
+import { useMenuMutations } from '@/features/menus/use-menu-mutations'
 
-const menus = ref<Menu[]>([])
+const { data: queryData } = useMenuListQuery()
+const menus = computed(() => queryData.value?.data ?? [])
+
+const { createMenu: createMenuMutation, addMenuItem, updateMenuItem, deleteMenuItem } = useMenuMutations()
+
 const selectedMenu = ref<Menu | null>(null)
 const itemDialog = ref(false)
 const editingItemId = ref<number | null>(null)
 const itemForm = reactive({ title: '', url: '', target: '_self', icon: '', css_class: '' })
 
-async function fetchMenus() {
-  try { menus.value = (await menuApi.list()).data } catch {}
-}
-
 function selectMenu(m: Menu) { selectedMenu.value = m }
 
 async function createMenu() {
   const { value } = await ElMessageBox.prompt('输入菜单名称', '新建菜单')
-  await menuApi.create({ name: value, slug: value.toLowerCase().replace(/\s+/g, '-') })
+  await createMenuMutation.mutateAsync({ name: value, slug: value.toLowerCase().replace(/\s+/g, '-') })
   ElMessage.success('菜单已创建')
-  fetchMenus()
 }
 
 function addItem() {
@@ -195,28 +196,20 @@ function editItem(item: MenuItem) {
 async function saveItem() {
   if (!selectedMenu.value) return
   if (editingItemId.value) {
-    await menuApi.updateItem(selectedMenu.value.id, editingItemId.value, itemForm)
+    await updateMenuItem.mutateAsync({ menuId: selectedMenu.value.id, itemId: editingItemId.value, data: itemForm })
   } else {
-    await menuApi.addItem(selectedMenu.value.id, itemForm)
+    await addMenuItem.mutateAsync({ menuId: selectedMenu.value.id, data: itemForm })
   }
   ElMessage.success('已保存')
   itemDialog.value = false
-  // Refresh menu.
-  const res = await menuApi.get(selectedMenu.value.id)
-  selectedMenu.value = res.data
-  fetchMenus()
 }
 
 async function deleteItem(id: number) {
   if (!selectedMenu.value) return
   await ElMessageBox.confirm('确认删除？')
-  await menuApi.deleteItem(selectedMenu.value.id, id)
-  const res = await menuApi.get(selectedMenu.value.id)
-  selectedMenu.value = res.data
+  await deleteMenuItem.mutateAsync({ menuId: selectedMenu.value.id, itemId: id })
   ElMessage.success('已删除')
 }
-
-onMounted(fetchMenus)
 </script>
 
 <style lang="scss" scoped>

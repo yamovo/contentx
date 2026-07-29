@@ -178,7 +178,7 @@ describe('CategoryList', () => {
   })
 
   it('shows ElMessage.error when create rejects', async () => {
-    vi.mocked(categoryApi.create).mockRejectedValueOnce(new Error('boom'))
+    vi.mocked(categoryApi.create).mockRejectedValueOnce({})
     const wrapper = mountWithPlugins(CategoryList)
     await flushPromises()
 

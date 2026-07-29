@@ -117,13 +117,13 @@ describe('LoginView', () => {
     await flushPromises()
 
     expect(formValidate).toHaveBeenCalled()
-    expect(mockAuthStore.login).toHaveBeenCalledWith('testuser', 'password123')
+    expect(mockAuthStore.login).toHaveBeenCalledWith('testuser', 'password123', undefined)
     expect(ElMessage.success).toHaveBeenCalledWith('登录成功')
     expect(routerPushSpy).toHaveBeenCalledWith('/admin')
   })
 
   it('shows ElMessage.error when login rejects', async () => {
-    mockAuthStore.login.mockRejectedValueOnce(new Error('Invalid credentials'))
+    mockAuthStore.login.mockRejectedValueOnce({})
     const wrapper = await mountLogin()
 
     const inputs = wrapper.findAll('input')

@@ -71,12 +71,15 @@ import { useRoute } from 'vue-router'
 import { articleApi, type Revision } from '@/api'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { formatDate } from '@/utils'
+import { useArticleMutations } from '@/features/articles/use-article-mutations'
 
 const route = useRoute()
 const articleId = Number(route.params.id)
 const articleTitle = ref('')
 const revisions = ref<Revision[]>([])
 const currentVersion = ref(0)
+
+const { restoreRevision: restoreRevisionMutation } = useArticleMutations()
 
 async function fetchRevisions() {
   try {
@@ -97,7 +100,7 @@ async function fetchRevisions() {
 async function restoreRevision(revisionId: number) {
   await ElMessageBox.confirm('确认恢复到此版本？当前内容将被保存为新版本。', '确认恢复')
   try {
-    await articleApi.restoreRevision(articleId, revisionId)
+    await restoreRevisionMutation.mutateAsync({ articleId, revisionId })
     ElMessage.success('版本已恢复')
     fetchRevisions()
   } catch {
@@ -108,8 +111,6 @@ async function restoreRevision(revisionId: number) {
 function viewDiff(_rev: Revision) {
   ElMessage.info('差异查看功能开发中')
 }
-
-
 
 onMounted(fetchRevisions)
 </script>

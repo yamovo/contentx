@@ -12,6 +12,7 @@ import {
 } from 'vue'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { setActivePinia, createPinia } from 'pinia'
+import { VueQueryPlugin, QueryClient } from '@tanstack/vue-query'
 
 /**
  * Factory that builds a fresh localStorage mock backed by an in-memory store.
@@ -255,9 +256,23 @@ export function mountWithPlugins(
     ...restGlobal
   } = (globalOverride as any) || {}
 
+  const queryClient = new QueryClient({
+    defaultOptions: {
+      queries: {
+        staleTime: Infinity,
+        retry: false,
+        gcTime: 0,
+        refetchOnWindowFocus: false,
+      },
+      mutations: {
+        retry: 0,
+      },
+    },
+  })
+
   return mount(component, {
     global: {
-      plugins: [router, ...(userPlugins || [])],
+      plugins: [router, [VueQueryPlugin, { queryClient }], ...(userPlugins || [])],
       stubs: { ...elementPlusStubs, ...(userStubs || {}) },
       ...restGlobal,
     },
@@ -311,6 +326,12 @@ export function mockApi() {
       update: vi.fn(),
       delete: vi.fn(),
       bulk: vi.fn(),
+      publish: vi.fn(),
+      unpublish: vi.fn(),
+      submitReview: vi.fn(),
+      approve: vi.fn(),
+      schedule: vi.fn(),
+      archive: vi.fn(),
       revisions: vi.fn(),
       restoreRevision: vi.fn(),
       like: vi.fn(),
@@ -416,6 +437,45 @@ export function mockApi() {
       info: vi.fn(),
       health: vi.fn(),
       activity: vi.fn(),
+    },
+    tokenApi: {
+      list: vi.fn(),
+      create: vi.fn(),
+      delete: vi.fn(),
+    },
+    backupApi: {
+      list: vi.fn(),
+      create: vi.fn(),
+      restore: vi.fn(),
+      download: vi.fn(),
+      delete: vi.fn(),
+    },
+    webhookApi: {
+      list: vi.fn(),
+      create: vi.fn(),
+      delete: vi.fn(),
+      logs: vi.fn(),
+    },
+    searchApi: {
+      admin: vi.fn(),
+      reindex: vi.fn(),
+    },
+    contentApi: {
+      listTypes: vi.fn(),
+      getType: vi.fn(),
+      createType: vi.fn(),
+      deleteType: vi.fn(),
+      listEntries: vi.fn(),
+      getEntry: vi.fn(),
+      createEntry: vi.fn(),
+      updateEntry: vi.fn(),
+      deleteEntry: vi.fn(),
+      publishEntry: vi.fn(),
+      unpublishEntry: vi.fn(),
+      exportEntries: vi.fn(),
+      importEntries: vi.fn(),
+      listTranslations: vi.fn(),
+      createTranslation: vi.fn(),
     },
   }
 }

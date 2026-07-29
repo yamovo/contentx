@@ -1,35 +1,10 @@
 // ─── ContentX Global Styles ──────────────────────────────
 
-// CSS Variables (Light Theme)
-:root {
-  --bg-primary: #f5f7fa;
-  --bg-secondary: #ffffff;
-  --bg-card: #ffffff;
-  --text-primary: #303133;
-  --text-secondary: #606266;
-  --text-muted: #909399;
-  --border-color: #ebeef5;
-  --header-bg: #ffffff;
-  --sidebar-bg: #1d1e2c;
-  --sidebar-text: rgba(255,255,255,0.7);
-  --sidebar-active: #409eff;
-}
+@use '../shared/styles/tokens';
 
 // Dark Theme
 .dark,
 [data-theme="dark"] {
-  --bg-primary: #1a1a2e;
-  --bg-secondary: #16213e;
-  --bg-card: #1f2940;
-  --text-primary: #e4e6eb;
-  --text-secondary: #b0b3b8;
-  --text-muted: #8a8d91;
-  --border-color: #2d3748;
-  --header-bg: #1f2940;
-  --sidebar-bg: #0f0f1a;
-  --sidebar-text: rgba(255,255,255,0.6);
-  --sidebar-active: #60a5fa;
-
   // Override body
   body {
     background: var(--bg-primary);
@@ -151,6 +126,11 @@ body {
   line-height: 1.6;
   color: var(--text-primary, #303133);
   background: var(--bg-primary, #f5f7fa);
+}
+
+:where(button, [role='button'], a, input, textarea, select):focus-visible {
+  outline: 2px solid var(--cx-color-focus);
+  outline-offset: 2px;
 }
 
 a {

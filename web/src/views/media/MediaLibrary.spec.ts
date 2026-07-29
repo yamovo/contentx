@@ -192,7 +192,7 @@ describe('MediaLibrary', () => {
 
     const vm = wrapper.vm as any
     vm.filters.type = 'image'
-    await vm.fetchMedia()
+    await vm.applyFilters()
     await flushPromises()
 
     expect(mediaApi.list).toHaveBeenCalledWith(

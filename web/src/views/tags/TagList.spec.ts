@@ -162,7 +162,7 @@ describe('TagList', () => {
   })
 
   it('shows ElMessage.error when create rejects', async () => {
-    vi.mocked(tagApi.create).mockRejectedValueOnce(new Error('boom'))
+    vi.mocked(tagApi.create).mockRejectedValueOnce({})
     const wrapper = mountWithPlugins(TagList)
     await flushPromises()
 

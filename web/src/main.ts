@@ -1,5 +1,6 @@
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
+import { VueQueryPlugin } from '@tanstack/vue-query'
 // Element Plus components are auto-imported on demand via
 // unplugin-vue-components (ElementPlusResolver) — no full bundle import here.
 // Only styles that the resolver cannot see are added manually:
@@ -20,12 +21,14 @@ import {
 } from '@element-plus/icons-vue'
 import App from './App.vue'
 import router from './router'
+import { queryClient } from './app/providers/vue-query'
 import './assets/main.scss'
 
 const app = createApp(App)
 const pinia = createPinia()
 
 app.use(pinia)
+app.use(VueQueryPlugin, { queryClient })
 app.use(router)
 
 // Register only the icons actually used in the app (route meta, dynamic

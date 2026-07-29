@@ -64,11 +64,10 @@
 
 <script setup lang="ts">
 import { onMounted, onUnmounted } from 'vue'
-import { stagger } from 'animejs/utils'
 import { useAnime } from '@/composables/useAnime'
 
 // Tracked animations are cancelled on unmount.
-const { animate } = useAnime()
+const { animate, stagger } = useAnime()
 let featuresObserver: IntersectionObserver | null = null
 
 const features = [

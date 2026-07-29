@@ -102,8 +102,9 @@
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import { animate } from 'animejs'
+import { useAnime } from '@/composables/useAnime'
 
+const { animate } = useAnime()
 const mobileMenuOpen = ref(false)
 const navRef = ref<HTMLElement>()
 const isDark = ref(false)

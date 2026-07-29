@@ -113,8 +113,7 @@ describe('ArticleEditor', () => {
   })
 
   it('save() shows ElMessage.error when articleApi.create rejects with response.error', async () => {
-    const err: any = new Error('boom')
-    err.response = { data: { error: '标题重复' } }
+    const err = { message: '标题重复' }
     vi.mocked(articleApi.create).mockRejectedValueOnce(err)
 
     const wrapper = mountEditor()
@@ -129,7 +128,7 @@ describe('ArticleEditor', () => {
   })
 
   it('save() falls back to generic error when response is missing', async () => {
-    vi.mocked(articleApi.create).mockRejectedValueOnce(new Error('network'))
+    vi.mocked(articleApi.create).mockRejectedValueOnce({})
     const wrapper = mountEditor()
     await flushPromises()
 

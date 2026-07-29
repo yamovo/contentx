@@ -1,20 +1,46 @@
 <template>
   <div class="role-page">
     <div class="page-header">
-      <h2>角色权限</h2>
-      <el-button
-        type="primary"
-        @click="openDialog()"
-      >
-        <el-icon><Plus /></el-icon> 新建角色
-      </el-button>
+      <div>
+        <h2>角色权限</h2>
+        <p>角色编辑器只展示当前 Canonical 权限，旧版 view/edit/manage 标识不会再分配。</p>
+      </div>
+      <PermissionGate :permission="PERMISSIONS.roles.create">
+        <el-button
+          type="primary"
+          @click="openDialog()"
+        >
+          <el-icon><Plus /></el-icon> 新建角色
+        </el-button>
+      </PermissionGate>
     </div>
 
-    <el-row :gutter="16">
+    <el-alert
+      v-if="errorMessage"
+      type="error"
+      :closable="false"
+      show-icon
+      :title="errorMessage"
+      class="error-alert"
+    >
+      <el-button
+        text
+        type="primary"
+        @click="refetch"
+      >
+        重试
+      </el-button>
+    </el-alert>
+
+    <el-row
+      v-loading="loading"
+      :gutter="16"
+    >
       <el-col
         v-for="role in roles"
         :key="role.id"
-        :span="12"
+        :xs="24"
+        :lg="12"
       >
         <el-card
           shadow="hover"
@@ -40,7 +66,7 @@
                 <el-button
                   text
                   size="small"
-                  :disabled="role.is_system"
+                  :disabled="role.is_system || !authStore.hasPermission(PERMISSIONS.roles.update)"
                   @click="editRole(role)"
                 >
                   编辑
@@ -49,7 +75,7 @@
                   text
                   size="small"
                   type="danger"
-                  :disabled="role.is_system"
+                  :disabled="role.is_system || !authStore.hasPermission(PERMISSIONS.roles.delete)"
                   @click="deleteRole(role)"
                 >
                   删除
@@ -169,26 +195,36 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue'
-import { roleApi, type Role, type Permission } from '@/api'
+import { ref, reactive, computed } from 'vue'
+import { type Role, type Permission } from '@/api'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getApiError } from '@/utils'
+import PermissionGate from '@/shared/ui/PermissionGate.vue'
+import { isPermissionSlug, PERMISSIONS } from '@/shared/auth/permissions'
+import { useAuthStore } from '@/stores/auth'
+import { useRoleListQuery, useRolePermissionsQuery } from '@/features/roles/use-role-list-query'
+import { useRoleMutations } from '@/features/roles/use-role-mutations'
 
-const roles = ref<Role[]>([])
-const allPerms = ref<Permission[]>([])
-const groupedPerms = ref<Record<string, Permission[]>>({})
 const dialogVisible = ref(false)
 const editingId = ref<number | null>(null)
 const form = reactive({ name: '', slug: '', description: '', permission_ids: [] as number[] })
+const authStore = useAuthStore()
 
-async function fetchData() {
-  try {
-    const [roleRes, permRes] = await Promise.all([roleApi.list(), roleApi.permissions()])
-    roles.value = roleRes.data
-    allPerms.value = permRes.data
-    groupedPerms.value = permRes.grouped
-  } catch {}
-}
+const { data: rolesData, isLoading: loading, isError, error, refetch } = useRoleListQuery()
+const roles = computed(() => rolesData.value?.data ?? [])
+const errorMessage = computed(() => isError.value ? getApiError(error.value, '角色与权限加载失败') : '')
+
+const { data: permsData } = useRolePermissionsQuery()
+const groupedPerms = computed(() => {
+  const allPerms = permsData.value?.data ?? []
+  const canonical = allPerms.filter(permission => isPermissionSlug(permission.slug))
+  return canonical.reduce<Record<string, Permission[]>>((grouped, permission) => {
+    (grouped[permission.module] ||= []).push(permission)
+    return grouped
+  }, {})
+})
+
+const { createRole, updateRole, deleteRole: deleteRoleMutation } = useRoleMutations()
 
 function openDialog() {
   editingId.value = null
@@ -208,30 +244,40 @@ function editRole(role: Role) {
 async function saveRole() {
   try {
     if (editingId.value) {
-      await roleApi.update(editingId.value, form)
+      await updateRole.mutateAsync({ id: editingId.value, ...form })
       ElMessage.success('角色已更新')
     } else {
-      await roleApi.create(form)
+      await createRole.mutateAsync(form)
       ElMessage.success('角色已创建')
     }
     dialogVisible.value = false
-    fetchData()
   } catch (err) { ElMessage.error(getApiError(err, '保存失败')) }
 }
 
 async function deleteRole(role: Role) {
-  await ElMessageBox.confirm(`确认删除角色 "${role.name}"？`, '确认')
-  await roleApi.delete(role.id)
-  ElMessage.success('角色已删除')
-  fetchData()
+  try {
+    await ElMessageBox.confirm(`确认删除角色 "${role.name}"？`, '确认', {
+      type: 'warning',
+      confirmButtonText: '删除',
+      cancelButtonText: '取消',
+    })
+    await deleteRoleMutation.mutateAsync(role.id)
+    ElMessage.success('角色已删除')
+  } catch (error) {
+    if (error === 'cancel' || error === 'close') return
+    ElMessage.error(getApiError(error, '删除失败'))
+  }
 }
-
-onMounted(fetchData)
 </script>
 
 <style lang="scss" scoped>
 .role-page {
-  .page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; h2 { margin: 0; } }
+  .page-header {
+    display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; margin-bottom: 16px;
+    h2 { margin: 0; }
+    p { margin: 6px 0 0; color: var(--app-text-muted, #6b7280); font-size: 13px; }
+  }
+  .error-alert { margin-bottom: 16px; }
   .role-card { margin-bottom: 16px; }
   .role-header { display: flex; justify-content: space-between; align-items: flex-start;
     h3 { margin: 0 0 4px; } .role-desc { color: #909399; font-size: 13px; margin: 0; } }

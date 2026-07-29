@@ -1,23 +1,16 @@
 <template>
   <div class="article-list-page">
     <!-- Header -->
-    <div class="page-header">
-      <div class="header-left">
-        <h2>{{ pageTitle }}</h2>
-        <el-tag
-          type="info"
-          size="small"
+    <PageHeader :title="pageTitle">
+      <template #actions>
+        <el-button
+          type="primary"
+          @click="$router.push(createPath)"
         >
-          {{ total }} 篇
-        </el-tag>
-      </div>
-      <el-button
-        type="primary"
-        @click="$router.push(createPath)"
-      >
-        <el-icon><Plus /></el-icon> {{ createLabel }}
-      </el-button>
-    </div>
+          <el-icon><Plus /></el-icon> {{ createLabel }}
+        </el-button>
+      </template>
+    </PageHeader>
 
     <!-- Filters -->
     <el-card
@@ -27,7 +20,7 @@
       <el-form
         :inline="true"
         :model="filters"
-        @submit.prevent="fetchArticles"
+        @submit.prevent
       >
         <el-form-item>
           <el-input
@@ -35,7 +28,6 @@
             placeholder="搜索文章..."
             :prefix-icon="Search"
             clearable
-            @clear="fetchArticles"
           />
         </el-form-item>
         <el-form-item>
@@ -43,7 +35,6 @@
             v-model="filters.status"
             placeholder="状态"
             clearable
-            @change="fetchArticles"
           >
             <el-option
               label="已发布"
@@ -72,7 +63,6 @@
             v-model="filters.category_id"
             placeholder="分类"
             clearable
-            @change="fetchArticles"
           >
             <el-option
               v-for="cat in categories"
@@ -86,7 +76,6 @@
           <el-select
             v-model="filters.sort"
             placeholder="排序"
-            @change="fetchArticles"
           >
             <el-option
               label="最新"
@@ -113,7 +102,6 @@
         <el-form-item>
           <el-button
             type="primary"
-            @click="fetchArticles"
           >
             搜索
           </el-button>
@@ -212,13 +200,10 @@
           width="100"
         >
           <template #default="{ row }">
-            <el-tag
-              :type="statusType(row.status)"
-              size="small"
-              effect="light"
-            >
-              {{ statusLabel(row.status) }}
-            </el-tag>
+            <StatusBadge
+              :label="statusLabel(row.status)"
+              :tone="statusTone(row.status)"
+            />
           </template>
         </el-table-column>
         <el-table-column
@@ -327,8 +312,6 @@
           :total="total"
           :page-sizes="[10, 20, 50, 100]"
           layout="total, sizes, prev, pager, next, jumper"
-          @current-change="fetchArticles"
-          @size-change="fetchArticles"
         />
       </div>
     </el-card>
@@ -336,26 +319,26 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, computed, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { Search } from '@element-plus/icons-vue'
-import { articleApi, categoryApi, type Article, type Category } from '@/api'
+import { type Article } from '@/api'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { formatDate } from '@/utils'
+import { PageHeader, StatusBadge } from '@/shared/ui'
+import { useArticleListQuery } from '@/features/articles/use-article-list-query'
+import { useArticleMutations } from '@/features/articles/use-article-mutations'
+import { useCategoryListQuery } from '@/features/categories/use-category-list-query'
 
 const route = useRoute()
-const postType = route.meta.postType as string || 'post'
+const postType = computed(() => route.meta.postType as string || 'post')
 
-const pageTitle = postType === 'page' ? '页面管理' : '文章管理'
-const createLabel = postType === 'page' ? '新建页面' : '写文章'
-const createPath = postType === 'page' ? '/admin/pages/create' : '/admin/articles/create'
+const pageTitle = computed(() => postType.value === 'page' ? '页面管理' : '文章管理')
+const createLabel = computed(() => postType.value === 'page' ? '新建页面' : '写文章')
+const createPath = computed(() => postType.value === 'page' ? '/admin/pages/create' : '/admin/articles/create')
 
-const articles = ref<Article[]>([])
-const categories = ref<Category[]>([])
-const loading = ref(false)
 const page = ref(1)
 const pageSize = ref(20)
-const total = ref(0)
 const selectedIds = ref<number[]>([])
 
 const filters = reactive({
@@ -365,38 +348,25 @@ const filters = reactive({
   sort: 'newest',
 })
 
-// Monotonic sequence guard: rapid filter/pagination changes fire concurrent
-// requests; an out-of-order (older) response must not overwrite newer data.
-let fetchSeq = 0
+// Vue Query: reactive params drive the queryKey → automatic refetch on change
+const queryParams = computed(() => ({
+  page: page.value,
+  page_size: pageSize.value,
+  post_type: postType.value,
+  search: filters.search,
+  status: filters.status,
+  category_id: filters.category_id,
+  sort: filters.sort,
+}))
 
-async function fetchArticles() {
-  const seq = ++fetchSeq
-  loading.value = true
-  try {
-    const res = await articleApi.list({
-      page: page.value,
-      page_size: pageSize.value,
-      post_type: postType,
-      ...filters,
-    })
-    if (seq !== fetchSeq) return
-    articles.value = res.items
-    total.value = res.total
-  } catch {
-    if (seq === fetchSeq) articles.value = []
-  } finally {
-    if (seq === fetchSeq) loading.value = false
-  }
-}
+const { data: articleData, isLoading: loading } = useArticleListQuery(queryParams)
+const articles = computed(() => articleData.value?.items || [])
+const total = computed(() => articleData.value?.total || 0)
 
-async function fetchCategories() {
-  try {
-    const res = await categoryApi.list()
-    categories.value = res.data
-  } catch {
-    categories.value = []
-  }
-}
+const { data: categoriesData } = useCategoryListQuery({})
+const categories = computed(() => categoriesData.value?.data || [])
+
+const { updateArticle, deleteArticle, bulkAction: bulkActionMutation, publishArticle } = useArticleMutations()
 
 function handleSelectionChange(rows: Article[]) {
   selectedIds.value = rows.map(r => r.id)
@@ -404,9 +374,11 @@ function handleSelectionChange(rows: Article[]) {
 
 async function bulkAction(action: string) {
   try {
-    await articleApi.bulk({ article_ids: selectedIds.value, action })
+    await bulkActionMutation.mutateAsync({
+      article_ids: selectedIds.value,
+      action: action as 'publish' | 'unpublish' | 'draft' | 'trash' | 'delete',
+    })
     ElMessage.success('操作成功')
-    fetchArticles()
   } catch {
     ElMessage.error('操作失败')
   }
@@ -415,59 +387,45 @@ async function bulkAction(action: string) {
 async function handleCommand(cmd: string, article: Article) {
   switch (cmd) {
     case 'publish':
-      await articleApi.update(article.id, { status: 'published' })
+      await publishArticle.mutateAsync(article.id)
       ElMessage.success('已发布')
-      fetchArticles()
       break
     case 'pin':
-      await articleApi.update(article.id, { is_pinned: !article.is_pinned })
-      fetchArticles()
+      await updateArticle.mutateAsync({ id: article.id, is_pinned: !article.is_pinned })
       break
     case 'feature':
-      await articleApi.update(article.id, { is_featured: !article.is_featured })
-      fetchArticles()
+      await updateArticle.mutateAsync({ id: article.id, is_featured: !article.is_featured })
       break
     case 'view':
       window.open(`/blog/article/${article.slug}`, '_blank')
       break
     case 'delete':
       await ElMessageBox.confirm('确认删除此文章？', '确认')
-      await articleApi.delete(article.id)
+      await deleteArticle.mutateAsync(article.id)
       ElMessage.success('已删除')
-      fetchArticles()
       break
   }
 }
 
-function statusType(s: string) {
-  return s === 'published' ? 'success' : s === 'draft' ? 'info' : s === 'pending' ? 'warning' : 'danger'
+function statusTone(s: string): 'success' | 'info' | 'warning' | 'danger' | 'neutral' {
+  return { published: 'success', draft: 'info', pending: 'warning', scheduled: 'warning', trash: 'danger' }[s] || 'neutral'
 }
 function statusLabel(s: string) {
   return { published: '已发布', draft: '草稿', pending: '待审', scheduled: '定时', trash: '回收站' }[s] || s
 }
-onMounted(() => {
-  fetchArticles()
-  fetchCategories()
+
+// 同一组件实例在 /admin/articles ↔ /admin/pages 间切换时，重置筛选
+// Vue Query 自动因 postType 变化（queryKey 改变）而重新请求
+watch(postType, () => {
+  page.value = 1
+  filters.search = ''
+  filters.status = ''
+  filters.category_id = ''
 })
 </script>
 
 <style lang="scss" scoped>
 .article-list-page {
-  .page-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 16px;
-
-    .header-left {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-
-      h2 { margin: 0; font-size: 20px; }
-    }
-  }
-
   .filter-card { margin-bottom: 16px; }
 
   .bulk-actions {

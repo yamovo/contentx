@@ -97,9 +97,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
-import { settingsApi } from '@/api'
+import { ref, computed, watch } from 'vue'
 import { ElMessage } from 'element-plus'
+import { useSettingsQuery } from '@/features/settings/use-settings-query'
+import { useSettingsMutation } from '@/features/settings/use-settings-mutation'
 
 const globalSEO = ref({
   title_separator: ' - ', home_title: '', home_description: '',
@@ -117,18 +118,20 @@ const checklist = computed(() => [
   { label: 'Google Analytics 已配置', ok: !!globalSEO.value.google_analytics },
 ])
 
-async function fetchSEO() {
-  try {
-    const res = await settingsApi.list('seo')
-    const target = globalSEO.value as unknown as Record<string, unknown>
-    for (const s of res.data) {
-      const key = s.key.replace('seo_', '')
-      if (key in target) {
-        target[key] = s.value
-      }
+const { data: queryData } = useSettingsQuery('seo')
+const { updateSettings } = useSettingsMutation()
+
+// Populate local form from query data.
+watch(queryData, (res) => {
+  if (!res) return
+  const target = globalSEO.value as unknown as Record<string, unknown>
+  for (const s of (res as any).data ?? []) {
+    const key = s.key.replace('seo_', '')
+    if (key in target) {
+      target[key] = s.value
     }
-  } catch {}
-}
+  }
+}, { immediate: true })
 
 async function saveSEO() {
   try {
@@ -136,7 +139,7 @@ async function saveSEO() {
     for (const [k, v] of Object.entries(globalSEO.value)) {
       data['seo_' + k] = String(v)
     }
-    await settingsApi.update(data)
+    await updateSettings.mutateAsync(data)
     ElMessage.success('SEO 设置已保存')
   } catch { ElMessage.error('保存失败') }
 }
@@ -144,8 +147,6 @@ async function saveSEO() {
 function previewSitemap() {
   window.open('/api/v1/seo/sitemap', '_blank')
 }
-
-onMounted(fetchSEO)
 </script>
 
 <style lang="scss" scoped>

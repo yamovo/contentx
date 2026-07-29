@@ -1,4 +1,5 @@
 import dayjs from 'dayjs'
+import { ApiRequestError } from '@/shared/api/types'
 
 /**
  * Format an ISO date string using dayjs.
@@ -34,18 +35,11 @@ export function buildTree<T extends { id: number; parent_id: number | null }>(
 }
 
 /**
- * Shape of an axios/HTTP error carrying a backend error message.
- * Replaces ad-hoc `catch (err: any)` patterns across views.
- */
-interface HttpError {
-  response?: { data?: { error?: string } }
-}
-
-/**
  * Extract a user-facing error message from a caught unknown value.
  * Falls back to `fallback` when the error doesn't carry a backend message.
  */
 export function getApiError(err: unknown, fallback = '操作失败'): string {
-  const e = err as HttpError
-  return e?.response?.data?.error || fallback
+  if (err instanceof ApiRequestError) return err.message
+  if (err && typeof err === 'object' && 'message' in err) return String((err as { message: unknown }).message) || fallback
+  return fallback
 }

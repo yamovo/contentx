@@ -48,11 +48,11 @@ vi.mock('element-plus', () => ({
 
 // Mock router.
 vi.mock('@/router', () => ({
-  default: { push: vi.fn() },
+  default: { push: vi.fn(), replace: vi.fn(), currentRoute: { value: { path: '/', fullPath: '/' } } },
 }))
 
 import http, { get, post, put, del } from '@/api/http'
-import { ElMessage } from 'element-plus'
+import { ApiRequestError } from '@/shared/api/types'
 import axios from 'axios'
 import router from '@/router'
 
@@ -105,40 +105,37 @@ describe('http client', () => {
       expect(onResponseSuccess(resp)).toBe(resp)
     })
 
-    it('shows network error message when no response', async () => {
+    it('rejects with ApiRequestError on network error (no response)', async () => {
       const error = { response: undefined, config: {} }
-      await expect(onResponseError(error)).rejects.toBe(error)
-      expect(ElMessage.error).toHaveBeenCalledWith('网络错误，请检查连接')
+      await expect(onResponseError(error)).rejects.toBeInstanceOf(ApiRequestError)
     })
 
-    it('shows 403 permission message', async () => {
+    it('rejects with ApiRequestError on 403', async () => {
       const error = { response: { status: 403, data: {} }, config: {} }
-      await expect(onResponseError(error)).rejects.toBe(error)
-      expect(ElMessage.error).toHaveBeenCalledWith('权限不足')
+      const result = await onResponseError(error).catch((e: unknown) => e)
+      expect(result).toBeInstanceOf(ApiRequestError)
+      expect((result as ApiRequestError).status).toBe(403)
     })
 
-    it('shows 404 message', async () => {
+    it('rejects with ApiRequestError on 404', async () => {
       const error = { response: { status: 404, data: {} }, config: {} }
-      await expect(onResponseError(error)).rejects.toBe(error)
-      expect(ElMessage.error).toHaveBeenCalledWith('资源不存在')
+      const result = await onResponseError(error).catch((e: unknown) => e)
+      expect(result).toBeInstanceOf(ApiRequestError)
+      expect((result as ApiRequestError).status).toBe(404)
     })
 
-    it('shows 429 warning', async () => {
+    it('rejects with ApiRequestError on 429', async () => {
       const error = { response: { status: 429, data: {} }, config: {} }
-      await expect(onResponseError(error)).rejects.toBe(error)
-      expect(ElMessage.warning).toHaveBeenCalledWith('请求过于频繁，请稍后再试')
+      const result = await onResponseError(error).catch((e: unknown) => e)
+      expect(result).toBeInstanceOf(ApiRequestError)
+      expect((result as ApiRequestError).status).toBe(429)
     })
 
-    it('shows 500 server error', async () => {
+    it('rejects with ApiRequestError on 500', async () => {
       const error = { response: { status: 500, data: {} }, config: {} }
-      await expect(onResponseError(error)).rejects.toBe(error)
-      expect(ElMessage.error).toHaveBeenCalledWith('服务器内部错误')
-    })
-
-    it('clears auth and redirects on 401 without refresh token', async () => {
-      const error = { response: { status: 401, data: {} }, config: { headers: {} } }
-      await expect(onResponseError(error)).rejects.toBe(error)
-      expect(mockAuthStore.clearAuth).toHaveBeenCalled()
+      const result = await onResponseError(error).catch((e: unknown) => e)
+      expect(result).toBeInstanceOf(ApiRequestError)
+      expect((result as ApiRequestError).status).toBe(500)
     })
   })
 
@@ -201,20 +198,6 @@ describe('http client', () => {
       expect(fakeInstance).toHaveBeenCalledWith(error.config)
     })
 
-    it('clears auth and redirects to /login when refresh fails', async () => {
-      const error = {
-        response: { status: 401, data: {} },
-        config: { headers: {} as Record<string, string> },
-      }
-
-      const pending = onResponseError(error)
-      refreshReject(new Error('refresh expired'))
-
-      await expect(pending).rejects.toThrow('refresh expired')
-      expect(mockAuthStore.clearAuth).toHaveBeenCalled()
-      expect(router.push).toHaveBeenCalledWith('/login')
-    })
-
     it('queues concurrent 401s and replays them with the new token', async () => {
       const error1 = {
         response: { status: 401, data: {} },
@@ -245,6 +228,20 @@ describe('http client', () => {
       expect(fakeInstance).toHaveBeenCalledTimes(2)
     })
 
+    it('clears auth and redirects to /login when refresh fails', async () => {
+      const error = {
+        response: { status: 401, data: {} },
+        config: { headers: {} as Record<string, string> },
+      }
+
+      const pending = onResponseError(error)
+      refreshReject(new Error('refresh expired'))
+
+      await expect(pending).rejects.toThrow('refresh expired')
+      expect(mockAuthStore.clearAuth).toHaveBeenCalled()
+      expect(router.replace).toHaveBeenCalledWith(expect.objectContaining({ path: '/login' }))
+    })
+
     it('rejects queued requests when refresh fails', async () => {
       const error1 = {
         response: { status: 401, data: {} },
@@ -264,7 +261,7 @@ describe('http client', () => {
       await expect(pending1).rejects.toThrow('refresh failed')
       await expect(pending2).rejects.toThrow('refresh failed')
       expect(mockAuthStore.clearAuth).toHaveBeenCalled()
-      expect(router.push).toHaveBeenCalledWith('/login')
+      expect(router.replace).toHaveBeenCalledWith(expect.objectContaining({ path: '/login' }))
     })
 
     it('does not refresh when _retry is already set on the request', async () => {
@@ -273,7 +270,7 @@ describe('http client', () => {
         config: { _retry: true, headers: {} as Record<string, string> },
       }
 
-      await expect(onResponseError(error)).rejects.toBe(error)
+      await expect(onResponseError(error)).rejects.toBeInstanceOf(ApiRequestError)
       expect(mockAuthStore.refreshAccessToken).not.toHaveBeenCalled()
     })
   })

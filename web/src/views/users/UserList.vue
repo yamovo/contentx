@@ -20,7 +20,7 @@
             v-model="filters.search"
             placeholder="搜索用户..."
             clearable
-            @clear="fetchUsers"
+            @clear="onFilterChange"
           />
         </el-form-item>
         <el-form-item>
@@ -28,7 +28,7 @@
             v-model="filters.role"
             placeholder="角色"
             clearable
-            @change="fetchUsers"
+            @change="onFilterChange"
           >
             <el-option
               v-for="r in roles"
@@ -43,7 +43,7 @@
             v-model="filters.status"
             placeholder="状态"
             clearable
-            @change="fetchUsers"
+            @change="onFilterChange"
           >
             <el-option
               label="正常"
@@ -62,7 +62,7 @@
         <el-form-item>
           <el-button
             type="primary"
-            @click="fetchUsers"
+            @click="onFilterChange"
           >
             搜索
           </el-button>
@@ -178,7 +178,7 @@
           v-model:current-page="page"
           :total="total"
           layout="total, prev, pager, next"
-          @current-change="fetchUsers"
+          @current-change="refetch"
         />
       </div>
     </el-card>
@@ -274,16 +274,15 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue'
-import { userApi, roleApi, type User, type Role } from '@/api'
+import { ref, reactive, computed } from 'vue'
+import { type User } from '@/api'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { formatDate, getApiError } from '@/utils'
+import { useUserListQuery } from '@/features/users/use-user-list-query'
+import { useUserMutations } from '@/features/users/use-user-mutations'
+import { useRoleListQuery } from '@/features/roles/use-role-list-query'
 
-const users = ref<User[]>([])
-const roles = ref<Role[]>([])
-const loading = ref(false)
 const page = ref(1)
-const total = ref(0)
 const dialogVisible = ref(false)
 const editingId = ref<number | null>(null)
 
@@ -293,18 +292,26 @@ const form = reactive({
   role_id: 0, status: 'active',
 })
 
-async function fetchUsers() {
-  loading.value = true
-  try {
-    const res = await userApi.list({ page: page.value, page_size: 20, ...filters })
-    users.value = res.items
-    total.value = res.total
-  } catch { users.value = [] }
-  finally { loading.value = false }
-}
+const queryParams = computed(() => ({
+  page: page.value,
+  page_size: 20,
+  ...(filters.search ? { search: filters.search } : {}),
+  ...(filters.role ? { role: filters.role } : {}),
+  ...(filters.status ? { status: filters.status } : {}),
+}))
 
-async function fetchRoles() {
-  try { roles.value = (await roleApi.list()).data } catch {}
+const { data: listData, isLoading: loading, refetch } = useUserListQuery(queryParams)
+const users = computed(() => listData.value?.items ?? [])
+const total = computed(() => listData.value?.total ?? 0)
+
+const { data: rolesData } = useRoleListQuery()
+const roles = computed(() => rolesData.value?.data ?? [])
+
+const { createUser, updateUser, deleteUser: deleteUserMutation, resetPassword: resetPasswordMutation } = useUserMutations()
+
+function onFilterChange() {
+  page.value = 1
+  refetch()
 }
 
 function openDialog(user?: User) {
@@ -324,34 +331,34 @@ function openDialog(user?: User) {
 async function saveUser() {
   try {
     if (editingId.value) {
-      await userApi.update(editingId.value, form)
+      await updateUser.mutateAsync({ id: editingId.value, ...form })
       ElMessage.success('用户已更新')
     } else {
-      await userApi.create(form)
+      await createUser.mutateAsync({ ...form, password: form.password || 'default' })
       ElMessage.success('用户已创建')
     }
     dialogVisible.value = false
-    fetchUsers()
   } catch (err) {
     ElMessage.error(getApiError(err, '保存失败'))
   }
 }
 
 async function deleteUser(id: number) {
-  await userApi.delete(id)
-  ElMessage.success('用户已删除')
-  fetchUsers()
+  try {
+    await deleteUserMutation.mutateAsync(id)
+    ElMessage.success('用户已删除')
+  } catch { /* mutation handles invalidation */ }
 }
 
 async function resetPassword(user: User) {
   const { value } = await ElMessageBox.prompt('输入新密码', '重置密码', {
     inputValidator: (v) => v.length >= 8 ? true : '密码至少8个字符',
   })
-  await userApi.resetPassword(user.id, value)
-  ElMessage.success('密码已重置')
+  try {
+    await resetPasswordMutation.mutateAsync({ id: user.id, new_password: value })
+    ElMessage.success('密码已重置')
+  } catch { /* mutation handles invalidation */ }
 }
-
-onMounted(() => { fetchUsers(); fetchRoles() })
 </script>
 
 <style lang="scss" scoped>

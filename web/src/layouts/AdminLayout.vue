@@ -23,6 +23,7 @@
       <el-scrollbar>
         <el-menu
           :default-active="activeMenu"
+          :default-openeds="defaultOpeneds"
           :collapse="appStore.sidebarCollapsed"
           :collapse-transition="false"
           router
@@ -50,7 +51,7 @@
                  evaluated first and cannot see the v-for variable) -->
             <el-sub-menu
               v-else-if="item.children && item.children.length"
-              :index="item.path"
+              :index="`group-${item.path}`"
             >
               <template #title>
                 <el-icon v-if="item.icon">
@@ -97,6 +98,8 @@
         </div>
 
         <div class="header-right">
+          <GlobalSearch />
+
           <el-tooltip content="切换主题">
             <el-icon
               class="header-action"
@@ -150,9 +153,6 @@
           <transition
             name="page-slide"
             mode="out-in"
-            @before-enter="onBeforeEnter"
-            @enter="onEnter"
-            @leave="onLeave"
           >
             <component :is="Component" />
           </transition>
@@ -164,7 +164,6 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import { animate } from 'animejs'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useAppStore } from '@/stores/app'
@@ -188,14 +187,18 @@ interface MenuGroupConfig {
   path: string
   /** Child paths; absent means this is a leaf item. */
   children?: string[]
+  /** Icon name (Element Plus icon); falls back to route meta.icon. */
+  icon?: string
 }
 
 const menuConfig: MenuGroupConfig[] = [
-  { path: '/admin' },
+  // Dashboard: 子路由 path 为 '' 时，router.getRoutes() 扁平化后 routeMetaMap
+  // 拿不到对应的 meta，所以这里显式指定 title/icon 作为兜底。
+  { path: '/admin', title: '仪表盘', icon: 'Odometer' },
   {
     title: '内容管理',
     path: '/admin/articles',
-    children: ['/admin/articles', '/admin/pages', '/admin/categories', '/admin/tags'],
+    children: ['/admin/articles', '/admin/pages', '/admin/categories', '/admin/tags', '/admin/content-types'],
   },
   { path: '/admin/comments' },
   { path: '/admin/media' },
@@ -215,7 +218,7 @@ const menuConfig: MenuGroupConfig[] = [
   {
     title: '系统',
     path: '/admin/settings',
-    children: ['/admin/settings', '/admin/activity'],
+    children: ['/admin/settings', '/admin/activity', '/admin/tokens', '/admin/backup', '/admin/webhooks'],
   },
 ]
 
@@ -224,13 +227,14 @@ interface ResolvedMenuItem {
   path: string
   icon: string
   permission?: string
+  adminOnly?: boolean
   children?: ResolvedMenuItem[]
 }
 
 // Build a path → meta lookup from the router so we can pull title/icon/permission
 // from the single source of truth (route definitions).
 const routeMetaMap = computed(() => {
-  const map = new Map<string, { title?: string; icon?: string; permission?: string }>()
+  const map = new Map<string, { title?: string; icon?: string; permission?: string; adminOnly?: boolean }>()
   for (const r of router.getRoutes()) {
     // Only index routes that carry a menu title. Without this filter the
     // parent layout route (path '/admin', empty meta) can overwrite the
@@ -241,6 +245,7 @@ const routeMetaMap = computed(() => {
         title: r.meta.title as string,
         icon: r.meta.icon as string | undefined,
         permission: r.meta.permission as string | undefined,
+        adminOnly: r.meta.adminOnly as boolean | undefined,
       })
     }
   }
@@ -258,7 +263,7 @@ const menuItems = computed<ResolvedMenuItem[]>(() =>
       return {
         title: group.title || meta.title || '',
         path: group.path,
-        icon: meta.icon || '',
+        icon: group.icon || meta.icon || '',
         // Permission filtering happens here (not in the template) so the
         // rendered list is always consistent with the user's permissions.
         children: group.children
@@ -269,18 +274,26 @@ const menuItems = computed<ResolvedMenuItem[]>(() =>
               path: childPath,
               icon: childMeta.icon || '',
               permission: childMeta.permission,
+              adminOnly: childMeta.adminOnly,
             }
           })
-          .filter((child) => hasPermission(child.permission)),
+          .filter((child) => hasPermission(child.permission) && (!child.adminOnly || authStore.isAdmin)),
       }
     }
     return {
-      title: meta.title || '',
+      title: group.title || meta.title || '',
       path: group.path,
-      icon: meta.icon || '',
+      icon: group.icon || meta.icon || '',
       permission: meta.permission,
     }
   }),
+)
+
+// 默认展开所有有子菜单的项（el-sub-menu 的 index 为 `group-${path}`）
+const defaultOpeneds = computed(() =>
+  menuItems.value
+    .filter((item) => item.children && item.children.length)
+    .map((item) => `group-${item.path}`),
 )
 
 function hasPermission(perm?: string): boolean {
@@ -291,7 +304,7 @@ function hasPermission(perm?: string): boolean {
 async function handleCommand(cmd: string) {
   switch (cmd) {
     case 'profile':
-      // Navigate to profile
+      router.push('/admin/profile')
       break
     case 'settings':
       router.push('/admin/settings')
@@ -301,33 +314,6 @@ async function handleCommand(cmd: string) {
       router.push('/login')
       break
   }
-}
-
-
-function onBeforeEnter(el: Element) {
-  const s = (el as HTMLElement).style
-  s.opacity = '0'
-  s.transform = 'translateX(12px)'
-}
-
-function onEnter(el: Element, done: () => void) {
-  animate(el as HTMLElement, {
-    opacity: { from: 0 },
-    translateX: { from: 12 },
-    duration: 350,
-    ease: 'outQuint',
-    onComplete: done,
-  })
-}
-
-function onLeave(el: Element, done: () => void) {
-  animate(el as HTMLElement, {
-    opacity: 0,
-    translateX: -8,
-    duration: 200,
-    ease: 'inQuad',
-    onComplete: done,
-  })
 }
 </script>
 
@@ -356,6 +342,13 @@ function onLeave(el: Element, done: () => void) {
     .logo-mini {
       height: 28px;
     }
+  }
+
+  // The header above is 56px tall; without subtracting it the scrollbar
+  // is 56px taller than the visible area and the last menu items can
+  // never be scrolled into view.
+  :deep(.el-scrollbar) {
+    height: calc(100% - 56px);
   }
 
   .sidebar-menu {
@@ -466,6 +459,17 @@ function onLeave(el: Element, done: () => void) {
 
 .page-slide-enter-active,
 .page-slide-leave-active {
+  transition: opacity 0.3s ease, transform 0.3s ease;
   will-change: opacity, transform;
+}
+
+.page-slide-enter-from {
+  opacity: 0;
+  transform: translateX(12px);
+}
+
+.page-slide-leave-to {
+  opacity: 0;
+  transform: translateX(-8px);
 }
 </style>

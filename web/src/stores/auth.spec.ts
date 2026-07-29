@@ -14,8 +14,8 @@ const localStorageMock = {
 
 Object.defineProperty(globalThis, 'localStorage', { value: localStorageMock })
 
-// Mock the api module.
-vi.mock('@/api', () => ({
+// Mock the api module — auth.ts imports from the domain file directly.
+vi.mock('@/api/domains/auth', () => ({
   authApi: {
     login: vi.fn(),
     register: vi.fn(),
@@ -27,7 +27,7 @@ vi.mock('@/api', () => ({
 
 // Import after mocking.
 import { useAuthStore } from '@/stores/auth'
-import { authApi } from '@/api'
+import { authApi } from '@/api/domains/auth'
 
 const mockUser = {
   id: 1,
@@ -66,6 +66,11 @@ describe('Auth Store', () => {
     vi.clearAllMocks()
     // Restore the default getItem implementation (some tests override it).
     localStorageMock.getItem.mockImplementation((key: string) => mockStore[key] || null)
+    // Provide a default mock for authApi.me to prevent unhandled rejections
+    // when the store auto-initializes (fetchUser on token presence).
+    vi.mocked(authApi.me).mockResolvedValue({
+      data: { user: mockUser, permissions: [] },
+    } as any)
   })
 
   describe('initial state', () => {
@@ -196,10 +201,10 @@ describe('Auth Store', () => {
     it('non-admin should check permissions list', () => {
       const store = useAuthStore()
       store.user = { ...mockUser, role: { ...mockUser.role, slug: 'editor' } }
-      store.permissions = ['articles.create', 'articles.edit']
+      store.permissions = ['articles.create', 'articles.update']
 
       expect(store.hasPermission('articles.create')).toBe(true)
-      expect(store.hasPermission('articles.edit')).toBe(true)
+      expect(store.hasPermission('articles.update')).toBe(true)
       expect(store.hasPermission('users.delete')).toBe(false)
     })
   })
@@ -210,7 +215,9 @@ describe('Auth Store', () => {
         data: { token: mockTokenPair, user: mockUser },
       } as any)
 
-      vi.mocked(authApi.me).mockResolvedValueOnce({
+      // Use mockResolvedValue (not Once) because the store auto-calls
+      // authApi.me during init (fetchUser) AND during fetchPermissions.
+      vi.mocked(authApi.me).mockResolvedValue({
         data: { user: mockUser, permissions: ['articles.create'] },
       } as any)
 

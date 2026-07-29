@@ -11,7 +11,6 @@
             v-model="filters.entity"
             placeholder="对象"
             clearable
-            @change="fetchLogs"
           >
             <el-option
               label="文章"
@@ -34,7 +33,6 @@
             v-model="filters.action"
             placeholder="操作"
             clearable
-            @change="fetchLogs"
           >
             <el-option
               label="创建"
@@ -55,7 +53,7 @@
         <el-form-item>
           <el-button
             type="primary"
-            @click="fetchLogs"
+            @click="page = 1"
           >
             搜索
           </el-button>
@@ -115,7 +113,6 @@
           v-model:current-page="page"
           :total="total"
           layout="total, prev, pager, next"
-          @current-change="fetchLogs"
         />
       </div>
     </el-card>
@@ -123,9 +120,9 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue'
-import { systemApi } from '@/api'
+import { ref, reactive, computed } from 'vue'
 import { formatDate } from '@/utils'
+import { useSystemActivityQuery } from '@/features/system/use-system-activity-query'
 
 interface ActivityLogEntry {
   id: number
@@ -142,27 +139,22 @@ interface ActivityListResponse {
   total: number
 }
 
-const logs = ref<ActivityLogEntry[]>([])
-const loading = ref(false)
 const page = ref(1)
-const total = ref(0)
 const filters = reactive({ entity: '', action: '' })
 
-async function fetchLogs() {
-  loading.value = true
-  try {
-    const res = await systemApi.activity({ page: page.value, page_size: 50, ...filters }) as ActivityListResponse
-    logs.value = res.items; total.value = res.total
-  } catch { logs.value = [] }
-  finally { loading.value = false }
-}
+const queryParams = computed(() => ({
+  page: page.value,
+  page_size: 50,
+  ...filters,
+}))
+
+const { data: queryData, isLoading: loading } = useSystemActivityQuery(queryParams)
+const logs = computed<ActivityLogEntry[]>(() => (queryData.value as unknown as ActivityListResponse)?.items ?? [])
+const total = computed(() => (queryData.value as unknown as ActivityListResponse)?.total ?? 0)
 
 function actionType(a: string) {
   return a === 'create' ? 'success' : a === 'delete' ? 'danger' : a === 'login' ? 'info' : 'warning'
 }
-
-
-onMounted(fetchLogs)
 </script>
 
 <style lang="scss" scoped>
