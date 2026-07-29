@@ -30,9 +30,11 @@ web/.cache/
 Thumbs.db
 
 # Project
-uploads/
-backups/
-logs/
+# Anchor to repo root so these ignore the runtime data dirs, not source
+# folders that happen to share a name (e.g. web/src/features/backups/).
+/uploads/
+/backups/
+/logs/
 *.db
 *.db-journal
 *.db-wal
