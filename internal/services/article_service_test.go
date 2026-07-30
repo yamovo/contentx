@@ -73,6 +73,26 @@ func TestArticleService_ReindexAllBypassesStaleListCache(t *testing.T) {
 	}
 }
 
+func TestArticleService_ReindexAllClearsIndexWhenRepositoryIsEmpty(t *testing.T) {
+	db := setupTestDB(t)
+	svc := NewArticleService(db, "http://localhost:8080")
+	indexer := &MockSearchIndexer{
+		Reindexed: []models.Article{{Title: "stale indexed article"}},
+	}
+	svc.SetSearchIndexer(indexer)
+
+	indexed, err := svc.ReindexAll(context.Background())
+	if err != nil {
+		t.Fatalf("ReindexAll: %v", err)
+	}
+	if indexed != 0 {
+		t.Fatalf("indexed = %d, want 0", indexed)
+	}
+	if len(indexer.Reindexed) != 0 {
+		t.Fatalf("empty repository did not clear stale index: %+v", indexer.Reindexed)
+	}
+}
+
 func TestArticleService_Create(t *testing.T) {
 	db := setupTestDB(t)
 	svc := NewArticleService(db, "http://localhost:8080")

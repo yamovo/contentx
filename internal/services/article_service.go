@@ -352,9 +352,6 @@ func (s *ArticleService) ReindexAll(ctx context.Context) (int, error) {
 		}
 		page++
 	}
-	if len(all) == 0 {
-		return 0, nil
-	}
 	if err := s.indexer().ReindexAll(ctx, all); err != nil {
 		return 0, err
 	}
