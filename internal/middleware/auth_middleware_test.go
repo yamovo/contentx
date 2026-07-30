@@ -363,3 +363,29 @@ func TestAuthMiddleware_CacheHitServesUser(t *testing.T) {
 		t.Fatalf("cached request should pass, got %d", w.Code)
 	}
 }
+
+func TestAuthMiddleware_RestoreInvalidationReloadsUser(t *testing.T) {
+	db := setupAuthTestDB(t)
+	m := testJWT()
+	tok := tokenFor(t, m, 1)
+	invalidator := NewAuthUserCacheInvalidator()
+	r := setupTestRouter(AuthMiddleware(m, db, nil, invalidator))
+	headers := map[string]string{"Authorization": "Bearer " + tok}
+
+	if w := doRequest(r, http.MethodGet, "/test", headers); w.Code != http.StatusOK {
+		t.Fatalf("first request should populate cache, got %d", w.Code)
+	}
+	if err := db.Model(&models.User{}).Where("id = ?", 1).
+		Update("status", "banned").Error; err != nil {
+		t.Fatalf("disable cached user: %v", err)
+	}
+	// The old record is still cached before restore invalidation.
+	if w := doRequest(r, http.MethodGet, "/test", headers); w.Code != http.StatusOK {
+		t.Fatalf("request before invalidation should use cached user, got %d", w.Code)
+	}
+
+	invalidator.Invalidate()
+	if w := doRequest(r, http.MethodGet, "/test", headers); w.Code != http.StatusForbidden {
+		t.Fatalf("request after invalidation should reload disabled user, got %d", w.Code)
+	}
+}

@@ -18,10 +18,11 @@ import (
 // BackupHandler exposes backup/restore operations over HTTP. All routes are
 // admin-only and registered under /api/v1/admin/backup.
 type BackupHandler struct {
-	mgr        *backup.Manager
-	articleSvc *services.ArticleService
-	cache      cache.Driver
-	audit      services.AuditLogger
+	mgr                 *backup.Manager
+	articleSvc          *services.ArticleService
+	cache               cache.Driver
+	invalidateAuthCache func()
+	audit               services.AuditLogger
 }
 
 // NewBackupHandler creates a BackupHandler backed by the given Manager.
@@ -39,6 +40,26 @@ func NewBackupHandler(mgr *backup.Manager, articleSvc *services.ArticleService, 
 func (h *BackupHandler) WithCache(driver cache.Driver) *BackupHandler {
 	h.cache = driver
 	return h
+}
+
+// WithAuthCacheInvalidator attaches the process-local authentication cache
+// invalidation hook used after a database restore.
+func (h *BackupHandler) WithAuthCacheInvalidator(invalidate func()) *BackupHandler {
+	h.invalidateAuthCache = invalidate
+	return h
+}
+
+func (h *BackupHandler) invalidateRestoredCaches(requestCtx context.Context) error {
+	if h.invalidateAuthCache != nil {
+		h.invalidateAuthCache()
+	}
+	// A database restore may outlive the client/proxy request. Detach
+	// cancellation so committed data is never paired with stale caches merely
+	// because the caller disconnected, while retaining request values for
+	// observability and bounding the cleanup duration.
+	cacheCtx, cancel := context.WithTimeout(context.WithoutCancel(requestCtx), 10*time.Second)
+	defer cancel()
+	return services.InvalidateRestoredDataCache(cacheCtx, h.cache)
 }
 
 func (h *BackupHandler) auditSuccess(c *gin.Context, action string, details map[string]any) {
@@ -184,7 +205,7 @@ func (h *BackupHandler) Restore(c *gin.Context) {
 	}
 
 	resp := gin.H{"type": "db", "restored": name}
-	if err := services.InvalidateRestoredDataCache(c.Request.Context(), h.cache); err != nil {
+	if err := h.invalidateRestoredCaches(c.Request.Context()); err != nil {
 		slog.Warn("database restored but data cache invalidation failed", "error", err, "backup", name)
 		resp["cache_warning"] = "database restored but cached data could not be invalidated: " + err.Error()
 	}

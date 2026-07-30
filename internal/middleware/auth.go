@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -26,50 +27,89 @@ const (
 	authCacheSize = 1024
 )
 
+// AuthUserCacheInvalidator coordinates the short-lived user caches owned by
+// authentication middleware instances. Incrementing its generation makes all
+// entries from the previous database state unusable on the next request.
+type AuthUserCacheInvalidator struct {
+	generation atomic.Uint64
+}
+
+func NewAuthUserCacheInvalidator() *AuthUserCacheInvalidator {
+	return &AuthUserCacheInvalidator{}
+}
+
+// Invalidate advances the cache generation after a database restore.
+func (i *AuthUserCacheInvalidator) Invalidate() {
+	if i != nil {
+		i.generation.Add(1)
+	}
+}
+
+func (i *AuthUserCacheInvalidator) current() uint64 {
+	if i == nil {
+		return 0
+	}
+	return i.generation.Load()
+}
+
 // userCache is a short-TTL LRU cache for authenticated users. It reduces
 // database load on the AuthMiddleware hot path by caching the user + role +
 // permissions lookup. Entries expire after authCacheTTL so changes to user
 // status/role/permissions propagate within that window. The cache is bounded
 // to authCacheSize via LRU eviction. Safe for concurrent use.
 type userCache struct {
-	maxEntries int
-	ttl        time.Duration
-	mu         sync.Mutex
-	entries    map[uint]*list.Element
-	ll         *list.List
+	maxEntries  int
+	ttl         time.Duration
+	mu          sync.Mutex
+	entries     map[uint]*list.Element
+	ll          *list.List
+	invalidator *AuthUserCacheInvalidator
 }
 
 type userCacheEntry struct {
-	userID    uint
-	user      *models.User
-	expiresAt time.Time
+	userID     uint
+	user       *models.User
+	expiresAt  time.Time
+	generation uint64
 }
 
-func newUserCache(maxEntries int, ttl time.Duration) *userCache {
+func newUserCache(maxEntries int, ttl time.Duration, invalidators ...*AuthUserCacheInvalidator) *userCache {
 	if maxEntries <= 0 {
 		maxEntries = authCacheSize
 	}
 	if ttl <= 0 {
 		ttl = authCacheTTL
 	}
+	invalidator := NewAuthUserCacheInvalidator()
+	if len(invalidators) > 0 && invalidators[0] != nil {
+		invalidator = invalidators[0]
+	}
 	return &userCache{
-		maxEntries: maxEntries,
-		ttl:        ttl,
-		entries:    make(map[uint]*list.Element),
-		ll:         list.New(),
+		maxEntries:  maxEntries,
+		ttl:         ttl,
+		entries:     make(map[uint]*list.Element),
+		ll:          list.New(),
+		invalidator: invalidator,
 	}
 }
 
 // get returns the cached user for userID if present and unexpired.
 func (c *userCache) get(userID uint) (*models.User, bool) {
+	return c.getAtGeneration(userID, c.invalidator.current())
+}
+
+func (c *userCache) getAtGeneration(userID uint, generation uint64) (*models.User, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if c.invalidator.current() != generation {
+		return nil, false
+	}
 	el, ok := c.entries[userID]
 	if !ok {
 		return nil, false
 	}
 	entry, _ := el.Value.(*userCacheEntry)
-	if time.Now().After(entry.expiresAt) {
+	if entry.generation != generation || time.Now().After(entry.expiresAt) {
 		c.ll.Remove(el)
 		delete(c.entries, userID)
 		return nil, false
@@ -82,19 +122,28 @@ func (c *userCache) get(userID uint) (*models.User, bool) {
 // put stores a user in the cache. The caller must not mutate the stored user
 // after handing it over.
 func (c *userCache) put(user *models.User) {
+	c.putAtGeneration(user, c.invalidator.current())
+}
+
+func (c *userCache) putAtGeneration(user *models.User, generation uint64) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if c.invalidator.current() != generation {
+		return
+	}
 	if el, ok := c.entries[user.ID]; ok {
 		entry, _ := el.Value.(*userCacheEntry)
 		entry.user = user
 		entry.expiresAt = time.Now().Add(c.ttl)
+		entry.generation = generation
 		c.ll.MoveToFront(el)
 		return
 	}
 	entry := &userCacheEntry{
-		userID:    user.ID,
-		user:      user,
-		expiresAt: time.Now().Add(c.ttl),
+		userID:     user.ID,
+		user:       user,
+		expiresAt:  time.Now().Add(c.ttl),
+		generation: generation,
 	}
 	el := c.ll.PushFront(entry)
 	c.entries[user.ID] = el
@@ -108,8 +157,8 @@ func (c *userCache) put(user *models.User) {
 }
 
 // AuthMiddleware validates JWT tokens, checks revocation, and injects user into context.
-func AuthMiddleware(jwtMgr *auth.JWTManager, db *gorm.DB, store auth.TokenStore) gin.HandlerFunc {
-	cache := newUserCache(authCacheSize, authCacheTTL)
+func AuthMiddleware(jwtMgr *auth.JWTManager, db *gorm.DB, store auth.TokenStore, invalidators ...*AuthUserCacheInvalidator) gin.HandlerFunc {
+	cache := newUserCache(authCacheSize, authCacheTTL, invalidators...)
 	return func(c *gin.Context) {
 		token := extractToken(c)
 		if token == "" {
@@ -135,7 +184,8 @@ func AuthMiddleware(jwtMgr *auth.JWTManager, db *gorm.DB, store auth.TokenStore)
 		// Try the LRU cache first to avoid the DB round-trip on hot paths.
 		// Revocation is still enforced above on every request, and cached
 		// entries expire after authCacheTTL so status/role changes propagate.
-		if user, ok := cache.get(claims.UserID); ok {
+		cacheGeneration := cache.invalidator.current()
+		if user, ok := cache.getAtGeneration(claims.UserID, cacheGeneration); ok {
 			if !user.IsActive() {
 				c.JSON(http.StatusForbidden, gin.H{"error": "Account is disabled"})
 				c.Abort()
@@ -162,7 +212,7 @@ func AuthMiddleware(jwtMgr *auth.JWTManager, db *gorm.DB, store auth.TokenStore)
 			return
 		}
 
-		cache.put(&user)
+		cache.putAtGeneration(&user, cacheGeneration)
 
 		c.Set(ContextKeyUser, &user)
 		c.Set(ContextKeyClaims, claims)
@@ -171,8 +221,8 @@ func AuthMiddleware(jwtMgr *auth.JWTManager, db *gorm.DB, store auth.TokenStore)
 }
 
 // OptionalAuthMiddleware tries to authenticate but doesn't block.
-func OptionalAuthMiddleware(jwtMgr *auth.JWTManager, db *gorm.DB, store auth.TokenStore) gin.HandlerFunc {
-	cache := newUserCache(authCacheSize, authCacheTTL)
+func OptionalAuthMiddleware(jwtMgr *auth.JWTManager, db *gorm.DB, store auth.TokenStore, invalidators ...*AuthUserCacheInvalidator) gin.HandlerFunc {
+	cache := newUserCache(authCacheSize, authCacheTTL, invalidators...)
 	return func(c *gin.Context) {
 		token := extractToken(c)
 		if token == "" {
@@ -193,7 +243,8 @@ func OptionalAuthMiddleware(jwtMgr *auth.JWTManager, db *gorm.DB, store auth.Tok
 		}
 
 		// LRU cache fast path.
-		if user, ok := cache.get(claims.UserID); ok {
+		cacheGeneration := cache.invalidator.current()
+		if user, ok := cache.getAtGeneration(claims.UserID, cacheGeneration); ok {
 			if user.IsActive() {
 				c.Set(ContextKeyUser, user)
 				c.Set(ContextKeyClaims, claims)
@@ -210,7 +261,7 @@ func OptionalAuthMiddleware(jwtMgr *auth.JWTManager, db *gorm.DB, store auth.Tok
 		}
 
 		if user.IsActive() {
-			cache.put(&user)
+			cache.putAtGeneration(&user, cacheGeneration)
 			c.Set(ContextKeyUser, &user)
 			c.Set(ContextKeyClaims, claims)
 		}

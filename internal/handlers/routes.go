@@ -137,6 +137,8 @@ func RegisterRoutes(
 		mediaSvc.SetStorageDriver(d)
 	}
 
+	authUserCacheInvalidator := middleware.NewAuthUserCacheInvalidator()
+
 	// Create handlers.
 	authH := NewAuthHandler(authSvc)
 	totpH := NewTOTPHandler(totpSvc)
@@ -158,7 +160,9 @@ func RegisterRoutes(
 	contentTypeH := NewContentTypeHandler(contentTypeSvc)
 	webhookH := NewWebhookHandler(webhookSvc)
 	searchH := NewSearchHandler(articleSvc)
-	backupH := NewBackupHandler(backupMgr, articleSvc, auditLogger).WithCache(cacheDriver)
+	backupH := NewBackupHandler(backupMgr, articleSvc, auditLogger).
+		WithCache(cacheDriver).
+		WithAuthCacheInvalidator(authUserCacheInvalidator.Invalidate)
 
 	// Rate limiter for specific groups (requests per minute).
 	const (
@@ -236,7 +240,7 @@ func RegisterRoutes(
 
 	// ─── Protected API ─────────────────────────────────
 	protected := api.Group("")
-	protected.Use(middleware.AuthMiddleware(jwtMgr, db, blacklist))
+	protected.Use(middleware.AuthMiddleware(jwtMgr, db, blacklist, authUserCacheInvalidator))
 	{
 		// Auth (user operations).
 		authP := protected.Group("/auth")
