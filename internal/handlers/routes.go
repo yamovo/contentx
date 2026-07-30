@@ -158,7 +158,7 @@ func RegisterRoutes(
 	contentTypeH := NewContentTypeHandler(contentTypeSvc)
 	webhookH := NewWebhookHandler(webhookSvc)
 	searchH := NewSearchHandler(articleSvc)
-	backupH := NewBackupHandler(backupMgr, articleSvc, auditLogger)
+	backupH := NewBackupHandler(backupMgr, articleSvc, auditLogger).WithCache(cacheDriver)
 
 	// Rate limiter for specific groups (requests per minute).
 	const (

@@ -165,6 +165,22 @@ func main() {
 			slog.Error("restore failed", "error", err)
 			os.Exit(1)
 		}
+		restoreCache, err := newCacheDriver(cfg)
+		if err != nil {
+			slog.Error("database restored but cache backend is unavailable; do not restart until data caches are cleared", "error", err)
+			os.Exit(1)
+		}
+		cacheCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		cacheErr := services.InvalidateRestoredDataCache(cacheCtx, restoreCache)
+		cancel()
+		if closer, ok := restoreCache.(interface{ Close() error }); ok {
+			_ = closer.Close()
+		}
+		if cacheErr != nil {
+			slog.Error("database restored but data cache invalidation failed; do not restart until data caches are cleared", "error", cacheErr)
+			os.Exit(1)
+		}
+		slog.Info("restored database caches invalidated")
 		// Verify row counts (pg/mysql only; SQLite requires restart).
 		if cfg.Database.Driver != "sqlite" {
 			if counts, err := mgr.RowCounts(); err == nil {
@@ -219,19 +235,7 @@ func main() {
 
 	// Initialize cache (memory or redis based on config). Fall back to the
 	// in-memory cache if the configured backend cannot be reached at startup.
-	cacheDriver, err := cache.New(cache.Config{
-		Driver: cfg.Cache.Driver,
-		Redis: cache.RedisConfig{
-			Addr:     cfg.Redis.Addr(),
-			Password: cfg.Redis.Password,
-			DB:       cfg.Redis.DB,
-			Prefix:   cfg.Redis.Prefix,
-		},
-		Memory: cache.MemoryConfig{
-			MaxEntries: cfg.Cache.MaxEntries,
-			DefaultTTL: cfg.Cache.DefaultTTL,
-		},
-	})
+	cacheDriver, err := newCacheDriver(cfg)
 	if err != nil {
 		slog.Warn("cache backend unavailable, falling back to memory", "driver", cfg.Cache.Driver, "error", err)
 		cacheDriver = cache.NewMemoryDriver(cfg.Cache.MaxEntries)
@@ -429,6 +433,22 @@ func main() {
 	}
 
 	slog.Info("server exited gracefully")
+}
+
+func newCacheDriver(cfg *config.Config) (cache.Driver, error) {
+	return cache.New(cache.Config{
+		Driver: cfg.Cache.Driver,
+		Redis: cache.RedisConfig{
+			Addr:     cfg.Redis.Addr(),
+			Password: cfg.Redis.Password,
+			DB:       cfg.Redis.DB,
+			Prefix:   cfg.Redis.Prefix,
+		},
+		Memory: cache.MemoryConfig{
+			MaxEntries: cfg.Cache.MaxEntries,
+			DefaultTTL: cfg.Cache.DefaultTTL,
+		},
+	})
 }
 
 // initTokenStore 根据配置创建 JWT token 黑名单存储：

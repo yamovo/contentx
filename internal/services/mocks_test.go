@@ -1095,14 +1095,16 @@ func (m *MockThemeRepository) Save(theme *models.ThemeConfig) error {
 
 // MockCacheDriver 实现 cache.Driver，用于 ContentTypeService 缓存测试。
 type MockCacheDriver struct {
-	Data     map[string][]byte
-	GetErr   error
-	SetErr   error
-	DelErr   error
-	FlushErr error
+	Data      map[string][]byte
+	GetErr    error
+	SetErr    error
+	DelErr    error
+	PrefixErr error
+	FlushErr  error
 
-	SetCalls    []setCall
-	DeleteCalls []string
+	SetCalls          []setCall
+	DeleteCalls       []string
+	DeletePrefixCalls []string
 }
 
 type setCall struct {
@@ -1136,6 +1138,14 @@ func (m *MockCacheDriver) Delete(ctx context.Context, key string) error {
 		return m.DelErr
 	}
 	m.DeleteCalls = append(m.DeleteCalls, key)
+	return nil
+}
+
+func (m *MockCacheDriver) DeletePrefix(ctx context.Context, prefix string) error {
+	if m.PrefixErr != nil {
+		return m.PrefixErr
+	}
+	m.DeletePrefixCalls = append(m.DeletePrefixCalls, prefix)
 	return nil
 }
 

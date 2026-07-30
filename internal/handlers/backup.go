@@ -11,6 +11,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/yamovo/contentx/internal/backup"
+	"github.com/yamovo/contentx/internal/cache"
 	"github.com/yamovo/contentx/internal/services"
 )
 
@@ -19,6 +20,7 @@ import (
 type BackupHandler struct {
 	mgr        *backup.Manager
 	articleSvc *services.ArticleService
+	cache      cache.Driver
 	audit      services.AuditLogger
 }
 
@@ -30,6 +32,13 @@ func NewBackupHandler(mgr *backup.Manager, articleSvc *services.ArticleService, 
 		logger = audit[0]
 	}
 	return &BackupHandler{mgr: mgr, articleSvc: articleSvc, audit: logger}
+}
+
+// WithCache attaches the database-derived cache that must be invalidated after
+// a successful database restore.
+func (h *BackupHandler) WithCache(driver cache.Driver) *BackupHandler {
+	h.cache = driver
+	return h
 }
 
 func (h *BackupHandler) auditSuccess(c *gin.Context, action string, details map[string]any) {
@@ -175,6 +184,10 @@ func (h *BackupHandler) Restore(c *gin.Context) {
 	}
 
 	resp := gin.H{"type": "db", "restored": name}
+	if err := services.InvalidateRestoredDataCache(c.Request.Context(), h.cache); err != nil {
+		slog.Warn("database restored but data cache invalidation failed", "error", err, "backup", name)
+		resp["cache_warning"] = "database restored but cached data could not be invalidated: " + err.Error()
+	}
 	// Post-restore row-count verification for pg/mysql.
 	if before != nil {
 		if after, err := h.mgr.VerifyRowCounts(before); err != nil {

@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/yamovo/contentx/internal/cache"
 	"github.com/yamovo/contentx/internal/errs"
 	"github.com/yamovo/contentx/internal/models"
 )
@@ -42,6 +43,33 @@ func TestArticleService_ReindexAllPaginatesPastPublicLimit(t *testing.T) {
 	}
 	if len(indexer.Reindexed) != 250 {
 		t.Fatalf("reindexed documents = %d, want 250", len(indexer.Reindexed))
+	}
+}
+
+func TestArticleService_ReindexAllBypassesStaleListCache(t *testing.T) {
+	db := setupTestDB(t)
+	user := createTestUser(t, db, "reindex-cache-author", "author")
+
+	svc := NewArticleService(db, "http://localhost:8080")
+	svc.WithCache(cache.NewMemoryDriver(100), 10*time.Minute)
+	indexer := &MockSearchIndexer{}
+	svc.SetSearchIndexer(indexer)
+
+	// Cache the empty repository result under the same filter the old reindex
+	// path used, then insert an article directly to simulate a database restore.
+	if _, err := svc.List(ListArticlesFilter{
+		Page: 1, PageSize: 100, Sort: "oldest", Full: true,
+	}); err != nil {
+		t.Fatalf("prime stale list cache: %v", err)
+	}
+	createTestArticle(t, db, user.ID, "Restored article")
+
+	indexed, err := svc.ReindexAll(context.Background())
+	if err != nil {
+		t.Fatalf("ReindexAll: %v", err)
+	}
+	if indexed != 1 || len(indexer.Reindexed) != 1 {
+		t.Fatalf("reindex used stale cache: indexed=%d docs=%d", indexed, len(indexer.Reindexed))
 	}
 }
 

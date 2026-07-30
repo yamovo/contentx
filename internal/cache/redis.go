@@ -57,10 +57,21 @@ func (d *RedisDriver) Delete(ctx context.Context, key string) error {
 	return d.client.Del(ctx, d.key(key)).Err()
 }
 
+// DeletePrefix removes only keys owned by this driver whose logical key starts
+// with prefix. It deliberately keeps unrelated keys under the application's
+// Redis namespace, such as JWT revocations and login throttling state.
+func (d *RedisDriver) DeletePrefix(ctx context.Context, prefix string) error {
+	return d.deletePattern(ctx, d.key(prefix)+"*")
+}
+
 // Flush removes only keys owned by this driver's prefix (never FLUSHDB the
 // whole database, which may be shared with other applications).
 func (d *RedisDriver) Flush(ctx context.Context) error {
-	iter := d.client.Scan(ctx, 0, d.prefix+"*", 100).Iterator()
+	return d.deletePattern(ctx, d.prefix+"*")
+}
+
+func (d *RedisDriver) deletePattern(ctx context.Context, pattern string) error {
+	iter := d.client.Scan(ctx, 0, pattern, 100).Iterator()
 	var keys []string
 	for iter.Next(ctx) {
 		keys = append(keys, iter.Val())

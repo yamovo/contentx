@@ -324,10 +324,12 @@ func (s *ArticleService) Search(ctx context.Context, q SearchQuery) (*SearchResu
 // ReindexAll rebuilds the search index from scratch using all articles in
 // the database. Intended for startup warm-up or admin-triggered reindex.
 func (s *ArticleService) ReindexAll(ctx context.Context) (int, error) {
-	// Pull all articles with associations preloaded in batches, then hand
-	// the full slice to the indexer's ReindexAll (which atomically clears
-	// and rebuilds). Collecting in memory is fine for typical CMS scale
-	// (< 100k articles); a streaming approach would be needed beyond that.
+	// Pull all articles directly from the repository in batches, then hand the
+	// full slice to the indexer's ReindexAll (which atomically clears and
+	// rebuilds). Reindexing must bypass the service cache: after a database
+	// restore Redis may still contain list results from the pre-restore state.
+	// Collecting in memory is fine for typical CMS scale (< 100k articles); a
+	// streaming approach would be needed beyond that.
 	// List deliberately caps public page sizes at 100. Keep the reindex batch
 	// within that contract so a larger requested size is not silently reset to
 	// the default of 20 and mistaken for the final page.
@@ -335,12 +337,13 @@ func (s *ArticleService) ReindexAll(ctx context.Context) (int, error) {
 	var all []models.Article
 	page := 1
 	for {
-		resp, err := s.List(ListArticlesFilter{Page: page, PageSize: batchSize, Sort: "oldest", Full: true})
+		articles, _, err := s.repo.List(repository.ArticleListFilter{
+			Page: page, PageSize: batchSize, Sort: "oldest", Full: true,
+		})
 		if err != nil {
 			return 0, err
 		}
-		articles, ok := resp.Items.([]models.Article)
-		if !ok || len(articles) == 0 {
+		if len(articles) == 0 {
 			break
 		}
 		all = append(all, articles...)

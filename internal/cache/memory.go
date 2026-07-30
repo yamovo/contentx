@@ -3,6 +3,7 @@ package cache
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"time"
 )
@@ -74,6 +75,18 @@ func (d *MemoryDriver) Set(_ context.Context, key string, value []byte, ttl time
 func (d *MemoryDriver) Delete(_ context.Context, key string) error {
 	d.mu.Lock()
 	delete(d.entries, key)
+	d.mu.Unlock()
+	return nil
+}
+
+// DeletePrefix removes only entries whose logical cache key starts with prefix.
+func (d *MemoryDriver) DeletePrefix(_ context.Context, prefix string) error {
+	d.mu.Lock()
+	for key := range d.entries {
+		if strings.HasPrefix(key, prefix) {
+			delete(d.entries, key)
+		}
+	}
 	d.mu.Unlock()
 	return nil
 }

@@ -88,3 +88,22 @@ func TestRedisDriver_FlushOnlyPrefix(t *testing.T) {
 		t.Fatalf("expected miss after flush, got %v", err)
 	}
 }
+
+func TestRedisDriver_DeletePrefix(t *testing.T) {
+	d := redisTestDriver(t)
+	defer d.Close()
+	ctx := context.Background()
+	_ = d.Flush(ctx)
+
+	_ = d.Set(ctx, "articles:id:1", []byte("article"), time.Minute)
+	_ = d.Set(ctx, "jwt:blacklist:token", []byte("revoked"), time.Minute)
+	if err := d.DeletePrefix(ctx, "articles:"); err != nil {
+		t.Fatalf("DeletePrefix: %v", err)
+	}
+	if _, err := d.Get(ctx, "articles:id:1"); err != ErrCacheMiss {
+		t.Fatalf("article key should be removed, got %v", err)
+	}
+	if _, err := d.Get(ctx, "jwt:blacklist:token"); err != nil {
+		t.Fatalf("security key should remain, got %v", err)
+	}
+}

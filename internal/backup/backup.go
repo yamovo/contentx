@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/yamovo/contentx/internal/config"
+	"github.com/yamovo/contentx/internal/database"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
@@ -113,15 +114,8 @@ func (m *Manager) dbSuffix() string {
 func (m *Manager) dumpTo(path string) error {
 	switch m.dbCfg.Driver {
 	case "postgres":
-		return m.runCmd(exec.Command("pg_dump",
-			"-h", m.dbCfg.Host,
-			"-p", strconv.Itoa(m.dbCfg.Port),
-			"-U", m.dbCfg.User,
-			"-d", m.dbCfg.Name,
-			"--clean",     // emit DROP statements so restore replaces existing tables
-			"--if-exists", // suppress errors when DROP target doesn't exist
-			"-f", path,
-		), "PGPASSWORD="+m.dbCfg.Password)
+		return m.runCmd(exec.Command("pg_dump", postgresDumpArgs(m.dbCfg, path)...),
+			"PGPASSWORD="+m.dbCfg.Password)
 	case "mysql":
 		return m.runCmd(exec.Command("mysqldump",
 			"-h", m.dbCfg.Host,
@@ -133,6 +127,20 @@ func (m *Manager) dumpTo(path string) error {
 		), "")
 	default:
 		return m.backupSQLite(path)
+	}
+}
+
+func postgresDumpArgs(dbCfg config.DatabaseConfig, path string) []string {
+	return []string{
+		"-h", dbCfg.Host,
+		"-p", strconv.Itoa(dbCfg.Port),
+		"-U", dbCfg.User,
+		"-d", dbCfg.Name,
+		"--clean",         // emit DROP statements so restore replaces existing tables
+		"--if-exists",     // suppress errors when DROP target doesn't exist
+		"--no-owner",      // allow restore under a different deployment role
+		"--no-privileges", // do not replay environment-specific grants
+		"-f", path,
 	}
 }
 
@@ -196,13 +204,8 @@ func (m *Manager) restoreDB(path string) error {
 	}
 	switch m.dbCfg.Driver {
 	case "postgres":
-		return m.runCmd(exec.Command("psql",
-			"-h", m.dbCfg.Host,
-			"-p", strconv.Itoa(m.dbCfg.Port),
-			"-U", m.dbCfg.User,
-			"-d", m.dbCfg.Name,
-			"-f", path,
-		), "PGPASSWORD="+m.dbCfg.Password)
+		return m.runCmd(exec.Command("psql", postgresRestoreArgs(m.dbCfg, path)...),
+			"PGPASSWORD="+m.dbCfg.Password)
 	case "mysql":
 		// mysql reads SQL from stdin.
 		f, err := os.Open(path)
@@ -224,10 +227,23 @@ func (m *Manager) restoreDB(path string) error {
 	}
 }
 
+func postgresRestoreArgs(dbCfg config.DatabaseConfig, path string) []string {
+	return []string{
+		"-v", "ON_ERROR_STOP=1",
+		"--single-transaction",
+		"-h", dbCfg.Host,
+		"-p", strconv.Itoa(dbCfg.Port),
+		"-U", dbCfg.User,
+		"-d", dbCfg.Name,
+		"-f", path,
+	}
+}
+
 // validateSchema compares the backup file's schema version against the live
 // database. Returns ErrSchemaMismatch if the backup is newer than the live DB
-// or carries no schema evidence. A zero live version (e.g. a fresh AutoMigrate
-// test DB) skips the check so tests can restore freely.
+// or carries no schema evidence. SQLite keeps the legacy zero-version escape
+// hatch for file restores, but SQL backups must prove their ContentX schema
+// even when the target schema was completely lost.
 func (m *Manager) validateSchema(backupPath string) error {
 	live, err := m.CurrentSchemaVersion()
 	if err != nil {
@@ -235,20 +251,18 @@ func (m *Manager) validateSchema(backupPath string) error {
 		slog.Warn("could not read live schema version; skipping validation", "error", err)
 		return nil
 	}
-	if live == 0 {
-		// Live DB has no migrations recorded (e.g. AutoMigrate path). Nothing
-		// to compare against — accept the backup.
+	if live == 0 && m.dbCfg.Driver == "sqlite" {
+		// Legacy SQLite files may predate schema_migrations.
 		return nil
 	}
 	backup, err := m.BackupSchemaVersion(backupPath)
 	if err != nil {
-		slog.Warn("could not read backup schema version; skipping validation", "error", err)
-		return nil
+		return fmt.Errorf("%w: read backup schema version: %v", ErrSchemaMismatch, err)
 	}
 	if backup == 0 {
 		return fmt.Errorf("%w: backup contains no schema_migrations evidence; not a ContentX backup", ErrSchemaMismatch)
 	}
-	if backup > live {
+	if live > 0 && backup > live {
 		return fmt.Errorf("%w: backup version %d > live version %d (downgrade not supported)", ErrSchemaMismatch, backup, live)
 	}
 	slog.Info("schema version validated", "backup", backup, "live", live)
@@ -396,8 +410,40 @@ func (m *Manager) ExpectedTables() ([]string, error) {
 		}
 		out = append(out, t)
 	}
+	if len(out) == 0 && m.dbCfg.Driver != "sqlite" {
+		return m.canonicalModelTables()
+	}
 	sort.Strings(out)
 	return out, nil
+}
+
+// canonicalModelTables derives the current ContentX table set from the GORM
+// model registry. It is the restore preflight fallback when the target schema
+// has been completely lost and therefore cannot describe its expected tables.
+func (m *Manager) canonicalModelTables() ([]string, error) {
+	found := make(map[string]struct{})
+	for _, model := range database.AllModels() {
+		stmt := &gorm.Statement{DB: m.db}
+		if err := stmt.Parse(model); err != nil {
+			return nil, fmt.Errorf("parse model table: %w", err)
+		}
+		if stmt.Schema == nil || stmt.Schema.Table == "" {
+			continue
+		}
+		found[stmt.Schema.Table] = struct{}{}
+		for _, relation := range stmt.Schema.Relationships.Relations {
+			if relation.JoinTable != nil && relation.JoinTable.Table != "" {
+				found[relation.JoinTable.Table] = struct{}{}
+			}
+		}
+	}
+
+	tables := make([]string, 0, len(found))
+	for table := range found {
+		tables = append(tables, table)
+	}
+	sort.Strings(tables)
+	return tables, nil
 }
 
 // VerifyBackupTables checks that the backup file contains all tables that the

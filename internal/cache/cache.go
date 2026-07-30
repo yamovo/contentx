@@ -12,6 +12,7 @@ type Driver interface {
 	Get(ctx context.Context, key string) ([]byte, error)
 	Set(ctx context.Context, key string, value []byte, ttl time.Duration) error
 	Delete(ctx context.Context, key string) error
+	DeletePrefix(ctx context.Context, prefix string) error
 	Flush(ctx context.Context) error
 }
 

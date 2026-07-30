@@ -193,6 +193,8 @@ make backup API=http://localhost:8080 TOKEN=<ADMIN_TOKEN>
 
 记录应用版本、Git SHA、数据库类型、schema 版本、文件大小、校验和和创建时间。命令成功不等于备份可恢复。
 
+PostgreSQL plain SQL 备份使用 `--clean --if-exists --no-owner --no-privileges`，以便在目标角色布局不同的环境恢复。数据库 SQL 与媒体归档是两个独立时间点；需要跨两者严格一致时，必须额外安排停写窗口或一致性快照。
+
 ### 6.2 灾难恢复
 
 数据库完全丢失时，不要依赖需要登录的 HTTP 恢复接口。使用无需 HTTP 鉴权的 CLI：
@@ -201,11 +203,18 @@ make backup API=http://localhost:8080 TOKEN=<ADMIN_TOKEN>
 go run ./cmd/server --restore=path/to/backup.sql
 ```
 
-容器环境：
+容器环境应先停止应用写入，再用继承同一数据库和缓存配置的一次性容器执行：
 
 ```bash
-docker exec contentx /app/contentx --restore=/app/backups/<backup-file>
+docker compose stop app
+docker compose run --rm app --restore=/app/backups/<backup-file>
 ```
+
+PostgreSQL CLI 恢复使用 `psql ON_ERROR_STOP=1 --single-transaction`，SQL 任一语句失败会终止并回滚该次恢复。目标 schema 即使完全为空，也必须通过备份 schema 版本和当前模型表集合预检。
+
+恢复成功后，CLI 会连接配置中的缓存后端，只删除 `articles:` 和 `contenttype:` 数据缓存；JWT 黑名单、登录锁和其他安全状态不会被全量清空。使用 Redis 的部署必须向恢复容器提供与应用一致的 `CACHE_DRIVER`、`REDIS_HOST`、`REDIS_PORT`、`REDIS_PASSWORD`、`REDIS_DB` 和 `REDIS_PREFIX`，不要切换到 memory 绕过清理。
+
+如果缓存连接或定向清理失败，CLI 会以非零状态退出，但数据库可能已经恢复成功。此时不要直接重启应用；先恢复缓存连接或人工清理上述数据缓存，再继续验证。HTTP 恢复也会执行相同清理，调用方必须检查响应中的 `cache_warning`。
 
 恢复前：
 
@@ -219,7 +228,7 @@ docker exec contentx /app/contentx --restore=/app/backups/<backup-file>
 1. 检查迁移状态和健康接口。
 2. 核对关键表、行数和外键。
 3. 验证管理员登录、内容读取和媒体访问。
-4. 验证或重建搜索索引。
+4. 正常启动应用，确认启动日志中的 `search index warmed up indexed=<数量>` 与数据库内容一致；必要时再执行管理员手动重建。
 5. 记录恢复耗时、版本、异常和验证结果。
 
 发布前必须在当前候选提交和目标数据库类型上完成一次隔离恢复演练。历史报告只证明当时的提交通过。

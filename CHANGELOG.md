@@ -5,7 +5,14 @@
 
 ## [Unreleased]
 
-当前未发布改动聚焦安全与稳定性收口、管理后台重构、MCP、Webhook 持久化投递、S3 正式 SDK、审计日志和文章更新乐观锁。发布前仍需在最终候选提交上完成 PostgreSQL 恢复演练、CI 复核和版本整理。
+当前未发布改动聚焦安全与稳定性收口、管理后台重构、MCP、Webhook 持久化投递、S3 正式 SDK、审计日志和文章更新乐观锁。PostgreSQL 16.14 工作树恢复演练已通过；发布前仍需提交本轮修复，并在最终提交上完成 CI 复核和版本整理。
+
+### Fixed — PostgreSQL 恢复加固
+- PostgreSQL 备份增加 `--no-owner --no-privileges`，恢复增加 `ON_ERROR_STOP=1 --single-transaction`，避免角色/ACL 漂移并在 SQL 错误时整次回滚
+- 空目标 schema 不再跳过备份身份与完整表集合预检；预期表可从当前 GORM 模型和关联表推导
+- 缓存驱动支持逻辑前缀删除；CLI 和 HTTP 数据库恢复只清理文章与内容类型缓存，保留 JWT 吊销、登录锁和其他 Redis 安全状态
+- 搜索全量重建改为直读 Repository，避免数据库恢复后命中旧 Redis 列表缓存而生成空索引
+- PostgreSQL 16.14 空库迁移、v7→v5→v7、备份、全量清空、CLI 恢复、缓存哨兵和搜索复验通过，见[演练报告](reports/backup/pg-drill-20260730.md)
 
 ### Documentation — 官方文档体系
 - 新增 `docs/README.md` 文档中心，明确 PRD、STATUS、ROADMAP、SOP、OpenAPI 与 CHANGELOG 的权威边界

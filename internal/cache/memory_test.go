@@ -67,6 +67,26 @@ func TestMemoryDriver_Flush(t *testing.T) {
 	}
 }
 
+func TestMemoryDriver_DeletePrefix(t *testing.T) {
+	d := NewMemoryDriver(100)
+	ctx := context.Background()
+	for _, key := range []string{"articles:id:1", "articles:list:1", "contenttype:post"} {
+		_ = d.Set(ctx, key, []byte("value"), time.Minute)
+	}
+
+	if err := d.DeletePrefix(ctx, "articles:"); err != nil {
+		t.Fatalf("DeletePrefix: %v", err)
+	}
+	for _, key := range []string{"articles:id:1", "articles:list:1"} {
+		if _, err := d.Get(ctx, key); err != ErrCacheMiss {
+			t.Fatalf("expected %q to be deleted, got %v", key, err)
+		}
+	}
+	if _, err := d.Get(ctx, "contenttype:post"); err != nil {
+		t.Fatalf("unrelated key should remain: %v", err)
+	}
+}
+
 // TestMemoryDriver_ValueIsolation ensures stored values are defensively copied
 // so callers cannot corrupt the cache by mutating input or output slices.
 func TestMemoryDriver_ValueIsolation(t *testing.T) {
