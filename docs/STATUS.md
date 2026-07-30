@@ -9,10 +9,10 @@
 | 项目 | 当前状态 |
 |---|---|
 | 最新正式版本 | `v1.3.0` |
-| 当前分支 | `main` 已含恢复加固 `05de8f3`；跟进分支 `codex/pg-restore-verification-followup` 含审查修复 `504d510` |
+| 当前分支 | `main` 已含恢复加固 `05de8f3`；[草稿 PR #1](https://github.com/yamovo/contentx/pull/1) 含审查修复 `504d510` |
 | 当前里程碑 | 发布候选收口 |
 | 下一里程碑 | 多租户基础 |
-| 发布建议 | 暂不发布；先合并恢复审查修复并确认其远程 CI，再完成版本整理 |
+| 发布建议 | 暂不发布；草稿 PR #1 已通过 CI，先完成评审合并，再进行版本整理 |
 
 ## 2. 已交付能力
 
@@ -62,7 +62,7 @@
 | MinIO 真机集成 | 5 个场景通过 |
 | PostgreSQL 16.14 隔离恢复 | 2026-07-30 通过：空库 v1–v7、含数据 v7→v5→v7、备份、清空、CLI 恢复、定向缓存清理和搜索重建；见[演练报告](../reports/backup/pg-drill-20260730.md) |
 | 远程 CI `05de8f3` | `test`、`frontend`、`build`、`docker` 全部成功；`Swagger drift check` 成功；[运行记录](https://github.com/yamovo/contentx/actions/runs/30514387569) |
-| 审查修复 `504d510` | 全量 Go 测试、vet、golangci-lint、定向回归和前端 ESLint 通过；远程 CI 待分支推送后确认 |
+| 审查修复 `504d510` | 全量 Go 测试、vet、golangci-lint、定向回归、前端 ESLint 和 Chromium E2E 通过；[PR CI](https://github.com/yamovo/contentx/actions/runs/30515979618) 的 `test`、`frontend`、`build` 成功 |
 | `git diff --check` | 通过 |
 
 上述结果证明当前工作区在本机通过，不等同于已提交代码或远程 CI 已通过。
@@ -84,7 +84,7 @@
 
 以下事项完成前不应创建下一正式版本：
 
-1. 推送并合并恢复审查修复 `504d510`，确认 PR 远程 CI 和 OpenAPI 漂移检查。
+1. 评审并合并草稿 PR #1；其远程 CI 和 OpenAPI 漂移检查已通过。
 2. 浏览器 E2E 当前只有本地证据；发布前保留 35/35 结果，并将其接入 CI 作为后续门禁改进。
 3. 确定版本号并同步发布说明与镜像标签。
 
@@ -92,10 +92,9 @@
 
 ## 6. 下一步
 
-1. 推送跟进分支并创建草稿 PR。
-2. 确认最终 CI，处理评审意见后合并。
-3. 更新版本号和发布说明。
-4. 发布完成后启动多租户数据模型设计。
+1. 处理草稿 PR #1 的评审意见并合并。
+2. 更新版本号和发布说明。
+3. 发布完成后启动多租户数据模型设计。
 
 ## 7. 相关文档
 
