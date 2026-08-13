@@ -3,6 +3,7 @@ package middleware
 import (
 	"container/list"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -19,6 +20,12 @@ const (
 	ContextKeyUser = "currentUser"
 	// ContextKeyClaims is the gin context key for JWT claims.
 	ContextKeyClaims = "claims"
+	// ContextKeyTenant is the gin context key for the resolved request tenant
+	// (RFC-001 §4.2). Always set by auth middlewares; falls back to the
+	// default tenant for anonymous/public requests via GetCurrentTenant.
+	ContextKeyTenant = "tenantId"
+	// TenantOverrideHeader lets platform admins switch tenants per request.
+	TenantOverrideHeader = "X-Tenant-ID"
 
 	// authCacheTTL bounds how long a cached user record is considered fresh.
 	// Changes to user status/role/permissions propagate within this window.
@@ -193,6 +200,7 @@ func AuthMiddleware(jwtMgr *auth.JWTManager, db *gorm.DB, store auth.TokenStore,
 			}
 			c.Set(ContextKeyUser, user)
 			c.Set(ContextKeyClaims, claims)
+			setTenantContext(c, user, claims)
 			c.Next()
 			return
 		}
@@ -216,6 +224,7 @@ func AuthMiddleware(jwtMgr *auth.JWTManager, db *gorm.DB, store auth.TokenStore,
 
 		c.Set(ContextKeyUser, &user)
 		c.Set(ContextKeyClaims, claims)
+		setTenantContext(c, &user, claims)
 		c.Next()
 	}
 }
@@ -248,6 +257,7 @@ func OptionalAuthMiddleware(jwtMgr *auth.JWTManager, db *gorm.DB, store auth.Tok
 			if user.IsActive() {
 				c.Set(ContextKeyUser, user)
 				c.Set(ContextKeyClaims, claims)
+				setTenantContext(c, user, claims)
 			}
 			c.Next()
 			return
@@ -264,6 +274,7 @@ func OptionalAuthMiddleware(jwtMgr *auth.JWTManager, db *gorm.DB, store auth.Tok
 			cache.putAtGeneration(&user, cacheGeneration)
 			c.Set(ContextKeyUser, &user)
 			c.Set(ContextKeyClaims, claims)
+			setTenantContext(c, &user, claims)
 		}
 		c.Next()
 	}
@@ -371,6 +382,37 @@ func GetCurrentUser(c *gin.Context) *models.User {
 		return nil
 	}
 	return u
+}
+
+// GetCurrentTenant returns the tenant bound to the current request. Auth
+// middlewares set it from JWT claims (or the X-Tenant-ID override for
+// platform admins); anonymous/public requests fall back to the default
+// tenant (RFC-001 §4.2).
+func GetCurrentTenant(c *gin.Context) uint {
+	if v, ok := c.Get(ContextKeyTenant); ok {
+		if id, ok := v.(uint); ok && id > 0 {
+			return id
+		}
+	}
+	return models.DefaultTenantID
+}
+
+// setTenantContext resolves and stores the request tenant in the gin
+// context. Resolution order: X-Tenant-ID header (platform admins only) →
+// JWT claim TenantID → default tenant.
+func setTenantContext(c *gin.Context, user *models.User, claims *auth.Claims) {
+	tenantID := models.DefaultTenantID
+	if claims != nil && claims.TenantID > 0 {
+		tenantID = claims.TenantID
+	}
+	if user != nil && user.Role.Slug == "admin" {
+		if v := c.GetHeader(TenantOverrideHeader); v != "" {
+			if id, err := strconv.ParseUint(v, 10, 64); err == nil && id > 0 {
+				tenantID = uint(id)
+			}
+		}
+	}
+	c.Set(ContextKeyTenant, tenantID)
 }
 
 // GetClaims retrieves the JWT claims from context.

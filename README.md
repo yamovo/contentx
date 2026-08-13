@@ -2,7 +2,7 @@
 
 ContentX 是一个使用 Go 和 Vue 3 构建的 API-first Headless CMS。它提供 REST API、只读 GraphQL、管理后台，以及面向 AI Agent 的 Model Context Protocol（MCP）接口。
 
-> 当前稳定版本为 `v1.3.0`。工作区包含尚未发布的安全、稳定性和存储改进；准确状态与发布阻断项见[项目状态](./docs/STATUS.md)。
+> 当前稳定版本为 `v1.4.0`。准确状态、已知限制与下一步计划见[项目状态](./docs/STATUS.md)。
 
 ## 核心能力
 
@@ -53,7 +53,7 @@ ContentX 是一个使用 Go 和 Vue 3 构建的 API-first Headless CMS。它提�
 
 - 管理后台：<http://localhost:8080>
 - REST API：<http://localhost:8080/api/v1>
-- Swagger UI：<http://localhost:8080/swagger/index.html>
+- Swagger UI：<http://localhost:8080/swagger/index.html>（仅在非 release 模式挂载；容器部署为 release 模式时不可用）
 - 健康检查：<http://localhost:8080/api/v1/system/health>
 
 ### 本地开发

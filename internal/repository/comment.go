@@ -27,21 +27,22 @@ type CommentStatsData struct {
 	Today    int64
 }
 
-// CommentRepository defines data-access operations for comments.
+// CommentRepository defines data-access operations for comments, scoped to a
+// tenant (RFC-001 §5): queries MUST carry tenantID.
 type CommentRepository interface {
-	List(filter CommentListFilter) ([]models.Comment, int64, error)
-	GetByID(id uint) (*models.Comment, error) // preloads User + Children
-	FindArticleByID(articleID uint) (*models.Article, error)
-	FindCommentByID(id uint) (*models.Comment, error) // returns gorm.ErrRecordNotFound if missing
-	Create(comment *models.Comment) error
-	UpdateContent(id uint, content string) (rowsAffected int64, err error)
-	UpdateStatus(id uint, status string) (rowsAffected int64, err error)
-	BulkUpdateStatus(ids []uint, status string) (rowsAffected int64, err error)
-	BulkDelete(ids []uint) (rowsAffected int64, err error)
-	FindArticleComments(articleID uint) ([]models.Comment, error) // scoped Children preload
-	IncrementArticleCommentCount(articleID uint) error
-	Stats() (CommentStatsData, error)
-	CountToday() (int64, error)
+	List(filter CommentListFilter, tenantID uint) ([]models.Comment, int64, error)
+	GetByID(id, tenantID uint) (*models.Comment, error)                // preloads User + Children
+	FindArticleByID(articleID, tenantID uint) (*models.Article, error) // article must belong to the tenant
+	FindCommentByID(id, tenantID uint) (*models.Comment, error)        // returns gorm.ErrRecordNotFound if missing
+	Create(comment *models.Comment) error                              // comment.TenantID must be set by the caller
+	UpdateContent(id uint, content string, tenantID uint) (rowsAffected int64, err error)
+	UpdateStatus(id uint, status string, tenantID uint) (rowsAffected int64, err error)
+	BulkUpdateStatus(ids []uint, status string, tenantID uint) (rowsAffected int64, err error)
+	BulkDelete(ids []uint, tenantID uint) (rowsAffected int64, err error)
+	FindArticleComments(articleID, tenantID uint) ([]models.Comment, error) // scoped Children preload
+	IncrementArticleCommentCount(articleID, tenantID uint) error
+	Stats(tenantID uint) (CommentStatsData, error)
+	CountToday(tenantID uint) (int64, error)
 }
 
 // gormCommentRepository implements CommentRepository with GORM.
@@ -54,7 +55,7 @@ func NewCommentRepository(db *gorm.DB) CommentRepository {
 	return &gormCommentRepository{db: db}
 }
 
-func (r *gormCommentRepository) List(filter CommentListFilter) ([]models.Comment, int64, error) {
+func (r *gormCommentRepository) List(filter CommentListFilter, tenantID uint) ([]models.Comment, int64, error) {
 	if filter.Page < 1 {
 		filter.Page = 1
 	}
@@ -62,7 +63,7 @@ func (r *gormCommentRepository) List(filter CommentListFilter) ([]models.Comment
 		filter.PageSize = 20
 	}
 
-	query := r.db.Model(&models.Comment{}).Preload("User").Preload("Article")
+	query := r.db.Model(&models.Comment{}).Preload("User").Preload("Article").Where("tenant_id = ?", tenantID)
 	if filter.Status != "" {
 		query = query.Where("status = ?", filter.Status)
 	}
@@ -89,25 +90,25 @@ func (r *gormCommentRepository) List(filter CommentListFilter) ([]models.Comment
 	return comments, total, nil
 }
 
-func (r *gormCommentRepository) GetByID(id uint) (*models.Comment, error) {
+func (r *gormCommentRepository) GetByID(id, tenantID uint) (*models.Comment, error) {
 	var comment models.Comment
-	if err := r.db.Preload("User").Preload("Children").First(&comment, id).Error; err != nil {
+	if err := r.db.Preload("User").Preload("Children").Where("id = ? AND tenant_id = ?", id, tenantID).First(&comment).Error; err != nil {
 		return nil, err
 	}
 	return &comment, nil
 }
 
-func (r *gormCommentRepository) FindArticleByID(articleID uint) (*models.Article, error) {
+func (r *gormCommentRepository) FindArticleByID(articleID, tenantID uint) (*models.Article, error) {
 	var article models.Article
-	if err := r.db.First(&article, articleID).Error; err != nil {
+	if err := r.db.Where("id = ? AND tenant_id = ?", articleID, tenantID).First(&article).Error; err != nil {
 		return nil, err
 	}
 	return &article, nil
 }
 
-func (r *gormCommentRepository) FindCommentByID(id uint) (*models.Comment, error) {
+func (r *gormCommentRepository) FindCommentByID(id, tenantID uint) (*models.Comment, error) {
 	var comment models.Comment
-	if err := r.db.First(&comment, id).Error; err != nil {
+	if err := r.db.Where("id = ? AND tenant_id = ?", id, tenantID).First(&comment).Error; err != nil {
 		return nil, err
 	}
 	return &comment, nil
@@ -117,29 +118,29 @@ func (r *gormCommentRepository) Create(comment *models.Comment) error {
 	return r.db.Create(comment).Error
 }
 
-func (r *gormCommentRepository) UpdateContent(id uint, content string) (int64, error) {
-	result := r.db.Model(&models.Comment{}).Where("id = ?", id).Update("content", content)
+func (r *gormCommentRepository) UpdateContent(id uint, content string, tenantID uint) (int64, error) {
+	result := r.db.Model(&models.Comment{}).Where("id = ? AND tenant_id = ?", id, tenantID).Update("content", content)
 	return result.RowsAffected, result.Error
 }
 
-func (r *gormCommentRepository) UpdateStatus(id uint, status string) (int64, error) {
-	result := r.db.Model(&models.Comment{}).Where("id = ?", id).Update("status", status)
+func (r *gormCommentRepository) UpdateStatus(id uint, status string, tenantID uint) (int64, error) {
+	result := r.db.Model(&models.Comment{}).Where("id = ? AND tenant_id = ?", id, tenantID).Update("status", status)
 	return result.RowsAffected, result.Error
 }
 
-func (r *gormCommentRepository) BulkUpdateStatus(ids []uint, status string) (int64, error) {
-	result := r.db.Model(&models.Comment{}).Where("id IN ?", ids).Update("status", status)
+func (r *gormCommentRepository) BulkUpdateStatus(ids []uint, status string, tenantID uint) (int64, error) {
+	result := r.db.Model(&models.Comment{}).Where("id IN ? AND tenant_id = ?", ids, tenantID).Update("status", status)
 	return result.RowsAffected, result.Error
 }
 
-func (r *gormCommentRepository) BulkDelete(ids []uint) (int64, error) {
-	result := r.db.Where("id IN ?", ids).Delete(&models.Comment{})
+func (r *gormCommentRepository) BulkDelete(ids []uint, tenantID uint) (int64, error) {
+	result := r.db.Where("id IN ? AND tenant_id = ?", ids, tenantID).Delete(&models.Comment{})
 	return result.RowsAffected, result.Error
 }
 
-func (r *gormCommentRepository) FindArticleComments(articleID uint) ([]models.Comment, error) {
+func (r *gormCommentRepository) FindArticleComments(articleID, tenantID uint) ([]models.Comment, error) {
 	var comments []models.Comment
-	err := r.db.Where("article_id = ? AND status = ? AND parent_id IS NULL", articleID, "approved").
+	err := r.db.Where("article_id = ? AND status = ? AND parent_id IS NULL AND tenant_id = ?", articleID, "approved", tenantID).
 		Preload("User").
 		Preload("Children", func(db *gorm.DB) *gorm.DB {
 			return db.Where("status = ?", "approved").Order("created_at ASC")
@@ -153,14 +154,14 @@ func (r *gormCommentRepository) FindArticleComments(articleID uint) ([]models.Co
 	return comments, nil
 }
 
-func (r *gormCommentRepository) IncrementArticleCommentCount(articleID uint) error {
-	return r.db.Model(&models.Article{}).Where("id = ?", articleID).
+func (r *gormCommentRepository) IncrementArticleCommentCount(articleID, tenantID uint) error {
+	return r.db.Model(&models.Article{}).Where("id = ? AND tenant_id = ?", articleID, tenantID).
 		UpdateColumn("comment_count", gorm.Expr("comment_count + 1")).Error
 }
 
-func (r *gormCommentRepository) CountToday() (int64, error) {
+func (r *gormCommentRepository) CountToday(tenantID uint) (int64, error) {
 	var count int64
-	if err := r.db.Model(&models.Comment{}).Where("DATE(created_at) = DATE(?)", time.Now()).Count(&count).Error; err != nil {
+	if err := r.db.Model(&models.Comment{}).Where("DATE(created_at) = DATE(?) AND tenant_id = ?", time.Now(), tenantID).Count(&count).Error; err != nil {
 		return 0, err
 	}
 	return count, nil
@@ -168,22 +169,22 @@ func (r *gormCommentRepository) CountToday() (int64, error) {
 
 // Stats runs the same five COUNT queries as the original service implementation.
 // Individual query errors are ignored to preserve prior behaviour (best-effort stats).
-func (r *gormCommentRepository) Stats() (CommentStatsData, error) {
+func (r *gormCommentRepository) Stats(tenantID uint) (CommentStatsData, error) {
 	var stats CommentStatsData
 
-	if err := r.db.Model(&models.Comment{}).Count(&stats.Total).Error; err != nil {
+	if err := r.db.Model(&models.Comment{}).Where("tenant_id = ?", tenantID).Count(&stats.Total).Error; err != nil {
 		return stats, err
 	}
-	if err := r.db.Model(&models.Comment{}).Where("status = ?", "pending").Count(&stats.Pending).Error; err != nil {
+	if err := r.db.Model(&models.Comment{}).Where("status = ? AND tenant_id = ?", "pending", tenantID).Count(&stats.Pending).Error; err != nil {
 		return stats, err
 	}
-	if err := r.db.Model(&models.Comment{}).Where("status = ?", "approved").Count(&stats.Approved).Error; err != nil {
+	if err := r.db.Model(&models.Comment{}).Where("status = ? AND tenant_id = ?", "approved", tenantID).Count(&stats.Approved).Error; err != nil {
 		return stats, err
 	}
-	if err := r.db.Model(&models.Comment{}).Where("status = ?", "spam").Count(&stats.Spam).Error; err != nil {
+	if err := r.db.Model(&models.Comment{}).Where("status = ? AND tenant_id = ?", "spam", tenantID).Count(&stats.Spam).Error; err != nil {
 		return stats, err
 	}
-	today, err := r.CountToday()
+	today, err := r.CountToday(tenantID)
 	if err != nil {
 		return stats, err
 	}

@@ -39,6 +39,44 @@
       </el-col>
     </el-row>
 
+    <!-- 待办事项 -->
+    <el-row
+      :gutter="16"
+      class="todo-row"
+    >
+      <el-col
+        v-for="todo in todoCards"
+        :key="todo.label"
+        :xs="12"
+        :sm="6"
+      >
+        <el-card
+          shadow="hover"
+          class="todo-card"
+          :body-style="{ padding: '16px 20px' }"
+          @click="$router.push(todo.to)"
+        >
+          <div class="todo-content">
+            <div class="todo-info">
+              <span class="todo-label">{{ todo.label }}</span>
+              <span
+                class="todo-value"
+                :class="{ zero: !todo.value }"
+              >
+                {{ todo.value }}
+              </span>
+            </div>
+            <el-icon
+              class="todo-icon"
+              :style="{ color: todo.color }"
+            >
+              <component :is="todo.icon" />
+            </el-icon>
+          </div>
+        </el-card>
+      </el-col>
+    </el-row>
+
     <!-- Charts Row (lazy-loaded) -->
     <DashboardCharts
       v-model:days="chartDays"
@@ -171,6 +209,7 @@ import { type DashboardStats, type Article, type Comment } from '@/api'
 import { formatDate } from '@/utils'
 import { useAnime } from '@/composables/useAnime'
 import { useDashboardQuery, useViewsOverTimeQuery, useDeviceBreakdownQuery } from '@/features/analytics/use-dashboard-query'
+import { useArticleListQuery } from '@/features/articles/use-article-list-query'
 
 const DashboardCharts = defineAsyncComponent(() => import('@/features/analytics/DashboardCharts.vue'))
 
@@ -215,6 +254,32 @@ watch(() => deviceQueryData.value, (d) => {
 }, { immediate: true })
 
 const displayValues = reactive<(number | string)[]>([0, 0, 0, 0])
+
+// 待审核文章数：复用文章列表查询层，page_size=1 只为拿 total。
+const { data: pendingArticlesData } = useArticleListQuery({
+  page: 1,
+  page_size: 1,
+  status: 'pending',
+  post_type: 'post',
+})
+const pendingArticleCount = computed(() => pendingArticlesData.value?.total ?? 0)
+
+const todoCards = computed(() => [
+  {
+    label: '待审核评论',
+    value: stats.value.pending_comments,
+    icon: 'ChatDotSquare',
+    color: '#e6a23c',
+    to: '/admin/comments',
+  },
+  {
+    label: '待审核文章',
+    value: pendingArticleCount.value,
+    icon: 'Document',
+    color: '#f56c6c',
+    to: '/admin/articles?status=pending',
+  },
+])
 
 const statCards = computed(() => [
   { label: '文章总数', value: stats.value.total_articles, icon: 'Document', color: '#409eff', to: '/admin/articles' },
@@ -290,6 +355,30 @@ animateEntrance()
 <style lang="scss" scoped>
 .dashboard {
   .stats-row { margin-bottom: 16px; }
+
+  .todo-row { margin-bottom: 16px; }
+
+  .todo-card {
+    cursor: pointer;
+    .todo-content {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .todo-info {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .todo-label { font-size: 13px; color: #909399; }
+    .todo-value {
+      font-size: 22px;
+      font-weight: 600;
+      color: #303133;
+      &.zero { color: #c0c4cc; }
+    }
+    .todo-icon { font-size: 24px; }
+  }
 
   .stat-card {
     cursor: pointer;

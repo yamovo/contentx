@@ -40,7 +40,7 @@ func TestMockArticle_GetBySlug_Success(t *testing.T) {
 	svc, mock := newMockArticleService()
 	mock.Articles[1] = &models.Article{BaseModel: models.BaseModel{ID: 1}, Slug: "hello-world", Title: "Hello", ViewCount: 5}
 
-	article, err := svc.GetBySlug("hello-world")
+	article, err := svc.GetBySlug("hello-world", models.DefaultTenantID)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -58,7 +58,7 @@ func TestMockArticle_GetBySlug_Success(t *testing.T) {
 func TestMockArticle_GetBySlug_NotFound(t *testing.T) {
 	svc, _ := newMockArticleService()
 
-	_, err := svc.GetBySlug("nonexistent")
+	_, err := svc.GetBySlug("nonexistent", models.DefaultTenantID)
 	if !errors.Is(err, gorm.ErrRecordNotFound) {
 		t.Fatalf("expected gorm.ErrRecordNotFound, got %v", err)
 	}
@@ -70,7 +70,7 @@ func TestMockArticle_GetBySlug_ViewCountErrorBestEffort(t *testing.T) {
 	mock.IncrementViewErr = errors.New("redis down")
 
 	// 即使 IncrementViewCount 失败，GetBySlug 也应成功返回（best-effort）
-	article, err := svc.GetBySlug("test")
+	article, err := svc.GetBySlug("test", models.DefaultTenantID)
 	if err != nil {
 		t.Fatalf("GetBySlug should not fail even if view count increment fails: %v", err)
 	}
@@ -88,7 +88,7 @@ func TestMockArticle_Create_Defaults(t *testing.T) {
 		Content: "Some content here",
 	}
 
-	article, err := svc.Create(req, 1)
+	article, err := svc.Create(req, models.DefaultTenantID, 1)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -135,7 +135,7 @@ func TestMockArticle_Create_CannotPublishThroughCreatePayload(t *testing.T) {
 		Content: "Content",
 	}
 
-	article, err := svc.Create(req, 1)
+	article, err := svc.Create(req, models.DefaultTenantID, 1)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -151,7 +151,7 @@ func TestMockArticle_Create_RepoError(t *testing.T) {
 	svc, mock := newMockArticleService()
 	mock.CreateErr = errors.New("db connection lost")
 
-	_, err := svc.Create(CreateArticleRequest{Title: "Test"}, 1)
+	_, err := svc.Create(CreateArticleRequest{Title: "Test"}, models.DefaultTenantID, 1)
 	if err == nil {
 		t.Fatal("expected error from repo.Create")
 	}
@@ -162,7 +162,7 @@ func TestMockArticle_Update_ForbiddenNonOwner(t *testing.T) {
 	mock.Articles[1] = &models.Article{BaseModel: models.BaseModel{ID: 1}, AuthorID: 100}
 
 	title := "Updated"
-	_, err := svc.Update(1, UpdateArticleRequest{Title: &title}, 200, false)
+	_, err := svc.Update(1, UpdateArticleRequest{Title: &title}, models.DefaultTenantID, 200, false)
 	if err == nil {
 		t.Fatal("expected forbidden error for non-owner non-editor")
 	}
@@ -180,7 +180,7 @@ func TestMockArticle_Update_AsEditorAllowed(t *testing.T) {
 	mock.Articles[1] = &models.Article{BaseModel: models.BaseModel{ID: 1}, AuthorID: 100}
 
 	title := "Editor Updated"
-	_, err := svc.Update(1, UpdateArticleRequest{Title: &title}, 200, true)
+	_, err := svc.Update(1, UpdateArticleRequest{Title: &title}, models.DefaultTenantID, 200, true)
 	if err != nil {
 		t.Fatalf("editor should be allowed to update: %v", err)
 	}
@@ -194,7 +194,7 @@ func TestMockArticle_Update_AsOwnerAllowed(t *testing.T) {
 	mock.Articles[1] = &models.Article{BaseModel: models.BaseModel{ID: 1}, AuthorID: 100}
 
 	title := "Owner Updated"
-	_, err := svc.Update(1, UpdateArticleRequest{Title: &title}, 100, false)
+	_, err := svc.Update(1, UpdateArticleRequest{Title: &title}, models.DefaultTenantID, 100, false)
 	if err != nil {
 		t.Fatalf("owner should be allowed to update: %v", err)
 	}
@@ -203,7 +203,7 @@ func TestMockArticle_Update_AsOwnerAllowed(t *testing.T) {
 func TestMockArticle_Update_NotFound(t *testing.T) {
 	svc, _ := newMockArticleService()
 	title := "x"
-	_, err := svc.Update(999, UpdateArticleRequest{Title: &title}, 1, true)
+	_, err := svc.Update(999, UpdateArticleRequest{Title: &title}, models.DefaultTenantID, 1, true)
 	if !errors.Is(err, gorm.ErrRecordNotFound) {
 		t.Fatalf("expected ErrRecordNotFound, got %v", err)
 	}
@@ -215,7 +215,7 @@ func TestMockArticle_Update_SlugEnsuresUnique(t *testing.T) {
 	mock.UniqueSlugSuffix = "-1"
 
 	newSlug := "my-slug"
-	_, err := svc.Update(1, UpdateArticleRequest{Slug: &newSlug}, 1, false)
+	_, err := svc.Update(1, UpdateArticleRequest{Slug: &newSlug}, models.DefaultTenantID, 1, false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -228,7 +228,7 @@ func TestMockArticle_Delete_ForbiddenNonOwner(t *testing.T) {
 	svc, mock := newMockArticleService()
 	mock.Articles[1] = &models.Article{BaseModel: models.BaseModel{ID: 1}, AuthorID: 100}
 
-	err := svc.Delete(1, 200, false)
+	err := svc.Delete(1, models.DefaultTenantID, 200, false)
 	if err == nil {
 		t.Fatal("expected forbidden error")
 	}
@@ -245,7 +245,7 @@ func TestMockArticle_Delete_AsOwner(t *testing.T) {
 	svc, mock := newMockArticleService()
 	mock.Articles[1] = &models.Article{BaseModel: models.BaseModel{ID: 1}, AuthorID: 100}
 
-	if err := svc.Delete(1, 100, false); err != nil {
+	if err := svc.Delete(1, models.DefaultTenantID, 100, false); err != nil {
 		t.Fatalf("owner should delete: %v", err)
 	}
 	if len(mock.DeletedArticles) != 1 {
@@ -280,7 +280,7 @@ func TestMockArticle_BulkAction_AllBranches(t *testing.T) {
 				ArticleIDs: ids,
 				Action:     tc.action,
 				CategoryID: tc.categoryID,
-			})
+			}, models.DefaultTenantID)
 
 			if tc.expectErr {
 				if err == nil {
@@ -310,7 +310,7 @@ func TestMockArticle_RestoreRevision_Success(t *testing.T) {
 	mock.Revision = &models.Revision{BaseModel: models.BaseModel{ID: 10}, ArticleID: 1, Version: 2}
 
 	// Owner restores own article revision.
-	err := svc.RestoreRevision(1, 10, 100, false)
+	err := svc.RestoreRevision(1, 10, models.DefaultTenantID, 100, false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -322,7 +322,7 @@ func TestMockArticle_RestoreRevision_EditorCanRestoreOthers(t *testing.T) {
 	mock.Revision = &models.Revision{BaseModel: models.BaseModel{ID: 10}, ArticleID: 1, Version: 2}
 
 	// Editor (non-owner) is allowed to restore.
-	err := svc.RestoreRevision(1, 10, 200, true)
+	err := svc.RestoreRevision(1, 10, models.DefaultTenantID, 200, true)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -334,7 +334,7 @@ func TestMockArticle_RestoreRevision_NonOwnerForbidden(t *testing.T) {
 	mock.Revision = &models.Revision{BaseModel: models.BaseModel{ID: 10}, ArticleID: 1, Version: 2}
 
 	// Non-owner without editor role must be rejected (SEC-3 IDOR).
-	err := svc.RestoreRevision(1, 10, 200, false)
+	err := svc.RestoreRevision(1, 10, models.DefaultTenantID, 200, false)
 	var appErr *errs.AppError
 	if !errs.Is(err, &appErr) || appErr.Code != errs.ErrForbidden.Code {
 		t.Fatalf("expected forbidden error, got %v", err)
@@ -345,7 +345,7 @@ func TestMockArticle_RestoreRevision_RevisionNotFound(t *testing.T) {
 	svc, mock := newMockArticleService()
 	mock.FindRevisionErr = gorm.ErrRecordNotFound
 
-	err := svc.RestoreRevision(1, 99, 100, false)
+	err := svc.RestoreRevision(1, 99, models.DefaultTenantID, 100, false)
 	if !errors.Is(err, gorm.ErrRecordNotFound) {
 		t.Fatalf("expected ErrRecordNotFound, got %v", err)
 	}
@@ -356,7 +356,7 @@ func TestMockArticle_RestoreRevision_ArticleNotFound(t *testing.T) {
 	mock.Revision = &models.Revision{BaseModel: models.BaseModel{ID: 10}, ArticleID: 1}
 	mock.FindByIDErr = gorm.ErrRecordNotFound
 
-	err := svc.RestoreRevision(1, 10, 100, false)
+	err := svc.RestoreRevision(1, 10, models.DefaultTenantID, 100, false)
 	if !errors.Is(err, gorm.ErrRecordNotFound) {
 		t.Fatalf("expected ErrRecordNotFound, got %v", err)
 	}
@@ -365,7 +365,7 @@ func TestMockArticle_RestoreRevision_ArticleNotFound(t *testing.T) {
 func TestMockArticle_LikeArticle(t *testing.T) {
 	svc, mock := newMockArticleService()
 
-	if err := svc.LikeArticle(42); err != nil {
+	if err := svc.LikeArticle(42, models.DefaultTenantID); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if len(mock.LikeCountIncs) != 1 || mock.LikeCountIncs[0] != 42 {
@@ -376,7 +376,7 @@ func TestMockArticle_LikeArticle(t *testing.T) {
 func TestMockArticle_GenerateFeed_Empty(t *testing.T) {
 	svc, _ := newMockArticleService()
 
-	xml, err := svc.GenerateFeed()
+	xml, err := svc.GenerateFeed(models.DefaultTenantID)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -412,7 +412,7 @@ func TestMockArticle_GenerateFeed_WithData(t *testing.T) {
 		},
 	}
 
-	xml, err := svc.GenerateFeed()
+	xml, err := svc.GenerateFeed(models.DefaultTenantID)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -440,7 +440,7 @@ func TestMockArticle_List_PaginationDefaults(t *testing.T) {
 	mock.ListTotal = 2
 
 	// 传入无效分页参数，应被修正为默认值
-	resp, err := svc.List(ListArticlesFilter{Page: 0, PageSize: 0, Sort: ""})
+	resp, err := svc.List(ListArticlesFilter{Page: 0, PageSize: 0, Sort: ""}, models.DefaultTenantID)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -460,7 +460,7 @@ func TestMockArticle_List_PageSizeClamped(t *testing.T) {
 	mock.ArticlesList = []models.Article{}
 
 	// PageSize > 100 应被限制为 20
-	resp, err := svc.List(ListArticlesFilter{Page: 1, PageSize: 200})
+	resp, err := svc.List(ListArticlesFilter{Page: 1, PageSize: 200}, models.DefaultTenantID)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -473,7 +473,7 @@ func TestMockArticle_List_RepoError(t *testing.T) {
 	svc, mock := newMockArticleService()
 	mock.ListErr = errors.New("database timeout")
 
-	_, err := svc.List(ListArticlesFilter{Page: 1, PageSize: 10})
+	_, err := svc.List(ListArticlesFilter{Page: 1, PageSize: 10}, models.DefaultTenantID)
 	if err == nil {
 		t.Fatal("expected error from repo.List")
 	}
@@ -483,7 +483,7 @@ func TestMockArticle_Get_RepoError(t *testing.T) {
 	svc, mock := newMockArticleService()
 	mock.GetByIDErr = errors.New("connection lost")
 
-	_, err := svc.Get(1)
+	_, err := svc.Get(1, models.DefaultTenantID)
 	if err == nil {
 		t.Fatal("expected error from repo.GetByID")
 	}
@@ -496,7 +496,7 @@ func TestMockArticle_Revisions(t *testing.T) {
 		{BaseModel: models.BaseModel{ID: 2}, Version: 2},
 	}
 
-	revs, err := svc.Revisions(1)
+	revs, err := svc.Revisions(1, models.DefaultTenantID)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

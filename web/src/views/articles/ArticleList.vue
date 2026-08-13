@@ -32,34 +32,6 @@
         </el-form-item>
         <el-form-item>
           <el-select
-            v-model="filters.status"
-            placeholder="状态"
-            clearable
-          >
-            <el-option
-              label="已发布"
-              value="published"
-            />
-            <el-option
-              label="草稿"
-              value="draft"
-            />
-            <el-option
-              label="待审核"
-              value="pending"
-            />
-            <el-option
-              label="定时发布"
-              value="scheduled"
-            />
-            <el-option
-              label="回收站"
-              value="trash"
-            />
-          </el-select>
-        </el-form-item>
-        <el-form-item>
-          <el-select
             v-model="filters.category_id"
             placeholder="分类"
             clearable
@@ -109,6 +81,31 @@
       </el-form>
     </el-card>
 
+    <!-- Status Tabs -->
+    <el-card
+      shadow="never"
+      class="tabs-card"
+    >
+      <el-tabs
+        :model-value="filters.status || 'all'"
+        @tab-change="handleStatusTabChange"
+      >
+        <el-tab-pane
+          v-for="tab in statusTabs"
+          :key="tab.value"
+          :name="tab.value || 'all'"
+        >
+          <template #label>
+            {{ tab.label }}
+            <span
+              v-if="statusCounts[tab.value] != null"
+              class="tab-count"
+            >{{ statusCounts[tab.value] }}</span>
+          </template>
+        </el-tab-pane>
+      </el-tabs>
+    </el-card>
+
     <!-- Bulk Actions -->
     <div
       v-if="selectedIds.length > 0"
@@ -117,40 +114,39 @@
       <span>已选择 {{ selectedIds.length }} 项</span>
       <el-button
         size="small"
+        type="primary"
         @click="bulkAction('publish')"
       >
-        发布
+        批量发布
       </el-button>
       <el-button
         size="small"
-        @click="bulkAction('draft')"
+        :loading="bulkArchiving"
+        @click="bulkArchive"
       >
-        转为草稿
+        批量归档
       </el-button>
       <el-button
         size="small"
-        @click="bulkAction('trash')"
+        type="danger"
+        @click="bulkDelete"
       >
-        移至回收站
+        批量删除
       </el-button>
-      <el-popconfirm
-        title="确认删除？"
-        @confirm="bulkAction('delete')"
+      <el-button
+        size="small"
+        text
+        class="bulk-cancel"
+        @click="clearSelection"
       >
-        <template #reference>
-          <el-button
-            size="small"
-            type="danger"
-          >
-            删除
-          </el-button>
-        </template>
-      </el-popconfirm>
+        取消选择
+      </el-button>
     </div>
 
     <!-- Table -->
     <el-card shadow="never">
       <el-table
+        ref="tableRef"
         v-loading="loading"
         :data="articles"
         row-key="id"
@@ -340,10 +336,13 @@ const createPath = computed(() => postType.value === 'page' ? '/admin/pages/crea
 const page = ref(1)
 const pageSize = ref(20)
 const selectedIds = ref<number[]>([])
+const tableRef = ref<{ clearSelection: () => void } | null>(null)
+const bulkArchiving = ref(false)
 
+// 支持从仪表盘等待办入口带 ?status=pending 深链进来
 const filters = reactive({
   search: '',
-  status: '',
+  status: (route.query.status as string) || '',
   category_id: '',
   sort: 'newest',
 })
@@ -366,10 +365,58 @@ const total = computed(() => articleData.value?.total || 0)
 const { data: categoriesData } = useCategoryListQuery({})
 const categories = computed(() => categoriesData.value?.data || [])
 
-const { updateArticle, deleteArticle, bulkAction: bulkActionMutation, publishArticle } = useArticleMutations()
+// ─── 状态 Tabs ──────────────────────────────────────────
+const statusTabs = [
+  { value: '', label: '全部' },
+  { value: 'published', label: '已发布' },
+  { value: 'draft', label: '草稿' },
+  { value: 'pending', label: '待审核' },
+  { value: 'archived', label: '已归档' },
+]
+
+// 每个 Tab 的数量徽标：复用列表查询层，page_size=1 只为拿 total，
+// 共享当前搜索/分类筛选（不含状态），切 Tab 时由 queryKey 自动缓存。
+function useStatusCount(status: string) {
+  const params = computed(() => ({
+    page: 1,
+    page_size: 1,
+    post_type: postType.value,
+    search: filters.search,
+    status,
+    category_id: filters.category_id,
+  }))
+  const { data } = useArticleListQuery(params)
+  return computed(() => data.value?.total ?? null)
+}
+
+const allCount = useStatusCount('')
+const publishedCount = useStatusCount('published')
+const draftCount = useStatusCount('draft')
+const pendingCount = useStatusCount('pending')
+const archivedCount = useStatusCount('archived')
+
+const statusCounts = computed<Record<string, number | null>>(() => ({
+  '': allCount.value,
+  published: publishedCount.value,
+  draft: draftCount.value,
+  pending: pendingCount.value,
+  archived: archivedCount.value,
+}))
+
+function handleStatusTabChange(name: string | number) {
+  filters.status = name === 'all' ? '' : String(name)
+  page.value = 1
+}
+
+const { updateArticle, deleteArticle, bulkAction: bulkActionMutation, publishArticle, archiveArticle } = useArticleMutations()
 
 function handleSelectionChange(rows: Article[]) {
   selectedIds.value = rows.map(r => r.id)
+}
+
+function clearSelection() {
+  tableRef.value?.clearSelection()
+  selectedIds.value = []
 }
 
 async function bulkAction(action: string) {
@@ -379,8 +426,42 @@ async function bulkAction(action: string) {
       action: action as 'publish' | 'unpublish' | 'draft' | 'trash' | 'delete',
     })
     ElMessage.success('操作成功')
+    clearSelection()
   } catch {
     ElMessage.error('操作失败')
+  }
+}
+
+async function bulkDelete() {
+  try {
+    await ElMessageBox.confirm(
+      `确认删除选中的 ${selectedIds.value.length} 项？删除后不可恢复。`,
+      '批量删除',
+      { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' },
+    )
+  } catch {
+    return
+  }
+  await bulkAction('delete')
+}
+
+// 后端批量接口不支持 archive，逐条调用单条归档接口并汇总结果。
+async function bulkArchive() {
+  bulkArchiving.value = true
+  try {
+    const results = await Promise.allSettled(
+      selectedIds.value.map((id) => archiveArticle.mutateAsync(id)),
+    )
+    const failed = results.filter((r) => r.status === 'rejected').length
+    const succeeded = results.length - failed
+    if (failed === 0) {
+      ElMessage.success(`已归档 ${succeeded} 项`)
+    } else {
+      ElMessage.warning(`归档完成：成功 ${succeeded} 项，失败 ${failed} 项`)
+    }
+    clearSelection()
+  } finally {
+    bulkArchiving.value = false
   }
 }
 
@@ -413,12 +494,13 @@ function statusTone(s: string): 'success' | 'info' | 'warning' | 'danger' | 'neu
     draft: 'info',
     pending: 'warning',
     scheduled: 'warning',
+    archived: 'neutral',
     trash: 'danger',
   }
   return tones[s] || 'neutral'
 }
 function statusLabel(s: string) {
-  return { published: '已发布', draft: '草稿', pending: '待审', scheduled: '定时', trash: '回收站' }[s] || s
+  return { published: '已发布', draft: '草稿', pending: '待审', scheduled: '定时', archived: '已归档', trash: '回收站' }[s] || s
 }
 
 // 同一组件实例在 /admin/articles ↔ /admin/pages 间切换时，重置筛选
@@ -435,15 +517,36 @@ watch(postType, () => {
 .article-list-page {
   .filter-card { margin-bottom: 16px; }
 
+  .tabs-card {
+    margin-bottom: 16px;
+    :deep(.el-card__body) { padding: 0 20px; }
+    :deep(.el-tabs__header) { margin-bottom: 0; }
+    :deep(.el-tabs__nav-wrap::after) { display: none; }
+
+    .tab-count {
+      display: inline-block;
+      margin-left: 6px;
+      padding: 0 6px;
+      font-size: 12px;
+      line-height: 18px;
+      border-radius: 9px;
+      background: var(--el-fill-color);
+      color: var(--el-text-color-secondary);
+    }
+  }
+
   .bulk-actions {
     display: flex;
     align-items: center;
     gap: 8px;
     margin-bottom: 12px;
     padding: 12px 16px;
-    background: #ecf5ff;
+    background: var(--el-color-primary-light-9);
+    border: 1px solid var(--el-color-primary-light-7);
     border-radius: 4px;
     font-size: 13px;
+
+    .bulk-cancel { margin-left: auto; }
   }
 
   .article-title-cell {

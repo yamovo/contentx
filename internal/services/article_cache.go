@@ -26,14 +26,15 @@ func (s *ArticleService) WithCache(d cache.Driver, ttl time.Duration) *ArticleSe
 	return s
 }
 
-// listCacheKey builds a generation-prefixed key for a list query. When cacheGen
-// increments (on any write), all prior list keys become unreachable (natural
-// invalidation without needing prefix-based delete).
-func (s *ArticleService) listCacheKey(filter ListArticlesFilter) string {
+// listCacheKey builds a generation-prefixed key for a list query, scoped to
+// the tenant so cached lists can never leak across tenants (RFC-001 §6). When
+// cacheGen increments (on any write), all prior list keys become unreachable
+// (natural invalidation without needing prefix-based delete).
+func (s *ArticleService) listCacheKey(filter ListArticlesFilter, tenantID uint) string {
 	gen := atomic.LoadUint64(&s.cacheGen)
 	data, _ := json.Marshal(filter)
 	h := sha256.Sum256(data)
-	return fmt.Sprintf("articles:list:v%d:%s", gen, hex.EncodeToString(h[:8]))
+	return fmt.Sprintf("articles:list:t%d:v%d:%s", tenantID, gen, hex.EncodeToString(h[:8]))
 }
 
 // cacheGetList reads a cached list response. Returns false on miss.
@@ -97,18 +98,19 @@ type cachedListResponse struct {
 	HasPrev    bool             `json:"has_prev"`
 }
 
-// articleCacheKey builds the per-ID detail cache key. Shared by the cache
-// helpers and the single-flight group so both sides agree on the key.
-func articleCacheKey(id uint) string {
-	return fmt.Sprintf("articles:id:%d", id)
+// articleCacheKey builds the per-ID detail cache key, scoped to the tenant
+// (RFC-001 §6). Shared by the cache helpers and the single-flight group so
+// both sides agree on the key.
+func articleCacheKey(id, tenantID uint) string {
+	return fmt.Sprintf("articles:id:t%d:%d", tenantID, id)
 }
 
 // cacheGetArticle reads a single article from cache. Returns nil on miss.
-func (s *ArticleService) cacheGetArticle(id uint) *models.Article {
+func (s *ArticleService) cacheGetArticle(id, tenantID uint) *models.Article {
 	if s.cache == nil {
 		return nil
 	}
-	key := articleCacheKey(id)
+	key := articleCacheKey(id, tenantID)
 	data, err := s.cache.Get(context.Background(), key)
 	if err != nil {
 		return nil
@@ -120,12 +122,12 @@ func (s *ArticleService) cacheGetArticle(id uint) *models.Article {
 	return &a
 }
 
-// cacheSetArticle stores a single article in cache.
+// cacheSetArticle stores a single article in cache under its own tenant.
 func (s *ArticleService) cacheSetArticle(a *models.Article) {
 	if s.cache == nil || a == nil {
 		return
 	}
-	key := articleCacheKey(a.ID)
+	key := articleCacheKey(a.ID, a.TenantID)
 	data, err := json.Marshal(a)
 	if err != nil {
 		return
@@ -134,14 +136,15 @@ func (s *ArticleService) cacheSetArticle(a *models.Article) {
 }
 
 // invalidateArticle increments the generation counter (invalidating all cached
-// list responses) and deletes the per-ID detail caches for the given articles.
-func (s *ArticleService) invalidateArticle(ids ...uint) {
+// list responses) and deletes the per-ID detail caches for the given articles
+// within the tenant that performed the write.
+func (s *ArticleService) invalidateArticle(tenantID uint, ids ...uint) {
 	if s.cache == nil {
 		return
 	}
 	atomic.AddUint64(&s.cacheGen, 1)
 	ctx := context.Background()
 	for _, id := range ids {
-		_ = s.cache.Delete(ctx, articleCacheKey(id))
+		_ = s.cache.Delete(ctx, articleCacheKey(id, tenantID))
 	}
 }

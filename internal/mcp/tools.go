@@ -58,6 +58,13 @@ func (t *toolset) status() string {
 	return string(models.StatusPublished)
 }
 
+// tenantID returns the tenant all MCP tools operate in. stdio and HTTP modes
+// currently resolve to the default tenant; per-token tenant binding lands
+// with RFC-001 §11 open question 2 (PR-5).
+func (t *toolset) tenantID() uint {
+	return models.DefaultTenantID
+}
+
 // articleURL builds an absolute article URL from the configured base URL.
 func (t *toolset) articleURL(slug string) string {
 	return strings.TrimRight(t.deps.BaseURL, "/") + "/articles/" + slug
@@ -167,7 +174,7 @@ func (t *toolset) listArticles(_ context.Context, _ *mcpsdk.CallToolRequest, in 
 		CategoryID: in.Category,
 		TagSlug:    in.Tag,
 		Sort:       in.Sort,
-	})
+	}, t.tenantID())
 	if err != nil {
 		return nil, listArticlesOutput{}, err
 	}
@@ -234,7 +241,7 @@ func (t *toolset) getArticle(_ context.Context, _ *mcpsdk.CallToolRequest, in ge
 	if in.ID == 0 {
 		return nil, articleDetail{}, fmt.Errorf("id is required")
 	}
-	a, err := t.deps.Article.Get(in.ID)
+	a, err := t.deps.Article.Get(in.ID, t.tenantID())
 	if err != nil {
 		return nil, articleDetail{}, fmt.Errorf("article not found")
 	}

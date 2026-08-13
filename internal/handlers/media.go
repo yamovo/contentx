@@ -53,7 +53,7 @@ func (h *MediaHandler) List(c *gin.Context) {
 		Sort:     c.DefaultQuery("sort", "newest"),
 	}
 
-	media, total, err := h.svc.List(params)
+	media, total, err := h.svc.List(params, getCurrentTenant(c))
 	if err != nil {
 		handleServiceError(c, err)
 		return
@@ -104,6 +104,7 @@ func (h *MediaHandler) Upload(c *gin.Context) {
 		c.PostForm("caption"),
 		c.PostForm("description"),
 		user.ID,
+		getCurrentTenant(c),
 	)
 	if err != nil {
 		handleServiceError(c, err)
@@ -134,7 +135,7 @@ func (h *MediaHandler) Get(c *gin.Context) {
 		return
 	}
 
-	media, err := h.svc.Get(uint(id))
+	media, err := h.svc.Get(uint(id), getCurrentTenant(c))
 	if err != nil {
 		handleServiceError(c, err)
 		return
@@ -177,7 +178,7 @@ func (h *MediaHandler) Update(c *gin.Context) {
 		return
 	}
 
-	if err := h.svc.Update(uint(id), req, user.ID, user.IsEditor()); err != nil {
+	if err := h.svc.Update(uint(id), req, getCurrentTenant(c), user.ID, user.IsEditor()); err != nil {
 		handleServiceError(c, err)
 		return
 	}
@@ -212,7 +213,7 @@ func (h *MediaHandler) Delete(c *gin.Context) {
 		return
 	}
 
-	if err := h.svc.Delete(uint(id), user.ID, user.IsEditor()); err != nil {
+	if err := h.svc.Delete(uint(id), getCurrentTenant(c), user.ID, user.IsEditor()); err != nil {
 		handleServiceError(c, err)
 		return
 	}
@@ -254,7 +255,7 @@ func (h *MediaHandler) BulkDelete(c *gin.Context) {
 		return
 	}
 
-	affected, err := h.svc.BulkDelete(req.IDs, user.ID, user.IsEditor())
+	affected, err := h.svc.BulkDelete(req.IDs, getCurrentTenant(c), user.ID, user.IsEditor())
 	if err != nil {
 		handleServiceError(c, err)
 		return
@@ -275,7 +276,7 @@ func (h *MediaHandler) BulkDelete(c *gin.Context) {
 //	@Failure      401  {object}  APIResponse
 //	@Router       /media/folders [get]
 func (h *MediaHandler) Folders(c *gin.Context) {
-	folders, err := h.svc.Folders()
+	folders, err := h.svc.Folders(getCurrentTenant(c))
 	if err != nil {
 		handleServiceError(c, err)
 		return
@@ -296,7 +297,7 @@ func (h *MediaHandler) Folders(c *gin.Context) {
 //	@Failure      401  {object}  APIResponse
 //	@Router       /media/stats [get]
 func (h *MediaHandler) Stats(c *gin.Context) {
-	stats, err := h.svc.Stats()
+	stats, err := h.svc.Stats(getCurrentTenant(c))
 	if err != nil {
 		handleServiceError(c, err)
 		return

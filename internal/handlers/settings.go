@@ -34,7 +34,7 @@ func NewSettingsHandler(svc *services.SettingsService) *SettingsHandler {
 func (h *SettingsHandler) List(c *gin.Context) {
 	group := c.Query("group")
 
-	settings, grouped, err := h.svc.List(group)
+	settings, grouped, err := h.svc.List(group, getCurrentTenant(c))
 	if err != nil {
 		handleServiceError(c, err)
 		return
@@ -57,7 +57,7 @@ func (h *SettingsHandler) List(c *gin.Context) {
 //	@Failure      404  {object}  APIResponse
 //	@Router       /settings/{key} [get]
 func (h *SettingsHandler) Get(c *gin.Context) {
-	setting, err := h.svc.Get(c.Param("key"))
+	setting, err := h.svc.Get(c.Param("key"), getCurrentTenant(c))
 	if err != nil {
 		handleServiceError(c, err)
 		return
@@ -93,7 +93,7 @@ func (h *SettingsHandler) Update(c *gin.Context) {
 		return
 	}
 
-	if err := h.svc.Update(req, actor.ID); err != nil {
+	if err := h.svc.Update(req, getCurrentTenant(c), actor.ID); err != nil {
 		handleServiceError(c, err)
 		return
 	}
@@ -111,7 +111,7 @@ func (h *SettingsHandler) Update(c *gin.Context) {
 //	@Success      200  {object}  APIResponse{data=object}
 //	@Router       /settings/public [get]
 func (h *SettingsHandler) PublicSettings(c *gin.Context) {
-	settings, err := h.svc.PublicSettings()
+	settings, err := h.svc.PublicSettings(getCurrentTenant(c))
 	if err != nil {
 		handleServiceError(c, err)
 		return
@@ -154,7 +154,7 @@ func (h *SEOHandler) GetSEOSetting(c *gin.Context) {
 		return
 	}
 
-	setting, err := h.svc.GetSetting(entityType, uint(entityID))
+	setting, err := h.svc.GetSetting(entityType, uint(entityID), getCurrentTenant(c))
 	if err != nil {
 		handleServiceError(c, err)
 		return
@@ -194,7 +194,7 @@ func (h *SEOHandler) UpdateSEOSetting(c *gin.Context) {
 		return
 	}
 
-	if err := h.svc.UpdateSetting(entityType, uint(entityID), req); err != nil {
+	if err := h.svc.UpdateSetting(entityType, uint(entityID), getCurrentTenant(c), req); err != nil {
 		handleServiceError(c, err)
 		return
 	}
@@ -212,7 +212,7 @@ func (h *SEOHandler) UpdateSEOSetting(c *gin.Context) {
 //	@Success      200  {string}  string
 //	@Router       /seo/sitemap [get]
 func (h *SEOHandler) Sitemap(c *gin.Context) {
-	xml, err := h.svc.Sitemap()
+	xml, err := h.svc.Sitemap(getCurrentTenant(c))
 	if err != nil {
 		handleServiceError(c, err)
 		return
@@ -247,7 +247,7 @@ func (h *SEOHandler) RobotsTxt(c *gin.Context) {
 //	@Failure      401  {object}  APIResponse
 //	@Router       /seo/redirects [get]
 func (h *SEOHandler) ListRedirects(c *gin.Context) {
-	rules, err := h.svc.ListRedirects()
+	rules, err := h.svc.ListRedirects(getCurrentTenant(c))
 	if err != nil {
 		handleServiceError(c, err)
 		return
@@ -278,7 +278,7 @@ func (h *SEOHandler) CreateRedirect(c *gin.Context) {
 		return
 	}
 
-	rule, err := h.svc.CreateRedirect(req)
+	rule, err := h.svc.CreateRedirect(req, getCurrentTenant(c))
 	if err != nil {
 		handleServiceError(c, err)
 		return
@@ -309,7 +309,7 @@ func (h *SEOHandler) DeleteRedirect(c *gin.Context) {
 		return
 	}
 
-	if err := h.svc.DeleteRedirect(uint(id)); err != nil {
+	if err := h.svc.DeleteRedirect(uint(id), getCurrentTenant(c)); err != nil {
 		handleServiceError(c, err)
 		return
 	}
@@ -340,7 +340,7 @@ func NewMenuHandler(svc *services.MenuService) *MenuHandler {
 //	@Failure      401  {object}  APIResponse
 //	@Router       /menus [get]
 func (h *MenuHandler) List(c *gin.Context) {
-	menus, err := h.svc.List()
+	menus, err := h.svc.List(getCurrentTenant(c))
 	if err != nil {
 		handleServiceError(c, err)
 		return
@@ -370,7 +370,7 @@ func (h *MenuHandler) Get(c *gin.Context) {
 		return
 	}
 
-	menu, err := h.svc.Get(uint(id))
+	menu, err := h.svc.Get(uint(id), getCurrentTenant(c))
 	if err != nil {
 		handleServiceError(c, err)
 		return
@@ -401,7 +401,7 @@ func (h *MenuHandler) Create(c *gin.Context) {
 		return
 	}
 
-	menu, err := h.svc.Create(req)
+	menu, err := h.svc.Create(req, getCurrentTenant(c))
 	if err != nil {
 		handleServiceError(c, err)
 		return
@@ -440,7 +440,7 @@ func (h *MenuHandler) Update(c *gin.Context) {
 		return
 	}
 
-	if err := h.svc.Update(uint(id), req); err != nil {
+	if err := h.svc.Update(uint(id), req, getCurrentTenant(c)); err != nil {
 		handleServiceError(c, err)
 		return
 	}
@@ -470,7 +470,7 @@ func (h *MenuHandler) Delete(c *gin.Context) {
 		return
 	}
 
-	if err := h.svc.Delete(uint(id)); err != nil {
+	if err := h.svc.Delete(uint(id), getCurrentTenant(c)); err != nil {
 		handleServiceError(c, err)
 		return
 	}
@@ -507,7 +507,7 @@ func (h *MenuHandler) AddItem(c *gin.Context) {
 		return
 	}
 
-	item, err := h.svc.AddItem(uint(menuID), req)
+	item, err := h.svc.AddItem(uint(menuID), req, getCurrentTenant(c))
 	if err != nil {
 		handleServiceError(c, err)
 		return
@@ -546,7 +546,7 @@ func (h *MenuHandler) UpdateItem(c *gin.Context) {
 		return
 	}
 
-	if err := h.svc.UpdateItem(uint(itemID), req); err != nil {
+	if err := h.svc.UpdateItem(uint(itemID), req, getCurrentTenant(c)); err != nil {
 		handleServiceError(c, err)
 		return
 	}
@@ -576,7 +576,7 @@ func (h *MenuHandler) DeleteItem(c *gin.Context) {
 		return
 	}
 
-	if err := h.svc.DeleteItem(uint(itemID)); err != nil {
+	if err := h.svc.DeleteItem(uint(itemID), getCurrentTenant(c)); err != nil {
 		handleServiceError(c, err)
 		return
 	}
@@ -608,7 +608,7 @@ func (h *MenuHandler) ReorderItems(c *gin.Context) {
 		return
 	}
 
-	if err := h.svc.ReorderItems(req.Items); err != nil {
+	if err := h.svc.ReorderItems(req.Items, getCurrentTenant(c)); err != nil {
 		handleServiceError(c, err)
 		return
 	}

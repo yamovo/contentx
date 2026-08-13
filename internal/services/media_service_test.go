@@ -32,7 +32,7 @@ func TestMediaService_List_Empty(t *testing.T) {
 	db := setupTestDB(t)
 	svc := NewMediaService(db, config.UploadConfig{StoragePath: "/tmp", URLPrefix: "/uploads"})
 
-	media, total, err := svc.List(MediaListParams{Page: 1, PageSize: 10})
+	media, total, err := svc.List(MediaListParams{Page: 1, PageSize: 10}, models.DefaultTenantID)
 	if err != nil {
 		t.Fatalf("list media: %v", err)
 	}
@@ -52,7 +52,7 @@ func TestMediaService_List_WithData(t *testing.T) {
 	createTestMedia(t, db, "img2.png", "image/png", 2048, "/2024/01")
 	createTestMedia(t, db, "doc.pdf", "application/pdf", 5120, "/docs")
 
-	media, total, err := svc.List(MediaListParams{Page: 1, PageSize: 10})
+	media, total, err := svc.List(MediaListParams{Page: 1, PageSize: 10}, models.DefaultTenantID)
 	if err != nil {
 		t.Fatalf("list media: %v", err)
 	}
@@ -72,7 +72,7 @@ func TestMediaService_List_FilterByMimeType(t *testing.T) {
 	createTestMedia(t, db, "img2.png", "image/png", 2048, "/img")
 	createTestMedia(t, db, "doc.pdf", "application/pdf", 5120, "/docs")
 
-	media, total, err := svc.List(MediaListParams{Page: 1, PageSize: 10, MimeType: "image"})
+	media, total, err := svc.List(MediaListParams{Page: 1, PageSize: 10, MimeType: "image"}, models.DefaultTenantID)
 	if err != nil {
 		t.Fatalf("list media: %v", err)
 	}
@@ -91,7 +91,7 @@ func TestMediaService_List_FilterByFolder(t *testing.T) {
 	createTestMedia(t, db, "a.jpg", "image/jpeg", 100, "/folder_a")
 	createTestMedia(t, db, "b.jpg", "image/jpeg", 200, "/folder_b")
 
-	media, total, _ := svc.List(MediaListParams{Page: 1, PageSize: 10, Folder: "/folder_a"})
+	media, total, _ := svc.List(MediaListParams{Page: 1, PageSize: 10, Folder: "/folder_a"}, models.DefaultTenantID)
 	if total != 1 {
 		t.Fatalf("expected 1 in folder_a, got %d", total)
 	}
@@ -107,7 +107,7 @@ func TestMediaService_List_Search(t *testing.T) {
 	createTestMedia(t, db, "vacation_photo.jpg", "image/jpeg", 100, "/")
 	createTestMedia(t, db, "work_document.pdf", "application/pdf", 200, "/")
 
-	media, total, _ := svc.List(MediaListParams{Page: 1, PageSize: 10, Search: "vacation"})
+	media, total, _ := svc.List(MediaListParams{Page: 1, PageSize: 10, Search: "vacation"}, models.DefaultTenantID)
 	if total != 1 {
 		t.Fatalf("expected 1 matching 'vacation', got %d", total)
 	}
@@ -122,7 +122,7 @@ func TestMediaService_Get_Success(t *testing.T) {
 
 	created := createTestMedia(t, db, "get.jpg", "image/jpeg", 100, "/")
 
-	media, err := svc.Get(created.ID)
+	media, err := svc.Get(created.ID, models.DefaultTenantID)
 	if err != nil {
 		t.Fatalf("get media: %v", err)
 	}
@@ -135,7 +135,7 @@ func TestMediaService_Get_NotFound(t *testing.T) {
 	db := setupTestDB(t)
 	svc := NewMediaService(db, config.UploadConfig{StoragePath: "/tmp", URLPrefix: "/uploads"})
 
-	_, err := svc.Get(99999)
+	_, err := svc.Get(99999, models.DefaultTenantID)
 	if err == nil {
 		t.Fatal("expected error for non-existent media")
 	}
@@ -152,7 +152,7 @@ func TestMediaService_Update(t *testing.T) {
 		Title:       "Title",
 		Description: "Description",
 		Folder:      "/new_folder",
-	}, 0, true)
+	}, models.DefaultTenantID, 0, true)
 	if err != nil {
 		t.Fatalf("update media: %v", err)
 	}
@@ -173,7 +173,7 @@ func TestMediaService_Delete(t *testing.T) {
 
 	created := createTestMedia(t, db, "delete.jpg", "image/jpeg", 100, "/")
 
-	if err := svc.Delete(created.ID, 0, true); err != nil {
+	if err := svc.Delete(created.ID, models.DefaultTenantID, 0, true); err != nil {
 		t.Fatalf("delete media: %v", err)
 	}
 
@@ -192,7 +192,7 @@ func TestMediaService_BulkDelete(t *testing.T) {
 	m2 := createTestMedia(t, db, "bulk2.jpg", "image/jpeg", 200, "/")
 	m3 := createTestMedia(t, db, "bulk3.jpg", "image/jpeg", 300, "/")
 
-	affected, err := svc.BulkDelete([]uint{m1.ID, m2.ID}, 0, true)
+	affected, err := svc.BulkDelete([]uint{m1.ID, m2.ID}, models.DefaultTenantID, 0, true)
 	if err != nil {
 		t.Fatalf("bulk delete: %v", err)
 	}
@@ -215,7 +215,7 @@ func TestMediaService_Folders(t *testing.T) {
 	createTestMedia(t, db, "b.jpg", "image/jpeg", 200, "/folder_b")
 	createTestMedia(t, db, "c.jpg", "image/jpeg", 300, "/folder_a") // same folder
 
-	folders, err := svc.Folders()
+	folders, err := svc.Folders(models.DefaultTenantID)
 	if err != nil {
 		t.Fatalf("folders: %v", err)
 	}
@@ -233,7 +233,7 @@ func TestMediaService_Stats(t *testing.T) {
 	createTestMedia(t, db, "doc.pdf", "application/pdf", 5120, "/")
 	createTestMedia(t, db, "vid.mp4", "video/mp4", 10240, "/")
 
-	stats, err := svc.Stats()
+	stats, err := svc.Stats(models.DefaultTenantID)
 	if err != nil {
 		t.Fatalf("stats: %v", err)
 	}

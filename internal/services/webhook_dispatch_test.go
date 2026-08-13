@@ -24,7 +24,7 @@ func TestWebhookDispatch_ArticleCreate(t *testing.T) {
 	wh := &MockWebhookDispatcher{}
 	svc.SetWebhookDispatcher(wh)
 
-	_, err := svc.Create(CreateArticleRequest{Title: "Hello", Content: "World"}, 1)
+	_, err := svc.Create(CreateArticleRequest{Title: "Hello", Content: "World"}, models.DefaultTenantID, 1)
 	if err != nil {
 		t.Fatalf("Create failed: %v", err)
 	}
@@ -39,7 +39,7 @@ func TestWebhookDispatch_ArticleCreate(t *testing.T) {
 func TestWebhookDispatch_ArticleCreate_NoDispatcher(t *testing.T) {
 	svc, _ := newMockArticleService()
 	// 不设置 dispatcher → 不应 panic
-	_, err := svc.Create(CreateArticleRequest{Title: "Hello"}, 1)
+	_, err := svc.Create(CreateArticleRequest{Title: "Hello"}, models.DefaultTenantID, 1)
 	if err != nil {
 		t.Fatalf("Create failed: %v", err)
 	}
@@ -51,7 +51,7 @@ func TestWebhookDispatch_ArticleCreate_RepoError(t *testing.T) {
 	wh := &MockWebhookDispatcher{}
 	svc.SetWebhookDispatcher(wh)
 
-	_, err := svc.Create(CreateArticleRequest{Title: "Hello"}, 1)
+	_, err := svc.Create(CreateArticleRequest{Title: "Hello"}, models.DefaultTenantID, 1)
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -66,7 +66,7 @@ func TestWebhookDispatch_ArticleUpdate(t *testing.T) {
 	wh := &MockWebhookDispatcher{}
 	svc.SetWebhookDispatcher(wh)
 
-	_, err := svc.Update(1, UpdateArticleRequest{Title: strPtr("Updated")}, 1, true)
+	_, err := svc.Update(1, UpdateArticleRequest{Title: strPtr("Updated")}, models.DefaultTenantID, 1, true)
 	if err != nil {
 		t.Fatalf("Update failed: %v", err)
 	}
@@ -84,7 +84,7 @@ func TestWebhookDispatch_ArticleDelete(t *testing.T) {
 	wh := &MockWebhookDispatcher{}
 	svc.SetWebhookDispatcher(wh)
 
-	err := svc.Delete(1, 1, true)
+	err := svc.Delete(1, models.DefaultTenantID, 1, true)
 	if err != nil {
 		t.Fatalf("Delete failed: %v", err)
 	}
@@ -101,7 +101,7 @@ func TestWebhookDispatch_ArticleBulkPublish(t *testing.T) {
 	wh := &MockWebhookDispatcher{}
 	svc.SetWebhookDispatcher(wh)
 
-	n, err := svc.BulkAction(BulkActionRequest{Action: "publish", ArticleIDs: []uint{1, 2, 3}})
+	n, err := svc.BulkAction(BulkActionRequest{Action: "publish", ArticleIDs: []uint{1, 2, 3}}, models.DefaultTenantID)
 	if err != nil {
 		t.Fatalf("BulkAction failed: %v", err)
 	}
@@ -121,7 +121,7 @@ func TestWebhookDispatch_ArticleBulkDelete(t *testing.T) {
 	wh := &MockWebhookDispatcher{}
 	svc.SetWebhookDispatcher(wh)
 
-	_, err := svc.BulkAction(BulkActionRequest{Action: "delete", ArticleIDs: []uint{1}})
+	_, err := svc.BulkAction(BulkActionRequest{Action: "delete", ArticleIDs: []uint{1}}, models.DefaultTenantID)
 	if err != nil {
 		t.Fatalf("BulkAction failed: %v", err)
 	}
@@ -138,7 +138,7 @@ func TestWebhookDispatch_ArticleBulkDraft_NoEvent(t *testing.T) {
 	wh := &MockWebhookDispatcher{}
 	svc.SetWebhookDispatcher(wh)
 
-	_, err := svc.BulkAction(BulkActionRequest{Action: "draft", ArticleIDs: []uint{1}})
+	_, err := svc.BulkAction(BulkActionRequest{Action: "draft", ArticleIDs: []uint{1}}, models.DefaultTenantID)
 	if err != nil {
 		t.Fatalf("BulkAction failed: %v", err)
 	}
@@ -163,7 +163,7 @@ func TestWebhookDispatch_CommentCreate(t *testing.T) {
 		Content:     "Nice post!",
 		AuthorName:  "Visitor",
 		AuthorEmail: "v@example.com",
-	}, "127.0.0.1", "Mozilla", nil, false)
+	}, "127.0.0.1", "Mozilla", nil, false, models.DefaultTenantID)
 	if err != nil {
 		t.Fatalf("Create failed: %v", err)
 	}
@@ -183,7 +183,7 @@ func TestWebhookDispatch_CommentCreate_ArticleNotFound(t *testing.T) {
 	wh := &MockWebhookDispatcher{}
 	svc.SetWebhookDispatcher(wh)
 
-	_, err := svc.Create(CreateCommentRequest{ArticleID: 999}, "", "", nil, false)
+	_, err := svc.Create(CreateCommentRequest{ArticleID: 999}, "", "", nil, false, models.DefaultTenantID)
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -207,7 +207,7 @@ func TestWebhookDispatch_MediaUpload(t *testing.T) {
 	f, header := openFileHeader(t, fh)
 	defer f.Close()
 
-	_, err := svc.Upload(f, header, "", "", "", "", "", 1)
+	_, err := svc.Upload(f, header, "", "", "", "", "", 1, models.DefaultTenantID)
 	if err != nil {
 		t.Fatalf("Upload failed: %v", err)
 	}
@@ -228,7 +228,7 @@ func TestWebhookDispatch_MediaDelete(t *testing.T) {
 	wh := &MockWebhookDispatcher{}
 	svc.SetWebhookDispatcher(wh)
 
-	err := svc.Delete(1, 0, true)
+	err := svc.Delete(1, models.DefaultTenantID, 0, true)
 	if err != nil {
 		t.Fatalf("Delete failed: %v", err)
 	}

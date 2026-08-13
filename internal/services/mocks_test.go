@@ -80,14 +80,14 @@ type mockBulkPublishCall struct {
 	PublishedAt time.Time
 }
 
-func (m *MockArticleRepository) List(filter repository.ArticleListFilter) ([]models.Article, int64, error) {
+func (m *MockArticleRepository) List(filter repository.ArticleListFilter, _ uint) ([]models.Article, int64, error) {
 	if m.ListErr != nil {
 		return nil, 0, m.ListErr
 	}
 	return m.ArticlesList, m.ListTotal, nil
 }
 
-func (m *MockArticleRepository) GetByID(id uint) (*models.Article, error) {
+func (m *MockArticleRepository) GetByID(id, _ uint) (*models.Article, error) {
 	if m.GetByIDErr != nil {
 		return nil, m.GetByIDErr
 	}
@@ -97,7 +97,7 @@ func (m *MockArticleRepository) GetByID(id uint) (*models.Article, error) {
 	return nil, gorm.ErrRecordNotFound
 }
 
-func (m *MockArticleRepository) FindByID(id uint) (*models.Article, error) {
+func (m *MockArticleRepository) FindByID(id, _ uint) (*models.Article, error) {
 	if m.FindByIDErr != nil {
 		return nil, m.FindByIDErr
 	}
@@ -107,7 +107,7 @@ func (m *MockArticleRepository) FindByID(id uint) (*models.Article, error) {
 	return nil, gorm.ErrRecordNotFound
 }
 
-func (m *MockArticleRepository) GetPublishedBySlug(slug string) (*models.Article, error) {
+func (m *MockArticleRepository) GetPublishedBySlug(slug string, _ uint) (*models.Article, error) {
 	if m.GetBySlugErr != nil {
 		return nil, m.GetBySlugErr
 	}
@@ -119,12 +119,12 @@ func (m *MockArticleRepository) GetPublishedBySlug(slug string) (*models.Article
 	return nil, gorm.ErrRecordNotFound
 }
 
-func (m *MockArticleRepository) IncrementViewCount(id uint) error {
+func (m *MockArticleRepository) IncrementViewCount(id, _ uint) error {
 	m.ViewCountIncs = append(m.ViewCountIncs, id)
 	return m.IncrementViewErr
 }
 
-func (m *MockArticleRepository) IncrementLikeCount(id uint) error {
+func (m *MockArticleRepository) IncrementLikeCount(id, _ uint) error {
 	m.LikeCountIncs = append(m.LikeCountIncs, id)
 	return m.IncrementLikeErr
 }
@@ -142,7 +142,7 @@ func (m *MockArticleRepository) Create(article *models.Article, tagIDs []uint, r
 	return nil
 }
 
-func (m *MockArticleRepository) Update(article *models.Article, updates map[string]interface{}, tagIDs []uint, revisionNote string, userID uint, expectedVersion *int) error {
+func (m *MockArticleRepository) Update(article *models.Article, updates map[string]interface{}, tagIDs []uint, revisionNote string, userID uint, expectedVersion *int, _ uint) error {
 	if m.UpdateErr != nil {
 		return m.UpdateErr
 	}
@@ -150,7 +150,7 @@ func (m *MockArticleRepository) Update(article *models.Article, updates map[stri
 	return nil
 }
 
-func (m *MockArticleRepository) Delete(article *models.Article) error {
+func (m *MockArticleRepository) Delete(article *models.Article, _ uint) error {
 	if m.DeleteErr != nil {
 		return m.DeleteErr
 	}
@@ -158,12 +158,12 @@ func (m *MockArticleRepository) Delete(article *models.Article) error {
 	return nil
 }
 
-func (m *MockArticleRepository) BulkPublish(articleIDs []uint, publishedAt time.Time) (int64, error) {
+func (m *MockArticleRepository) BulkPublish(articleIDs []uint, publishedAt time.Time, _ uint) (int64, error) {
 	m.BulkPublishCalls = append(m.BulkPublishCalls, mockBulkPublishCall{IDs: articleIDs, PublishedAt: publishedAt})
 	return int64(len(articleIDs)), m.BulkPublishErr
 }
 
-func (m *MockArticleRepository) UpdateStatus(id uint, status string, publishedAt, scheduledAt *time.Time) error {
+func (m *MockArticleRepository) UpdateStatus(id uint, status string, publishedAt, scheduledAt *time.Time, _ uint) error {
 	m.UpdateStatusCalls = append(m.UpdateStatusCalls, mockUpdateStatusCall{
 		ID: id, Status: status, PublishedAt: publishedAt, ScheduledAt: scheduledAt,
 	})
@@ -184,52 +184,52 @@ func (m *MockArticleRepository) UpdateStatus(id uint, status string, publishedAt
 	return nil
 }
 
-func (m *MockArticleRepository) BulkUpdateStatus(articleIDs []uint, status string) (int64, error) {
+func (m *MockArticleRepository) BulkUpdateStatus(articleIDs []uint, status string, _ uint) (int64, error) {
 	return int64(len(articleIDs)), m.BulkUpdateStatusErr
 }
 
-func (m *MockArticleRepository) BulkDelete(articleIDs []uint) (int64, error) {
+func (m *MockArticleRepository) BulkDelete(articleIDs []uint, _ uint) (int64, error) {
 	return int64(len(articleIDs)), m.BulkDeleteErr
 }
 
-func (m *MockArticleRepository) BulkMoveCategory(articleIDs []uint, categoryID uint) (int64, error) {
+func (m *MockArticleRepository) BulkMoveCategory(articleIDs []uint, categoryID, _ uint) (int64, error) {
 	return int64(len(articleIDs)), m.BulkMoveCategoryErr
 }
 
-func (m *MockArticleRepository) BulkSetPinned(articleIDs []uint, pinned bool) (int64, error) {
+func (m *MockArticleRepository) BulkSetPinned(articleIDs []uint, pinned bool, _ uint) (int64, error) {
 	return int64(len(articleIDs)), m.BulkSetPinnedErr
 }
 
-func (m *MockArticleRepository) ListRevisions(articleID uint) ([]models.Revision, error) {
+func (m *MockArticleRepository) ListRevisions(articleID, _ uint) ([]models.Revision, error) {
 	if m.ListRevisionsErr != nil {
 		return nil, m.ListRevisionsErr
 	}
 	return m.Revisions, nil
 }
 
-func (m *MockArticleRepository) FindRevision(revisionID, articleID uint) (*models.Revision, error) {
+func (m *MockArticleRepository) FindRevision(revisionID, articleID, _ uint) (*models.Revision, error) {
 	if m.FindRevisionErr != nil {
 		return nil, m.FindRevisionErr
 	}
 	return m.Revision, nil
 }
 
-func (m *MockArticleRepository) RestoreRevision(article *models.Article, revision *models.Revision, userID uint) error {
+func (m *MockArticleRepository) RestoreRevision(article *models.Article, revision *models.Revision, userID, _ uint) error {
 	return m.RestoreRevisionErr
 }
 
-func (m *MockArticleRepository) ListPublishedForFeed(limit int) ([]models.Article, error) {
+func (m *MockArticleRepository) ListPublishedForFeed(limit int, _ uint) ([]models.Article, error) {
 	return m.PublishedForFeed, nil
 }
 
-func (m *MockArticleRepository) ListScheduledDue(now time.Time) ([]models.Article, error) {
+func (m *MockArticleRepository) ListScheduledDue(now time.Time, _ uint) ([]models.Article, error) {
 	if m.ListScheduledDueErr != nil {
 		return nil, m.ListScheduledDueErr
 	}
 	return m.ScheduledDue, nil
 }
 
-func (m *MockArticleRepository) EnsureUniqueSlug(original string, excludeID uint) (string, error) {
+func (m *MockArticleRepository) EnsureUniqueSlug(original string, excludeID, _ uint) (string, error) {
 	m.EnsureUniqueCalls = append(m.EnsureUniqueCalls, original)
 	if m.UniqueSlugSuffix != "" {
 		return original + m.UniqueSlugSuffix, nil
@@ -238,13 +238,13 @@ func (m *MockArticleRepository) EnsureUniqueSlug(original string, excludeID uint
 }
 
 // i18n translation stubs (return zero values by default; tests can swap them).
-func (m *MockArticleRepository) ListTranslations(groupID, excludeID uint) ([]models.Article, error) {
+func (m *MockArticleRepository) ListTranslations(groupID, excludeID, _ uint) ([]models.Article, error) {
 	if m.Translations != nil {
 		return m.Translations, nil
 	}
 	return nil, nil
 }
-func (m *MockArticleRepository) FindTranslationInLocale(groupID uint, locale string) (*models.Article, error) {
+func (m *MockArticleRepository) FindTranslationInLocale(groupID uint, locale string, _ uint) (*models.Article, error) {
 	if m.TranslationByLocale != nil {
 		if a, ok := m.TranslationByLocale[locale]; ok {
 			return a, nil
@@ -438,28 +438,28 @@ type MockCommentRepository struct {
 	CountTodayCalls         int
 }
 
-func (m *MockCommentRepository) List(filter repository.CommentListFilter) ([]models.Comment, int64, error) {
+func (m *MockCommentRepository) List(filter repository.CommentListFilter, _ uint) ([]models.Comment, int64, error) {
 	if m.ListErr != nil {
 		return nil, 0, m.ListErr
 	}
 	return m.ListComments, m.ListTotal, nil
 }
 
-func (m *MockCommentRepository) GetByID(id uint) (*models.Comment, error) {
+func (m *MockCommentRepository) GetByID(id, _ uint) (*models.Comment, error) {
 	if m.GetByIDErr != nil {
 		return nil, m.GetByIDErr
 	}
 	return m.Comment, nil
 }
 
-func (m *MockCommentRepository) FindArticleByID(articleID uint) (*models.Article, error) {
+func (m *MockCommentRepository) FindArticleByID(articleID, _ uint) (*models.Article, error) {
 	if m.FindArticleByIDErr != nil {
 		return nil, m.FindArticleByIDErr
 	}
 	return m.Article, nil
 }
 
-func (m *MockCommentRepository) FindCommentByID(id uint) (*models.Comment, error) {
+func (m *MockCommentRepository) FindCommentByID(id, _ uint) (*models.Comment, error) {
 	if m.FindCommentByIDErr != nil {
 		return nil, m.FindCommentByIDErr
 	}
@@ -474,7 +474,7 @@ func (m *MockCommentRepository) Create(comment *models.Comment) error {
 	return nil
 }
 
-func (m *MockCommentRepository) UpdateContent(id uint, content string) (int64, error) {
+func (m *MockCommentRepository) UpdateContent(id uint, content string, _ uint) (int64, error) {
 	m.UpdatedContent = append(m.UpdatedContent, struct {
 		ID      uint
 		Content string
@@ -488,7 +488,7 @@ func (m *MockCommentRepository) UpdateContent(id uint, content string) (int64, e
 	return m.UpdateContentRows, nil
 }
 
-func (m *MockCommentRepository) UpdateStatus(id uint, status string) (int64, error) {
+func (m *MockCommentRepository) UpdateStatus(id uint, status string, _ uint) (int64, error) {
 	m.UpdatedStatus = append(m.UpdatedStatus, struct {
 		ID     uint
 		Status string
@@ -502,7 +502,7 @@ func (m *MockCommentRepository) UpdateStatus(id uint, status string) (int64, err
 	return m.UpdateStatusRows, nil
 }
 
-func (m *MockCommentRepository) BulkUpdateStatus(ids []uint, status string) (int64, error) {
+func (m *MockCommentRepository) BulkUpdateStatus(ids []uint, status string, _ uint) (int64, error) {
 	m.BulkUpdatedStatus = append(m.BulkUpdatedStatus, struct {
 		IDs    []uint
 		Status string
@@ -516,7 +516,7 @@ func (m *MockCommentRepository) BulkUpdateStatus(ids []uint, status string) (int
 	return m.BulkUpdateRows, nil
 }
 
-func (m *MockCommentRepository) BulkDelete(ids []uint) (int64, error) {
+func (m *MockCommentRepository) BulkDelete(ids []uint, _ uint) (int64, error) {
 	m.BulkDeletedIDs = append(m.BulkDeletedIDs, ids...)
 	if m.BulkDeleteErr != nil {
 		return 0, m.BulkDeleteErr
@@ -527,19 +527,19 @@ func (m *MockCommentRepository) BulkDelete(ids []uint) (int64, error) {
 	return m.BulkDeleteRows, nil
 }
 
-func (m *MockCommentRepository) FindArticleComments(articleID uint) ([]models.Comment, error) {
+func (m *MockCommentRepository) FindArticleComments(articleID, _ uint) ([]models.Comment, error) {
 	if m.FindArticleCommentsErr != nil {
 		return nil, m.FindArticleCommentsErr
 	}
 	return m.ArticleComments, nil
 }
 
-func (m *MockCommentRepository) IncrementArticleCommentCount(articleID uint) error {
+func (m *MockCommentRepository) IncrementArticleCommentCount(articleID, _ uint) error {
 	m.ArticleCommentCountIncs = append(m.ArticleCommentCountIncs, articleID)
 	return m.IncrementArticleCountErr
 }
 
-func (m *MockCommentRepository) Stats() (repository.CommentStatsData, error) {
+func (m *MockCommentRepository) Stats(_ uint) (repository.CommentStatsData, error) {
 	m.StatsCalls++
 	if m.StatsErr != nil {
 		return repository.CommentStatsData{}, m.StatsErr
@@ -547,7 +547,7 @@ func (m *MockCommentRepository) Stats() (repository.CommentStatsData, error) {
 	return m.StatsData, nil
 }
 
-func (m *MockCommentRepository) CountToday() (int64, error) {
+func (m *MockCommentRepository) CountToday(_ uint) (int64, error) {
 	m.CountTodayCalls++
 	if m.CountTodayErr != nil {
 		return 0, m.CountTodayErr
@@ -704,14 +704,14 @@ type updatedFieldsCall struct {
 	Updates map[string]interface{}
 }
 
-func (m *MockMediaRepository) List(filter repository.MediaListFilter) ([]models.Media, int64, error) {
+func (m *MockMediaRepository) List(filter repository.MediaListFilter, _ uint) ([]models.Media, int64, error) {
 	if m.ListErr != nil {
 		return nil, 0, m.ListErr
 	}
 	return m.MediaList, m.ListTotal, nil
 }
 
-func (m *MockMediaRepository) GetByID(id uint) (*models.Media, error) {
+func (m *MockMediaRepository) GetByID(id, _ uint) (*models.Media, error) {
 	if m.GetByIDErr != nil {
 		return nil, m.GetByIDErr
 	}
@@ -723,14 +723,14 @@ func (m *MockMediaRepository) GetByID(id uint) (*models.Media, error) {
 	return m.Media, nil
 }
 
-func (m *MockMediaRepository) FindByID(id uint) (*models.Media, error) {
+func (m *MockMediaRepository) FindByID(id, _ uint) (*models.Media, error) {
 	if m.FindByIDErr != nil {
 		return nil, m.FindByIDErr
 	}
 	return m.FindMedia, nil
 }
 
-func (m *MockMediaRepository) FindByIDs(ids []uint) ([]models.Media, error) {
+func (m *MockMediaRepository) FindByIDs(ids []uint, _ uint) ([]models.Media, error) {
 	if m.FindByIDsErr != nil {
 		return nil, m.FindByIDsErr
 	}
@@ -745,7 +745,7 @@ func (m *MockMediaRepository) Create(media *models.Media) error {
 	return nil
 }
 
-func (m *MockMediaRepository) UpdateFields(id uint, updates map[string]interface{}) error {
+func (m *MockMediaRepository) UpdateFields(id uint, updates map[string]interface{}, _ uint) error {
 	if m.UpdateFieldsErr != nil {
 		return m.UpdateFieldsErr
 	}
@@ -753,7 +753,7 @@ func (m *MockMediaRepository) UpdateFields(id uint, updates map[string]interface
 	return nil
 }
 
-func (m *MockMediaRepository) Delete(media *models.Media) error {
+func (m *MockMediaRepository) Delete(media *models.Media, _ uint) error {
 	if m.DeleteErr != nil {
 		return m.DeleteErr
 	}
@@ -761,7 +761,7 @@ func (m *MockMediaRepository) Delete(media *models.Media) error {
 	return nil
 }
 
-func (m *MockMediaRepository) DeleteByIDs(ids []uint) (int64, error) {
+func (m *MockMediaRepository) DeleteByIDs(ids []uint, _ uint) (int64, error) {
 	m.DeleteByIDsCalls++
 	if m.DeleteByIDsErr != nil {
 		return 0, m.DeleteByIDsErr
@@ -773,14 +773,14 @@ func (m *MockMediaRepository) DeleteByIDs(ids []uint) (int64, error) {
 	return int64(len(ids)), nil
 }
 
-func (m *MockMediaRepository) ListFolders() ([]string, error) {
+func (m *MockMediaRepository) ListFolders(_ uint) ([]string, error) {
 	if m.ListFoldersErr != nil {
 		return nil, m.ListFoldersErr
 	}
 	return m.Folders, nil
 }
 
-func (m *MockMediaRepository) Stats() (repository.MediaStatsData, error) {
+func (m *MockMediaRepository) Stats(_ uint) (repository.MediaStatsData, error) {
 	if m.StatsErr != nil {
 		return repository.MediaStatsData{}, m.StatsErr
 	}

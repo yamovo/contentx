@@ -19,7 +19,7 @@ func TestArticleCache_ListHitAndInvalidate(t *testing.T) {
 	createTestArticle(t, db, user.ID, "Cached Article")
 
 	// First list: DB hit, result cached.
-	r1, err := svc.List(ListArticlesFilter{Status: "published", Page: 1, PageSize: 20})
+	r1, err := svc.List(ListArticlesFilter{Status: "published", Page: 1, PageSize: 20}, models.DefaultTenantID)
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -28,7 +28,7 @@ func TestArticleCache_ListHitAndInvalidate(t *testing.T) {
 	}
 
 	// Create a new published article (invalidates list cache).
-	created, err := svc.Create(CreateArticleRequest{Title: "New One", Status: "published"}, user.ID)
+	created, err := svc.Create(CreateArticleRequest{Title: "New One", Status: "published"}, models.DefaultTenantID, user.ID)
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -37,7 +37,7 @@ func TestArticleCache_ListHitAndInvalidate(t *testing.T) {
 	}
 
 	// List again: should see 2 articles (cache was invalidated by Create).
-	r2, err := svc.List(ListArticlesFilter{Status: "published", Page: 1, PageSize: 20})
+	r2, err := svc.List(ListArticlesFilter{Status: "published", Page: 1, PageSize: 20}, models.DefaultTenantID)
 	if err != nil {
 		t.Fatalf("List after create: %v", err)
 	}
@@ -54,7 +54,7 @@ func TestArticleCache_GetHitAndInvalidate(t *testing.T) {
 	article := createTestArticle(t, db, user.ID, "To Cache")
 
 	// First Get: from DB, result cached.
-	a1, err := svc.Get(article.ID)
+	a1, err := svc.Get(article.ID, models.DefaultTenantID)
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
@@ -64,13 +64,13 @@ func TestArticleCache_GetHitAndInvalidate(t *testing.T) {
 
 	// Update the title (invalidates detail cache for this ID).
 	newTitle := "Updated Title"
-	_, err = svc.Update(article.ID, UpdateArticleRequest{Title: &newTitle}, user.ID, true)
+	_, err = svc.Update(article.ID, UpdateArticleRequest{Title: &newTitle}, models.DefaultTenantID, user.ID, true)
 	if err != nil {
 		t.Fatalf("Update: %v", err)
 	}
 
 	// Get again: should see updated title (cache invalidated, re-fetches from DB).
-	a2, err := svc.Get(article.ID)
+	a2, err := svc.Get(article.ID, models.DefaultTenantID)
 	if err != nil {
 		t.Fatalf("Get after update: %v", err)
 	}
@@ -89,16 +89,16 @@ type countingArticleRepo struct {
 	listCalls int64
 }
 
-func (r *countingArticleRepo) GetByID(id uint) (*models.Article, error) {
+func (r *countingArticleRepo) GetByID(id, tenantID uint) (*models.Article, error) {
 	atomic.AddInt64(&r.getCalls, 1)
 	time.Sleep(50 * time.Millisecond)
-	return r.MockArticleRepository.GetByID(id)
+	return r.MockArticleRepository.GetByID(id, tenantID)
 }
 
-func (r *countingArticleRepo) List(f repository.ArticleListFilter) ([]models.Article, int64, error) {
+func (r *countingArticleRepo) List(f repository.ArticleListFilter, tenantID uint) ([]models.Article, int64, error) {
 	atomic.AddInt64(&r.listCalls, 1)
 	time.Sleep(50 * time.Millisecond)
-	return r.MockArticleRepository.List(f)
+	return r.MockArticleRepository.List(f, tenantID)
 }
 
 func TestArticleCache_SingleFlightGet(t *testing.T) {
@@ -114,7 +114,7 @@ func TestArticleCache_SingleFlightGet(t *testing.T) {
 	for i := 0; i < goroutines; i++ {
 		go func() {
 			defer wg.Done()
-			if _, err := svc.Get(1); err != nil {
+			if _, err := svc.Get(1, models.DefaultTenantID); err != nil {
 				t.Errorf("Get: %v", err)
 			}
 		}()
@@ -141,7 +141,7 @@ func TestArticleCache_SingleFlightList(t *testing.T) {
 	for i := 0; i < goroutines; i++ {
 		go func() {
 			defer wg.Done()
-			if _, err := svc.List(filter); err != nil {
+			if _, err := svc.List(filter, models.DefaultTenantID); err != nil {
 				t.Errorf("List: %v", err)
 			}
 		}()

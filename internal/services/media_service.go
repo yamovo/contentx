@@ -77,7 +77,7 @@ func (s *MediaService) SetWebhookDispatcher(d WebhookDispatcher) { s.webhook = d
 func (s *MediaService) SetStorageDriver(d storage.Driver) { s.store = d }
 
 // List returns media files with pagination and filters.
-func (s *MediaService) List(params MediaListParams) ([]models.Media, int64, error) {
+func (s *MediaService) List(params MediaListParams, tenantID uint) ([]models.Media, int64, error) {
 	return s.repo.List(repository.MediaListFilter{
 		Page:     params.Page,
 		PageSize: params.PageSize,
@@ -85,17 +85,17 @@ func (s *MediaService) List(params MediaListParams) ([]models.Media, int64, erro
 		Folder:   params.Folder,
 		Search:   params.Search,
 		Sort:     params.Sort,
-	})
+	}, tenantID)
 }
 
-// Get returns a single media item by ID.
-func (s *MediaService) Get(id uint) (*models.Media, error) {
-	return s.repo.GetByID(id)
+// Get returns a single media item by ID within the tenant.
+func (s *MediaService) Get(id, tenantID uint) (*models.Media, error) {
+	return s.repo.GetByID(id, tenantID)
 }
 
 // Upload handles file upload: validates, saves via storage driver (or local disk),
 // and creates the DB record.
-func (s *MediaService) Upload(file io.Reader, header *multipart.FileHeader, folder, alt, title, caption, description string, uploaderID uint) (*models.Media, error) {
+func (s *MediaService) Upload(file io.Reader, header *multipart.FileHeader, folder, alt, title, caption, description string, uploaderID, tenantID uint) (*models.Media, error) {
 	// Validate file size.
 	if header.Size > s.cfg.MaxSize {
 		return nil, fmt.Errorf("file too large: max size %d bytes", s.cfg.MaxSize)
@@ -217,6 +217,7 @@ func (s *MediaService) Upload(file io.Reader, header *multipart.FileHeader, fold
 	}
 
 	media := models.Media{
+		TenantID:     tenantID, // RFC-001 §5
 		Filename:     filename,
 		OriginalName: header.Filename,
 		FilePath:     filePath,
@@ -251,8 +252,8 @@ func (s *MediaService) Upload(file io.Reader, header *multipart.FileHeader, fold
 
 // Update updates media metadata. Non-editors may only update their own
 // uploads (SEC-5: ownership re-check, aligned with Article.Update).
-func (s *MediaService) Update(id uint, req UpdateMediaRequest, userID uint, isEditor bool) error {
-	media, err := s.repo.FindByID(id)
+func (s *MediaService) Update(id uint, req UpdateMediaRequest, tenantID, userID uint, isEditor bool) error {
+	media, err := s.repo.FindByID(id, tenantID)
 	if err != nil {
 		return err
 	}
@@ -270,13 +271,13 @@ func (s *MediaService) Update(id uint, req UpdateMediaRequest, userID uint, isEd
 		updates["folder"] = req.Folder
 	}
 
-	return s.repo.UpdateFields(id, updates)
+	return s.repo.UpdateFields(id, updates, tenantID)
 }
 
 // Delete removes a media file from storage (or local disk) and the database.
-// Non-editors may only delete their own uploads (SEC-5).
-func (s *MediaService) Delete(id uint, userID uint, isEditor bool) error {
-	media, err := s.repo.FindByID(id)
+// Non-editors may only delete their own uploads (SEC-5). Scoped to the tenant.
+func (s *MediaService) Delete(id, tenantID, userID uint, isEditor bool) error {
+	media, err := s.repo.FindByID(id, tenantID)
 	if err != nil {
 		return err
 	}
@@ -287,7 +288,7 @@ func (s *MediaService) Delete(id uint, userID uint, isEditor bool) error {
 	// Remove the primary file via the configured backend.
 	s.removeStoredFile(media.FilePath, media.ThumbnailURL)
 
-	if err := s.repo.Delete(media); err != nil {
+	if err := s.repo.Delete(media, tenantID); err != nil {
 		return err
 	}
 
@@ -300,8 +301,8 @@ func (s *MediaService) Delete(id uint, userID uint, isEditor bool) error {
 // BulkDelete removes multiple media files by ID. Returns the number of rows affected.
 // Non-editors may only bulk-delete their own uploads (SEC-5): the whole batch
 // is rejected if it contains any media owned by another user.
-func (s *MediaService) BulkDelete(ids []uint, userID uint, isEditor bool) (int64, error) {
-	media, err := s.repo.FindByIDs(ids)
+func (s *MediaService) BulkDelete(ids []uint, tenantID, userID uint, isEditor bool) (int64, error) {
+	media, err := s.repo.FindByIDs(ids, tenantID)
 	if err != nil {
 		return 0, err
 	}
@@ -318,7 +319,7 @@ func (s *MediaService) BulkDelete(ids []uint, userID uint, isEditor bool) (int64
 		s.removeStoredFile(m.FilePath, m.ThumbnailURL)
 	}
 
-	return s.repo.DeleteByIDs(ids)
+	return s.repo.DeleteByIDs(ids, tenantID)
 }
 
 // removeStoredFile deletes the primary file (and thumbnail, if any) using the
@@ -341,14 +342,14 @@ func (s *MediaService) removeStoredFile(filePath, thumbnailURL string) {
 	}
 }
 
-// Folders returns all unique media folders.
-func (s *MediaService) Folders() ([]string, error) {
-	return s.repo.ListFolders()
+// Folders returns all unique media folders within the tenant.
+func (s *MediaService) Folders(tenantID uint) ([]string, error) {
+	return s.repo.ListFolders(tenantID)
 }
 
-// Stats returns media library statistics.
-func (s *MediaService) Stats() (MediaStats, error) {
-	data, err := s.repo.Stats()
+// Stats returns media library statistics within the tenant.
+func (s *MediaService) Stats(tenantID uint) (MediaStats, error) {
+	data, err := s.repo.Stats(tenantID)
 	if err != nil {
 		return MediaStats{}, err
 	}

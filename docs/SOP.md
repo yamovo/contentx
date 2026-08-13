@@ -149,7 +149,7 @@ docker compose --profile monitor up -d --build
 |---|---|
 | 管理后台 | <http://localhost:8080> |
 | REST API | <http://localhost:8080/api/v1> |
-| Swagger | <http://localhost:8080/swagger/index.html> |
+| Swagger | <http://localhost:8080/swagger/index.html>（仅非 release 模式挂载；容器部署为 release 模式时不可用） |
 | GraphQL | <http://localhost:8080/api/v1/graphql> |
 | 健康检查 | <http://localhost:8080/api/v1/system/health> |
 | Prometheus | <http://localhost:9090> |

@@ -42,18 +42,24 @@ type ArticleListFilter struct {
 // ArticleRepository defines data-access operations for articles, including
 // the transactional Create/Update/RestoreRevision flows that previously lived
 // in the service layer.
+//
+// Multi-tenancy (RFC-001 §5): every read/write method scopes its query to the
+// provided tenantID — queries MUST NOT run without a tenant condition.
+// Create inherits the tenant from article.TenantID (set by the service layer
+// from the request context).
 type ArticleRepository interface {
-	List(filter ArticleListFilter) ([]models.Article, int64, error)
-	GetByID(id uint) (*models.Article, error) // preloads Author, Category, Tags, CustomFields
-	FindByID(id uint) (*models.Article, error)
-	GetPublishedBySlug(slug string) (*models.Article, error) // preloads Author, Category, Tags
-	IncrementViewCount(id uint) error
-	IncrementLikeCount(id uint) error
+	List(filter ArticleListFilter, tenantID uint) ([]models.Article, int64, error)
+	GetByID(id, tenantID uint) (*models.Article, error) // preloads Author, Category, Tags, CustomFields
+	FindByID(id, tenantID uint) (*models.Article, error)
+	GetPublishedBySlug(slug string, tenantID uint) (*models.Article, error) // preloads Author, Category, Tags
+	IncrementViewCount(id, tenantID uint) error
+	IncrementLikeCount(id, tenantID uint) error
 
 	// Create inserts a new article together with its tags, tag/count and
 	// category post_count bumps, and the initial revision — all in a single
 	// transaction. The article pointer is mutated to hold the final state
-	// (with associations preloaded).
+	// (with associations preloaded). article.TenantID must be set by the
+	// caller.
 	Create(article *models.Article, tagIDs []uint, revisionNote string, userID uint) error
 
 	// Update applies partial updates, optional tag replacement (with tag count
@@ -64,38 +70,38 @@ type ArticleRepository interface {
 	// (WHERE version = ?); returns ErrConcurrentModification if the row was
 	// modified by another writer. When nil, no version check is performed
 	// (backward-compatible with callers that don't supply a version).
-	Update(article *models.Article, updates map[string]interface{}, tagIDs []uint, revisionNote string, userID uint, expectedVersion *int) error
+	Update(article *models.Article, updates map[string]interface{}, tagIDs []uint, revisionNote string, userID uint, expectedVersion *int, tenantID uint) error
 
-	Delete(article *models.Article) error
+	Delete(article *models.Article, tenantID uint) error
 
 	// UpdateStatus applies a single-article status transition. When non-nil,
 	// publishedAt / scheduledAt are written alongside the status so the caller
 	// can flip an article to published (recording the time) or to scheduled
 	// (recording the planned time) atomically.
-	UpdateStatus(id uint, status string, publishedAt, scheduledAt *time.Time) error
+	UpdateStatus(id uint, status string, publishedAt, scheduledAt *time.Time, tenantID uint) error
 
-	BulkPublish(articleIDs []uint, publishedAt time.Time) (int64, error)
-	BulkUpdateStatus(articleIDs []uint, status string) (int64, error)
-	BulkDelete(articleIDs []uint) (int64, error)
-	BulkMoveCategory(articleIDs []uint, categoryID uint) (int64, error)
-	BulkSetPinned(articleIDs []uint, pinned bool) (int64, error)
+	BulkPublish(articleIDs []uint, publishedAt time.Time, tenantID uint) (int64, error)
+	BulkUpdateStatus(articleIDs []uint, status string, tenantID uint) (int64, error)
+	BulkDelete(articleIDs []uint, tenantID uint) (int64, error)
+	BulkMoveCategory(articleIDs []uint, categoryID, tenantID uint) (int64, error)
+	BulkSetPinned(articleIDs []uint, pinned bool, tenantID uint) (int64, error)
 
-	ListRevisions(articleID uint) ([]models.Revision, error) // preloads Editor
-	FindRevision(revisionID, articleID uint) (*models.Revision, error)
-	RestoreRevision(article *models.Article, revision *models.Revision, userID uint) error
+	ListRevisions(articleID, tenantID uint) ([]models.Revision, error) // preloads Editor
+	FindRevision(revisionID, articleID, tenantID uint) (*models.Revision, error)
+	RestoreRevision(article *models.Article, revision *models.Revision, userID, tenantID uint) error
 
-	ListPublishedForFeed(limit int) ([]models.Article, error) // preloads Author, Category
+	ListPublishedForFeed(limit int, tenantID uint) ([]models.Article, error) // preloads Author, Category
 	// ListScheduledDue returns scheduled articles whose ScheduledAt is at or
 	// before `now`, i.e. due for automatic publication. Preloads Author.
-	ListScheduledDue(now time.Time) ([]models.Article, error)
-	EnsureUniqueSlug(original string, excludeID uint) (string, error)
+	ListScheduledDue(now time.Time, tenantID uint) ([]models.Article, error)
+	EnsureUniqueSlug(original string, excludeID, tenantID uint) (string, error)
 
 	// i18n: ListTranslations returns all articles sharing the same
 	// translation group (excluding the article itself).
-	ListTranslations(groupID, excludeID uint) ([]models.Article, error)
+	ListTranslations(groupID, excludeID, tenantID uint) ([]models.Article, error)
 	// FindTranslationInLocale returns the article in the given translation
 	// group for the requested locale, or gorm.ErrRecordNotFound.
-	FindTranslationInLocale(groupID uint, locale string) (*models.Article, error)
+	FindTranslationInLocale(groupID uint, locale string, tenantID uint) (*models.Article, error)
 }
 
 // gormArticleRepository implements ArticleRepository with GORM.
@@ -108,11 +114,12 @@ func NewArticleRepository(db *gorm.DB) ArticleRepository {
 	return &gormArticleRepository{db: db}
 }
 
-func (r *gormArticleRepository) List(filter ArticleListFilter) ([]models.Article, int64, error) {
+func (r *gormArticleRepository) List(filter ArticleListFilter, tenantID uint) ([]models.Article, int64, error) {
 	query := r.db.Model(&models.Article{}).
 		Preload("Author").
 		Preload("Category").
-		Preload("Tags")
+		Preload("Tags").
+		Where("tenant_id = ?", tenantID)
 
 	if filter.Status != "" {
 		query = query.Where("status = ?", filter.Status)
@@ -175,56 +182,59 @@ func (r *gormArticleRepository) List(filter ArticleListFilter) ([]models.Article
 	return articles, total, nil
 }
 
-func (r *gormArticleRepository) GetByID(id uint) (*models.Article, error) {
+func (r *gormArticleRepository) GetByID(id, tenantID uint) (*models.Article, error) {
 	var article models.Article
 	if err := r.db.
 		Preload("Author").
 		Preload("Category").
 		Preload("Tags").
 		Preload("CustomFields").
-		First(&article, id).Error; err != nil {
-		return nil, err
-	}
-	return &article, nil
-}
-
-func (r *gormArticleRepository) FindByID(id uint) (*models.Article, error) {
-	var article models.Article
-	if err := r.db.First(&article, id).Error; err != nil {
-		return nil, err
-	}
-	return &article, nil
-}
-
-func (r *gormArticleRepository) GetPublishedBySlug(articleSlug string) (*models.Article, error) {
-	var article models.Article
-	if err := r.db.
-		Preload("Author").
-		Preload("Category").
-		Preload("Tags").
-		Where("slug = ? AND status = ? AND visibility = ?", articleSlug, models.StatusPublished, models.VisibilityPublic).
+		Where("id = ? AND tenant_id = ?", id, tenantID).
 		First(&article).Error; err != nil {
 		return nil, err
 	}
 	return &article, nil
 }
 
-func (r *gormArticleRepository) IncrementViewCount(id uint) error {
-	return r.db.Model(&models.Article{}).Where("id = ?", id).
+func (r *gormArticleRepository) FindByID(id, tenantID uint) (*models.Article, error) {
+	var article models.Article
+	if err := r.db.Where("id = ? AND tenant_id = ?", id, tenantID).First(&article).Error; err != nil {
+		return nil, err
+	}
+	return &article, nil
+}
+
+func (r *gormArticleRepository) GetPublishedBySlug(articleSlug string, tenantID uint) (*models.Article, error) {
+	var article models.Article
+	if err := r.db.
+		Preload("Author").
+		Preload("Category").
+		Preload("Tags").
+		Where("slug = ? AND status = ? AND visibility = ? AND tenant_id = ?", articleSlug, models.StatusPublished, models.VisibilityPublic, tenantID).
+		First(&article).Error; err != nil {
+		return nil, err
+	}
+	return &article, nil
+}
+
+func (r *gormArticleRepository) IncrementViewCount(id, tenantID uint) error {
+	return r.db.Model(&models.Article{}).Where("id = ? AND tenant_id = ?", id, tenantID).
 		UpdateColumn("view_count", gorm.Expr("view_count + 1")).Error
 }
 
-func (r *gormArticleRepository) IncrementLikeCount(id uint) error {
-	return r.db.Model(&models.Article{}).Where("id = ?", id).
+func (r *gormArticleRepository) IncrementLikeCount(id, tenantID uint) error {
+	return r.db.Model(&models.Article{}).Where("id = ? AND tenant_id = ?", id, tenantID).
 		UpdateColumn("like_count", gorm.Expr("like_count + 1")).Error
 }
 
 func (r *gormArticleRepository) Create(article *models.Article, tagIDs []uint, revisionNote string, userID uint) error {
 	return database.WithTransaction(r.db, func(tx *gorm.DB) error {
 		// Resolve tags inside the transaction so associations are created atomically.
+		// Tags are tenant-scoped: only tags belonging to the article's tenant
+		// may be attached (RFC-001 §5).
 		if len(tagIDs) > 0 {
 			var tags []models.Tag
-			if err := tx.Where("id IN ?", tagIDs).Find(&tags).Error; err != nil {
+			if err := tx.Where("id IN ? AND tenant_id = ?", tagIDs, article.TenantID).Find(&tags).Error; err != nil {
 				return err
 			}
 			article.Tags = tags
@@ -269,7 +279,7 @@ func (r *gormArticleRepository) Create(article *models.Article, tagIDs []uint, r
 	})
 }
 
-func (r *gormArticleRepository) Update(article *models.Article, updates map[string]interface{}, tagIDs []uint, revisionNote string, userID uint, expectedVersion *int) error {
+func (r *gormArticleRepository) Update(article *models.Article, updates map[string]interface{}, tagIDs []uint, revisionNote string, userID uint, expectedVersion *int, tenantID uint) error {
 	return database.WithTransaction(r.db, func(tx *gorm.DB) error {
 		// Tag replacement is also a content change: it must participate in
 		// optimistic locking and advance the article version.
@@ -282,7 +292,7 @@ func (r *gormArticleRepository) Update(article *models.Article, updates map[stri
 			// row was modified by another writer, RowsAffected = 0 and we
 			// return ErrConcurrentModification so the service layer can
 			// surface a 409 to the client.
-			query := tx.Model(&models.Article{}).Where("id = ?", article.ID)
+			query := tx.Model(&models.Article{}).Where("id = ? AND tenant_id = ?", article.ID, tenantID)
 			if expectedVersion != nil {
 				query = query.Where("version = ?", *expectedVersion)
 			}
@@ -300,7 +310,7 @@ func (r *gormArticleRepository) Update(article *models.Article, updates map[stri
 		// nil tagIDs means "do not touch tags".
 		if tagIDs != nil {
 			var tags []models.Tag
-			if err := tx.Where("id IN ?", tagIDs).Find(&tags).Error; err != nil {
+			if err := tx.Where("id IN ? AND tenant_id = ?", tagIDs, tenantID).Find(&tags).Error; err != nil {
 				return err
 			}
 			if err := tx.Model(article).Association("Tags").Replace(tags); err != nil {
@@ -313,18 +323,19 @@ func (r *gormArticleRepository) Update(article *models.Article, updates map[stri
 		}
 
 		// Reload for revision snapshot.
-		if err := tx.First(article, article.ID).Error; err != nil {
+		if err := tx.Where("id = ? AND tenant_id = ?", article.ID, tenantID).First(article).Error; err != nil {
 			return err
 		}
 
 		var version int
-		if err := tx.Model(&models.Revision{}).Where("article_id = ?", article.ID).
+		if err := tx.Model(&models.Revision{}).Where("article_id = ? AND tenant_id = ?", article.ID, tenantID).
 			Select("COALESCE(MAX(version), 0)").Scan(&version).Error; err != nil {
 			return err
 		}
 
 		revision := models.Revision{
 			ArticleID: article.ID,
+			TenantID:  tenantID,
 			Title:     article.Title,
 			Content:   article.Content,
 			Excerpt:   article.Excerpt,
@@ -337,17 +348,17 @@ func (r *gormArticleRepository) Update(article *models.Article, updates map[stri
 		}
 
 		// Reload with associations for the caller.
-		return tx.Preload("Author").Preload("Category").Preload("Tags").First(article, article.ID).Error
+		return tx.Preload("Author").Preload("Category").Preload("Tags").Where("id = ? AND tenant_id = ?", article.ID, tenantID).First(article).Error
 	})
 }
 
-func (r *gormArticleRepository) Delete(article *models.Article) error {
-	return r.db.Delete(article).Error
+func (r *gormArticleRepository) Delete(article *models.Article, tenantID uint) error {
+	return r.db.Where("id = ? AND tenant_id = ?", article.ID, tenantID).Delete(&models.Article{}).Error
 }
 
-func (r *gormArticleRepository) BulkPublish(articleIDs []uint, publishedAt time.Time) (int64, error) {
+func (r *gormArticleRepository) BulkPublish(articleIDs []uint, publishedAt time.Time, tenantID uint) (int64, error) {
 	result := r.db.Model(&models.Article{}).
-		Where("id IN ?", articleIDs).
+		Where("id IN ? AND tenant_id = ?", articleIDs, tenantID).
 		Updates(map[string]interface{}{
 			"status":       models.StatusPublished,
 			"published_at": publishedAt,
@@ -355,7 +366,7 @@ func (r *gormArticleRepository) BulkPublish(articleIDs []uint, publishedAt time.
 	return result.RowsAffected, result.Error
 }
 
-func (r *gormArticleRepository) UpdateStatus(id uint, status string, publishedAt, scheduledAt *time.Time) error {
+func (r *gormArticleRepository) UpdateStatus(id uint, status string, publishedAt, scheduledAt *time.Time, tenantID uint) error {
 	updates := map[string]interface{}{"status": status}
 	if publishedAt != nil {
 		updates["published_at"] = *publishedAt
@@ -363,40 +374,40 @@ func (r *gormArticleRepository) UpdateStatus(id uint, status string, publishedAt
 	if scheduledAt != nil {
 		updates["scheduled_at"] = *scheduledAt
 	}
-	return r.db.Model(&models.Article{}).Where("id = ?", id).Updates(updates).Error
+	return r.db.Model(&models.Article{}).Where("id = ? AND tenant_id = ?", id, tenantID).Updates(updates).Error
 }
 
-func (r *gormArticleRepository) BulkUpdateStatus(articleIDs []uint, status string) (int64, error) {
+func (r *gormArticleRepository) BulkUpdateStatus(articleIDs []uint, status string, tenantID uint) (int64, error) {
 	result := r.db.Model(&models.Article{}).
-		Where("id IN ?", articleIDs).
+		Where("id IN ? AND tenant_id = ?", articleIDs, tenantID).
 		Update("status", status)
 	return result.RowsAffected, result.Error
 }
 
-func (r *gormArticleRepository) BulkDelete(articleIDs []uint) (int64, error) {
-	result := r.db.Where("id IN ?", articleIDs).Delete(&models.Article{})
+func (r *gormArticleRepository) BulkDelete(articleIDs []uint, tenantID uint) (int64, error) {
+	result := r.db.Where("id IN ? AND tenant_id = ?", articleIDs, tenantID).Delete(&models.Article{})
 	return result.RowsAffected, result.Error
 }
 
-func (r *gormArticleRepository) BulkMoveCategory(articleIDs []uint, categoryID uint) (int64, error) {
+func (r *gormArticleRepository) BulkMoveCategory(articleIDs []uint, categoryID, tenantID uint) (int64, error) {
 	result := r.db.Model(&models.Article{}).
-		Where("id IN ?", articleIDs).
+		Where("id IN ? AND tenant_id = ?", articleIDs, tenantID).
 		Update("category_id", categoryID)
 	return result.RowsAffected, result.Error
 }
 
-func (r *gormArticleRepository) BulkSetPinned(articleIDs []uint, pinned bool) (int64, error) {
+func (r *gormArticleRepository) BulkSetPinned(articleIDs []uint, pinned bool, tenantID uint) (int64, error) {
 	result := r.db.Model(&models.Article{}).
-		Where("id IN ?", articleIDs).
+		Where("id IN ? AND tenant_id = ?", articleIDs, tenantID).
 		Update("is_pinned", pinned)
 	return result.RowsAffected, result.Error
 }
 
-func (r *gormArticleRepository) ListRevisions(articleID uint) ([]models.Revision, error) {
+func (r *gormArticleRepository) ListRevisions(articleID, tenantID uint) ([]models.Revision, error) {
 	var revisions []models.Revision
 	if err := r.db.
 		Preload("Editor").
-		Where("article_id = ?", articleID).
+		Where("article_id = ? AND tenant_id = ?", articleID, tenantID).
 		Order("version DESC").
 		Find(&revisions).Error; err != nil {
 		return nil, err
@@ -404,33 +415,34 @@ func (r *gormArticleRepository) ListRevisions(articleID uint) ([]models.Revision
 	return revisions, nil
 }
 
-func (r *gormArticleRepository) FindRevision(revisionID, articleID uint) (*models.Revision, error) {
+func (r *gormArticleRepository) FindRevision(revisionID, articleID, tenantID uint) (*models.Revision, error) {
 	var revision models.Revision
-	if err := r.db.Where("id = ? AND article_id = ?", revisionID, articleID).First(&revision).Error; err != nil {
+	if err := r.db.Where("id = ? AND article_id = ? AND tenant_id = ?", revisionID, articleID, tenantID).First(&revision).Error; err != nil {
 		return nil, err
 	}
 	return &revision, nil
 }
 
-func (r *gormArticleRepository) RestoreRevision(article *models.Article, revision *models.Revision, userID uint) error {
+func (r *gormArticleRepository) RestoreRevision(article *models.Article, revision *models.Revision, userID, tenantID uint) error {
 	return database.WithTransaction(r.db, func(tx *gorm.DB) error {
 		updates := map[string]interface{}{
 			"title":   revision.Title,
 			"content": revision.Content,
 			"excerpt": revision.Excerpt,
 		}
-		if err := tx.Model(article).Updates(updates).Error; err != nil {
+		if err := tx.Model(&models.Article{}).Where("id = ? AND tenant_id = ?", article.ID, tenantID).Updates(updates).Error; err != nil {
 			return err
 		}
 
 		var maxVersion int
-		if err := tx.Model(&models.Revision{}).Where("article_id = ?", article.ID).
+		if err := tx.Model(&models.Revision{}).Where("article_id = ? AND tenant_id = ?", article.ID, tenantID).
 			Select("COALESCE(MAX(version), 0)").Scan(&maxVersion).Error; err != nil {
 			return err
 		}
 
 		newRevision := models.Revision{
 			ArticleID: article.ID,
+			TenantID:  tenantID,
 			Title:     revision.Title,
 			Content:   revision.Content,
 			Excerpt:   revision.Excerpt,
@@ -442,9 +454,9 @@ func (r *gormArticleRepository) RestoreRevision(article *models.Article, revisio
 	})
 }
 
-func (r *gormArticleRepository) ListPublishedForFeed(limit int) ([]models.Article, error) {
+func (r *gormArticleRepository) ListPublishedForFeed(limit int, tenantID uint) ([]models.Article, error) {
 	var articles []models.Article
-	if err := r.db.Where("status = ?", models.StatusPublished).
+	if err := r.db.Where("status = ? AND tenant_id = ?", models.StatusPublished, tenantID).
 		Preload("Author").
 		Preload("Category").
 		Order("published_at DESC").
@@ -455,9 +467,9 @@ func (r *gormArticleRepository) ListPublishedForFeed(limit int) ([]models.Articl
 	return articles, nil
 }
 
-func (r *gormArticleRepository) ListScheduledDue(now time.Time) ([]models.Article, error) {
+func (r *gormArticleRepository) ListScheduledDue(now time.Time, tenantID uint) ([]models.Article, error) {
 	var articles []models.Article
-	if err := r.db.Where("status = ? AND scheduled_at <= ?", models.StatusScheduled, now).
+	if err := r.db.Where("status = ? AND scheduled_at <= ? AND tenant_id = ?", models.StatusScheduled, now, tenantID).
 		Preload("Author").
 		Order("scheduled_at ASC").
 		Find(&articles).Error; err != nil {
@@ -471,11 +483,11 @@ func (r *gormArticleRepository) ListScheduledDue(now time.Time) ([]models.Articl
 // can be found within maxSlugAttempts iterations (A-2 fix: previously the
 // loop was unbounded and COUNT errors were silently ignored, risking both
 // infinite loops and silent slug collisions).
-func (r *gormArticleRepository) EnsureUniqueSlug(original string, excludeID uint) (string, error) {
+func (r *gormArticleRepository) EnsureUniqueSlug(original string, excludeID, tenantID uint) (string, error) {
 	candidate := original
 	for i := 1; i <= maxSlugAttempts; i++ {
 		var count int64
-		query := r.db.Model(&models.Article{}).Where("slug = ?", candidate)
+		query := r.db.Model(&models.Article{}).Where("slug = ? AND tenant_id = ?", candidate, tenantID)
 		if excludeID > 0 {
 			query = query.Where("id != ?", excludeID)
 		}
@@ -492,24 +504,24 @@ func (r *gormArticleRepository) EnsureUniqueSlug(original string, excludeID uint
 
 // ─── i18n: translation queries ──────────────────────────────────────────────
 
-func (r *gormArticleRepository) ListTranslations(groupID, excludeID uint) ([]models.Article, error) {
+func (r *gormArticleRepository) ListTranslations(groupID, excludeID, tenantID uint) ([]models.Article, error) {
 	var articles []models.Article
 	// The group root has translation_group_id = NULL; its own id is the
 	// group id. Match it via (id = groupID) so siblings see the root too.
 	if err := r.db.Where(
-		"(translation_group_id = ? OR (translation_group_id IS NULL AND id = ?)) AND id != ?",
-		groupID, groupID, excludeID,
+		"(translation_group_id = ? OR (translation_group_id IS NULL AND id = ?)) AND id != ? AND tenant_id = ?",
+		groupID, groupID, excludeID, tenantID,
 	).Order("locale ASC").Find(&articles).Error; err != nil {
 		return nil, err
 	}
 	return articles, nil
 }
 
-func (r *gormArticleRepository) FindTranslationInLocale(groupID uint, locale string) (*models.Article, error) {
+func (r *gormArticleRepository) FindTranslationInLocale(groupID uint, locale string, tenantID uint) (*models.Article, error) {
 	var article models.Article
 	if err := r.db.Where(
-		"(translation_group_id = ? OR (translation_group_id IS NULL AND id = ?)) AND locale = ?",
-		groupID, groupID, locale,
+		"(translation_group_id = ? OR (translation_group_id IS NULL AND id = ?)) AND locale = ? AND tenant_id = ?",
+		groupID, groupID, locale, tenantID,
 	).First(&article).Error; err != nil {
 		return nil, err
 	}

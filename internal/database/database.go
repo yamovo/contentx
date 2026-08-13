@@ -65,6 +65,10 @@ func Connect(cfg config.DatabaseConfig) (*gorm.DB, error) {
 // always produce identical schema.
 func AllModels() []interface{} {
 	return []interface{}{
+		// Tenants (multi-tenancy foundation, RFC-001)
+		&models.Tenant{},
+		&models.TenantMembership{},
+
 		// Auth & Users
 		&models.Permission{},
 		&models.Role{},

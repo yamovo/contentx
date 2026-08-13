@@ -40,7 +40,7 @@ func (r *Resolver) article(p graphql.ResolveParams) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	article, err := r.Article.Get(id)
+	article, err := r.Article.Get(id, models.DefaultTenantID)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, nil
@@ -58,7 +58,7 @@ func (r *Resolver) article(p graphql.ResolveParams) (interface{}, error) {
 // Returns null (not an error) when the article doesn't exist.
 func (r *Resolver) articleBySlug(p graphql.ResolveParams) (interface{}, error) {
 	slug, _ := p.Args["slug"].(string)
-	article, err := r.Article.GetBySlug(slug)
+	article, err := r.Article.GetBySlug(slug, models.DefaultTenantID)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, nil
@@ -87,7 +87,7 @@ func (r *Resolver) articles(p graphql.ResolveParams) (interface{}, error) {
 	if fieldInSelection(p.Info, "items", "content") {
 		filter.Full = true
 	}
-	resp, err := r.Article.List(filter)
+	resp, err := r.Article.List(filter, models.DefaultTenantID)
 	if err != nil {
 		return nil, err
 	}
@@ -110,12 +110,12 @@ func (r *Resolver) category(p graphql.ResolveParams) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	return r.Category.Get(id)
+	return r.Category.Get(id, models.DefaultTenantID)
 }
 
 // categories returns all categories (tree form).
 func (r *Resolver) categories(_ graphql.ResolveParams) (interface{}, error) {
-	return r.Category.List(false)
+	return r.Category.List(false, models.DefaultTenantID)
 }
 
 // tag returns a single tag by ID.
@@ -124,12 +124,12 @@ func (r *Resolver) tag(p graphql.ResolveParams) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	return r.Tag.Get(id)
+	return r.Tag.Get(id, models.DefaultTenantID)
 }
 
 // tags returns all tags.
 func (r *Resolver) tags(_ graphql.ResolveParams) (interface{}, error) {
-	tags, _, err := r.Tag.List(services.TagListParams{})
+	tags, _, err := r.Tag.List(services.TagListParams{}, models.DefaultTenantID)
 	if err != nil {
 		return nil, err
 	}
@@ -143,7 +143,7 @@ func (r *Resolver) comments(p graphql.ResolveParams) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	return r.Comment.ArticleComments(id)
+	return r.Comment.ArticleComments(id, models.DefaultTenantID)
 }
 
 // user returns a single user's public profile by ID. Sensitive fields
@@ -158,7 +158,7 @@ func (r *Resolver) user(p graphql.ResolveParams) (interface{}, error) {
 
 // feed returns the site RSS feed as a raw XML string.
 func (r *Resolver) feed(_ graphql.ResolveParams) (interface{}, error) {
-	return r.Article.GenerateFeed()
+	return r.Article.GenerateFeed(models.DefaultTenantID)
 }
 
 // search runs a full-text query against the configured SearchIndexer. The
@@ -291,7 +291,7 @@ func (r *Resolver) articleComments(p graphql.ResolveParams) (interface{}, error)
 	if !ok {
 		return nil, nil
 	}
-	return r.Comment.ArticleComments(article.ID)
+	return r.Comment.ArticleComments(article.ID, models.DefaultTenantID)
 }
 
 // commentUser returns the comment's author user (nullable for guest comments).

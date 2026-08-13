@@ -151,7 +151,7 @@ func TestAuditLogger_ArticlePublish(t *testing.T) {
 	author := createTestUser(t, db, "audit-author", "author")
 	article := createTestArticle(t, db, author.ID, "Audit Publish Test")
 
-	_, err := svc.PublishAs(article.ID, author.ID)
+	_, err := svc.PublishAs(article.ID, models.DefaultTenantID, author.ID)
 	if err != nil {
 		t.Fatalf("Publish() error: %v", err)
 	}
@@ -185,7 +185,7 @@ func TestAuditLogger_SettingsUpdate_RedactsSecrets(t *testing.T) {
 		"smtp_password":  "super-secret-value",
 		"api_key":        "key-12345",
 		"public_setting": true,
-	}, actorID)
+	}, models.DefaultTenantID, actorID)
 	if err != nil {
 		t.Fatalf("Update() error: %v", err)
 	}

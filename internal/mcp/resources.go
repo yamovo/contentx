@@ -87,7 +87,7 @@ func readArticleResource(deps Deps) mcpsdk.ResourceHandler {
 		if err != nil || id == 0 {
 			return nil, mcpsdk.ResourceNotFoundError(req.Params.URI)
 		}
-		a, err := deps.Article.Get(uint(id))
+		a, err := deps.Article.Get(uint(id), models.DefaultTenantID)
 		if err != nil {
 			return nil, mcpsdk.ResourceNotFoundError(req.Params.URI)
 		}

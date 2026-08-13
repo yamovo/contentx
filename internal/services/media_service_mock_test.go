@@ -80,7 +80,7 @@ func TestMockMedia_Upload_TooLarge(t *testing.T) {
 	f, header := openFileHeader(t, fh)
 	defer f.Close()
 
-	_, err := s.Upload(f, header, "", "", "", "", "", 1)
+	_, err := s.Upload(f, header, "", "", "", "", "", 1, models.DefaultTenantID)
 	if err == nil || !strings.Contains(err.Error(), "file too large") {
 		t.Fatalf("expected file too large error, got %v", err)
 	}
@@ -100,7 +100,7 @@ func TestMockMedia_Upload_TypeNotAllowed(t *testing.T) {
 	f, header := openFileHeader(t, fh)
 	defer f.Close()
 
-	_, err := s.Upload(f, header, "", "", "", "", "", 1)
+	_, err := s.Upload(f, header, "", "", "", "", "", 1, models.DefaultTenantID)
 	if err == nil || !strings.Contains(err.Error(), "file type not allowed") {
 		t.Fatalf("expected type not allowed error, got %v", err)
 	}
@@ -118,7 +118,7 @@ func TestMockMedia_Upload_InvalidFolderPath(t *testing.T) {
 	f, header := openFileHeader(t, fh)
 	defer f.Close()
 
-	_, err := s.Upload(f, header, "a..b", "", "", "", "", 1)
+	_, err := s.Upload(f, header, "a..b", "", "", "", "", 1, models.DefaultTenantID)
 	if err == nil || !strings.Contains(err.Error(), "invalid folder path") {
 		t.Fatalf("expected invalid folder path error, got %v", err)
 	}
@@ -136,7 +136,7 @@ func TestMockMedia_Upload_PNGSuccess(t *testing.T) {
 	f, header := openFileHeader(t, fh)
 	defer f.Close()
 
-	media, err := s.Upload(f, header, "pics", "alt-text", "title", "caption", "desc", 42)
+	media, err := s.Upload(f, header, "pics", "alt-text", "title", "caption", "desc", 42, models.DefaultTenantID)
 	if err != nil {
 		t.Fatalf("Upload failed: %v", err)
 	}
@@ -187,7 +187,7 @@ func TestMockMedia_Upload_SVGSuccess(t *testing.T) {
 	f, header := openFileHeader(t, fh)
 	defer f.Close()
 
-	media, err := s.Upload(f, header, "", "", "", "", "", 1)
+	media, err := s.Upload(f, header, "", "", "", "", "", 1, models.DefaultTenantID)
 	if err != nil {
 		t.Fatalf("Upload SVG failed: %v", err)
 	}
@@ -216,7 +216,7 @@ func TestMockMedia_Upload_SVGRejected(t *testing.T) {
 	f, header := openFileHeader(t, fh)
 	defer f.Close()
 
-	_, err := s.Upload(f, header, "", "", "", "", "", 1)
+	_, err := s.Upload(f, header, "", "", "", "", "", 1, models.DefaultTenantID)
 	// SanitizeSVG 对 <script> 的处理可能是剥离而非拒绝，这里允许两种结果
 	if err != nil {
 		if !strings.Contains(err.Error(), "SVG rejected") && !strings.Contains(err.Error(), "failed to read SVG") {
@@ -240,7 +240,7 @@ func TestMockMedia_Upload_RepoCreateError(t *testing.T) {
 	f, header := openFileHeader(t, fh)
 	defer f.Close()
 
-	_, err := s.Upload(f, header, "", "", "", "", "", 1)
+	_, err := s.Upload(f, header, "", "", "", "", "", 1, models.DefaultTenantID)
 	if err == nil {
 		t.Fatal("expected error from repo.Create")
 	}
@@ -261,7 +261,7 @@ func TestMockMedia_List_Success(t *testing.T) {
 	}
 	s := NewMediaServiceWithRepo(repo, newTestUploadConfig(t))
 
-	got, total, err := s.List(MediaListParams{Page: 1, PageSize: 10})
+	got, total, err := s.List(MediaListParams{Page: 1, PageSize: 10}, models.DefaultTenantID)
 	if err != nil {
 		t.Fatalf("List failed: %v", err)
 	}
@@ -278,7 +278,7 @@ func TestMockMedia_Get_Success(t *testing.T) {
 	repo := &MockMediaRepository{Media: expected}
 	s := NewMediaServiceWithRepo(repo, newTestUploadConfig(t))
 
-	got, err := s.Get(5)
+	got, err := s.Get(5, models.DefaultTenantID)
 	if err != nil {
 		t.Fatalf("Get failed: %v", err)
 	}
@@ -297,7 +297,7 @@ func TestMockMedia_Update_Success(t *testing.T) {
 		Alt:    "new alt",
 		Title:  "new title",
 		Folder: "newfolder",
-	}, 0, true)
+	}, models.DefaultTenantID, 0, true)
 	if err != nil {
 		t.Fatalf("Update failed: %v", err)
 	}
@@ -322,7 +322,7 @@ func TestMockMedia_Update_NotFound(t *testing.T) {
 	}
 	s := NewMediaServiceWithRepo(repo, newTestUploadConfig(t))
 
-	err := s.Update(99, UpdateMediaRequest{Alt: "x"}, 0, true)
+	err := s.Update(99, UpdateMediaRequest{Alt: "x"}, models.DefaultTenantID, 0, true)
 	if err != gorm.ErrRecordNotFound {
 		t.Errorf("expected ErrRecordNotFound, got %v", err)
 	}
@@ -343,7 +343,7 @@ func TestMockMedia_Delete_Success(t *testing.T) {
 		URLPrefix:   "/uploads",
 	})
 
-	if err := s.Delete(7, 0, true); err != nil {
+	if err := s.Delete(7, models.DefaultTenantID, 0, true); err != nil {
 		t.Fatalf("Delete failed: %v", err)
 	}
 	if len(repo.DeletedMedia) != 1 {
@@ -361,7 +361,7 @@ func TestMockMedia_Delete_NotFound(t *testing.T) {
 	}
 	s := NewMediaServiceWithRepo(repo, newTestUploadConfig(t))
 
-	err := s.Delete(404, 0, true)
+	err := s.Delete(404, models.DefaultTenantID, 0, true)
 	if err != gorm.ErrRecordNotFound {
 		t.Errorf("expected ErrRecordNotFound, got %v", err)
 	}
@@ -383,7 +383,7 @@ func TestMockMedia_BulkDelete_Success(t *testing.T) {
 	}
 	s := NewMediaServiceWithRepo(repo, config.UploadConfig{StoragePath: dir, URLPrefix: "/uploads"})
 
-	n, err := s.BulkDelete([]uint{1, 2}, 0, true)
+	n, err := s.BulkDelete([]uint{1, 2}, models.DefaultTenantID, 0, true)
 	if err != nil {
 		t.Fatalf("BulkDelete failed: %v", err)
 	}
@@ -406,7 +406,7 @@ func TestMockMedia_Folders_Success(t *testing.T) {
 	repo := &MockMediaRepository{Folders: expected}
 	s := NewMediaServiceWithRepo(repo, newTestUploadConfig(t))
 
-	got, err := s.Folders()
+	got, err := s.Folders(models.DefaultTenantID)
 	if err != nil {
 		t.Fatalf("Folders failed: %v", err)
 	}
@@ -420,7 +420,7 @@ func TestMockMedia_Stats_Success(t *testing.T) {
 	repo := &MockMediaRepository{StatsData: expected}
 	s := NewMediaServiceWithRepo(repo, newTestUploadConfig(t))
 
-	got, err := s.Stats()
+	got, err := s.Stats(models.DefaultTenantID)
 	if err != nil {
 		t.Fatalf("Stats failed: %v", err)
 	}
@@ -433,7 +433,7 @@ func TestMockMedia_Stats_Error(t *testing.T) {
 	repo := &MockMediaRepository{StatsErr: gorm.ErrInvalidDB}
 	s := NewMediaServiceWithRepo(repo, newTestUploadConfig(t))
 
-	_, err := s.Stats()
+	_, err := s.Stats(models.DefaultTenantID)
 	if err == nil {
 		t.Fatal("expected error from Stats")
 	}
@@ -457,7 +457,7 @@ func TestMockMedia_Update_NonOwnerForbidden(t *testing.T) {
 	s := NewMediaServiceWithRepo(repo, newTestUploadConfig(t))
 
 	// 非上传者、非 editor → Forbidden
-	assertForbidden(t, s.Update(3, UpdateMediaRequest{Alt: "x"}, 200, false))
+	assertForbidden(t, s.Update(3, UpdateMediaRequest{Alt: "x"}, models.DefaultTenantID, 200, false))
 	if len(repo.UpdatedFields) != 0 {
 		t.Fatal("repo.UpdateFields should not be called on forbidden update")
 	}
@@ -469,7 +469,7 @@ func TestMockMedia_Update_OwnerAllowed(t *testing.T) {
 	}
 	s := NewMediaServiceWithRepo(repo, newTestUploadConfig(t))
 
-	if err := s.Update(3, UpdateMediaRequest{Alt: "mine"}, 100, false); err != nil {
+	if err := s.Update(3, UpdateMediaRequest{Alt: "mine"}, models.DefaultTenantID, 100, false); err != nil {
 		t.Fatalf("owner should update own media: %v", err)
 	}
 }
@@ -480,7 +480,7 @@ func TestMockMedia_Delete_NonOwnerForbidden(t *testing.T) {
 	}
 	s := NewMediaServiceWithRepo(repo, newTestUploadConfig(t))
 
-	assertForbidden(t, s.Delete(7, 200, false))
+	assertForbidden(t, s.Delete(7, models.DefaultTenantID, 200, false))
 	if len(repo.DeletedMedia) != 0 {
 		t.Fatal("repo.Delete should not be called on forbidden delete")
 	}
@@ -497,7 +497,7 @@ func TestMockMedia_Delete_EditorCanDeleteOthers(t *testing.T) {
 	}
 	s := NewMediaServiceWithRepo(repo, config.UploadConfig{StoragePath: dir, URLPrefix: "/uploads"})
 
-	if err := s.Delete(7, 200, true); err != nil {
+	if err := s.Delete(7, models.DefaultTenantID, 200, true); err != nil {
 		t.Fatalf("editor should delete others' media: %v", err)
 	}
 }
@@ -512,7 +512,7 @@ func TestMockMedia_BulkDelete_NonOwnerForbidden(t *testing.T) {
 	s := NewMediaServiceWithRepo(repo, newTestUploadConfig(t))
 
 	// 批次中含他人文件 → 整批拒绝
-	_, err := s.BulkDelete([]uint{1, 2}, 200, false)
+	_, err := s.BulkDelete([]uint{1, 2}, models.DefaultTenantID, 200, false)
 	assertForbidden(t, err)
 	if repo.DeleteByIDsCalls != 0 {
 		t.Fatal("repo.DeleteByIDs should not be called on forbidden bulk delete")

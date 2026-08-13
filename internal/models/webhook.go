@@ -5,6 +5,7 @@ import "time"
 // Webhook represents a webhook endpoint configuration.
 type Webhook struct {
 	ID        uint        `gorm:"primarykey" json:"id"`
+	TenantID  uint        `gorm:"not null;default:1;index" json:"-"` // RFC-001 §4.3
 	Name      string      `gorm:"size:128;not null" json:"name"`
 	URL       string      `gorm:"size:512;not null" json:"url"`
 	Events    StringSlice `gorm:"type:text" json:"events"`
@@ -18,6 +19,7 @@ type Webhook struct {
 // WebhookLog records a webhook delivery attempt.
 type WebhookLog struct {
 	ID        uint      `gorm:"primarykey" json:"id"`
+	TenantID  uint      `gorm:"not null;default:1;index" json:"-"` // RFC-001 §4.3
 	WebhookID uint      `gorm:"index;not null" json:"webhook_id"`
 	Webhook   *Webhook  `gorm:"foreignKey:WebhookID" json:"webhook,omitempty"`
 	Event     string    `gorm:"size:64;not null" json:"event"`
@@ -47,6 +49,7 @@ const (
 // Persistence makes deliveries survive process restarts (at-least-once).
 type WebhookDelivery struct {
 	ID           uint       `gorm:"primarykey" json:"id"`
+	TenantID     uint       `gorm:"not null;default:1;index" json:"-"` // RFC-001 §4.3
 	WebhookID    uint       `gorm:"index;not null" json:"webhook_id"`
 	Event        string     `gorm:"size:64;not null" json:"event"`
 	Payload      string     `gorm:"type:text;not null" json:"payload"`

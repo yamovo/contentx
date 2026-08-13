@@ -1,0 +1,503 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="Nebula — 现代化数字产品工作室,专注品牌、产品与增长">
+<title>Nebula · 数字产品工作室</title>
+<style>
+:root{
+  --bg:#0b0e14;
+  --bg-soft:#11151f;
+  --card:#151a26;
+  --line:rgba(255,255,255,.08);
+  --text:#e8ecf3;
+  --muted:#9aa4b5;
+  --brand:#6c5ce7;
+  --brand2:#00d2ff;
+  --accent:#ffb86b;
+  --grad:linear-gradient(120deg,#6c5ce7 0%,#00d2ff 100%);
+  --radius:16px;
+  --shadow:0 20px 60px rgba(0,0,0,.45);
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  font-family:"PingFang SC","Microsoft YaHei",system-ui,-apple-system,"Segoe UI",sans-serif;
+  background:var(--bg);
+  color:var(--text);
+  line-height:1.6;
+  overflow-x:hidden;
+}
+::selection{background:var(--brand);color:#fff}
+a{color:inherit;text-decoration:none}
+img{max-width:100%;display:block}
+.container{width:min(1160px,92%);margin:0 auto}
+
+/* ---------- 背景氛围 ---------- */
+.aurora{
+  position:fixed;inset:0;z-index:-1;pointer-events:none;
+  background:
+    radial-gradient(600px 400px at 15% 10%,rgba(108,92,231,.18),transparent 60%),
+    radial-gradient(500px 380px at 85% 20%,rgba(0,210,255,.12),transparent 60%),
+    radial-gradient(700px 500px at 50% 100%,rgba(108,92,231,.10),transparent 60%);
+}
+
+/* ---------- 导航栏 ---------- */
+.nav{
+  position:fixed;top:0;left:0;right:0;z-index:100;
+  backdrop-filter:blur(14px);
+  background:rgba(11,14,20,.65);
+  border-bottom:1px solid transparent;
+  transition:border-color .3s,background .3s;
+}
+.nav.scrolled{border-bottom-color:var(--line);background:rgba(11,14,20,.85)}
+.nav-inner{display:flex;align-items:center;justify-content:space-between;height:68px}
+.logo{display:flex;align-items:center;gap:10px;font-weight:700;font-size:20px;letter-spacing:.5px}
+.logo-mark{
+  width:32px;height:32px;border-radius:10px;background:var(--grad);
+  display:grid;place-items:center;font-size:15px;color:#fff;font-weight:800;
+  box-shadow:0 4px 16px rgba(108,92,231,.5);
+}
+.nav-links{display:flex;gap:34px;list-style:none;align-items:center}
+.nav-links a{font-size:15px;color:var(--muted);position:relative;transition:color .25s}
+.nav-links a::after{
+  content:"";position:absolute;left:0;bottom:-6px;height:2px;width:0;
+  background:var(--grad);border-radius:2px;transition:width .3s;
+}
+.nav-links a:hover{color:var(--text)}
+.nav-links a:hover::after{width:100%}
+.nav-cta{
+  padding:9px 20px;border-radius:999px;background:var(--grad);color:#fff!important;
+  font-weight:600;font-size:14px;transition:transform .25s,box-shadow .25s;
+}
+.nav-cta::after{display:none}
+.nav-cta:hover{transform:translateY(-2px);box-shadow:0 8px 24px rgba(108,92,231,.5)}
+.burger{display:none;flex-direction:column;gap:5px;background:none;border:0;cursor:pointer;padding:6px}
+.burger span{width:24px;height:2px;background:var(--text);border-radius:2px;transition:.3s}
+.burger.open span:nth-child(1){transform:translateY(7px) rotate(45deg)}
+.burger.open span:nth-child(2){opacity:0}
+.burger.open span:nth-child(3){transform:translateY(-7px) rotate(-45deg)}
+
+/* ---------- 主页横幅 ---------- */
+.hero{min-height:100svh;display:flex;align-items:center;padding:130px 0 80px;position:relative}
+.hero-grid{display:grid;grid-template-columns:1.1fr .9fr;gap:60px;align-items:center}
+.hero-tag{
+  display:inline-flex;align-items:center;gap:8px;padding:6px 14px;border-radius:999px;
+  border:1px solid var(--line);background:rgba(255,255,255,.04);
+  font-size:13px;color:var(--muted);margin-bottom:22px;
+}
+.hero-tag i{width:7px;height:7px;border-radius:50%;background:var(--brand2);box-shadow:0 0 10px var(--brand2);animation:pulse 2s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+.hero h1{font-size:clamp(34px,5vw,58px);line-height:1.15;font-weight:800;letter-spacing:-1px}
+.hero h1 .grad{background:var(--grad);-webkit-background-clip:text;background-clip:text;color:transparent}
+.hero p{margin:22px 0 34px;color:var(--muted);font-size:17px;max-width:520px}
+.hero-actions{display:flex;gap:16px;flex-wrap:wrap}
+.btn{
+  padding:14px 30px;border-radius:12px;font-weight:600;font-size:15px;cursor:pointer;
+  border:0;transition:transform .25s,box-shadow .25s,background .25s;display:inline-block;
+}
+.btn-primary{background:var(--grad);color:#fff}
+.btn-primary:hover{transform:translateY(-3px);box-shadow:0 12px 32px rgba(108,92,231,.55)}
+.btn-ghost{background:rgba(255,255,255,.05);color:var(--text);border:1px solid var(--line)}
+.btn-ghost:hover{transform:translateY(-3px);background:rgba(255,255,255,.1)}
+.hero-stats{display:flex;gap:44px;margin-top:52px}
+.hero-stats b{font-size:28px;background:var(--grad);-webkit-background-clip:text;background-clip:text;color:transparent}
+.hero-stats span{display:block;font-size:13px;color:var(--muted);margin-top:2px}
+.hero-visual{position:relative}
+.hero-card{
+  background:linear-gradient(160deg,var(--card),var(--bg-soft));
+  border:1px solid var(--line);border-radius:24px;padding:28px;
+  box-shadow:var(--shadow);position:relative;overflow:hidden;
+}
+.hero-card::before{
+  content:"";position:absolute;inset:-40%;
+  background:conic-gradient(from 0deg,transparent 70%,rgba(0,210,255,.25),transparent);
+  animation:spin 8s linear infinite;
+}
+@keyframes spin{to{transform:rotate(360deg)}}
+.hero-card-inner{position:relative;background:var(--bg-soft);border-radius:16px;padding:26px;border:1px solid var(--line)}
+.chart-row{display:flex;align-items:flex-end;gap:10px;height:120px;margin-top:18px}
+.chart-row i{flex:1;border-radius:6px 6px 0 0;background:var(--grad);opacity:.85;animation:grow 1.4s cubic-bezier(.2,.8,.2,1) backwards}
+.chart-row i:nth-child(1){height:35%;animation-delay:.1s}
+.chart-row i:nth-child(2){height:55%;animation-delay:.2s}
+.chart-row i:nth-child(3){height:42%;animation-delay:.3s}
+.chart-row i:nth-child(4){height:78%;animation-delay:.4s}
+.chart-row i:nth-child(5){height:64%;animation-delay:.5s}
+.chart-row i:nth-child(6){height:92%;animation-delay:.6s}
+.chart-row i:nth-child(7){height:70%;animation-delay:.7s}
+@keyframes grow{from{transform:scaleY(0);transform-origin:bottom}}
+.kpi{display:flex;justify-content:space-between;font-size:13px;color:var(--muted)}
+.kpi b{color:var(--text);font-size:20px}
+.float-badge{
+  position:absolute;padding:12px 16px;border-radius:14px;background:rgba(21,26,38,.9);
+  border:1px solid var(--line);backdrop-filter:blur(8px);font-size:13px;
+  box-shadow:var(--shadow);animation:float 5s ease-in-out infinite;
+}
+.float-badge.b1{top:-18px;right:-14px}
+.float-badge.b2{bottom:-16px;left:-20px;animation-delay:2.5s}
+.float-badge b{color:var(--brand2)}
+@keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-10px)}}
+
+/* ---------- 通用区块 ---------- */
+section{padding:100px 0}
+.sec-head{text-align:center;max-width:640px;margin:0 auto 60px}
+.sec-kicker{
+  display:inline-block;font-size:13px;font-weight:700;letter-spacing:2px;
+  text-transform:uppercase;background:var(--grad);
+  -webkit-background-clip:text;background-clip:text;color:transparent;margin-bottom:12px;
+}
+.sec-head h2{font-size:clamp(26px,3.4vw,40px);font-weight:800;letter-spacing:-.5px}
+.sec-head p{color:var(--muted);margin-top:14px}
+
+/* ---------- 产品特性 ---------- */
+.features{display:grid;grid-template-columns:repeat(3,1fr);gap:24px}
+.f-card{
+  background:linear-gradient(160deg,var(--card),var(--bg-soft));
+  border:1px solid var(--line);border-radius:var(--radius);padding:32px 28px;
+  transition:transform .35s,border-color .35s,box-shadow .35s;position:relative;overflow:hidden;
+}
+.f-card::after{
+  content:"";position:absolute;top:0;left:0;right:0;height:3px;
+  background:var(--grad);transform:scaleX(0);transform-origin:left;transition:transform .4s;
+}
+.f-card:hover{transform:translateY(-8px);border-color:rgba(108,92,231,.5);box-shadow:var(--shadow)}
+.f-card:hover::after{transform:scaleX(1)}
+.f-icon{
+  width:52px;height:52px;border-radius:14px;display:grid;place-items:center;font-size:24px;
+  background:rgba(108,92,231,.15);border:1px solid rgba(108,92,231,.35);margin-bottom:20px;
+}
+.f-card h3{font-size:19px;margin-bottom:10px}
+.f-card p{color:var(--muted);font-size:14.5px}
+
+/* ---------- 服务介绍 ---------- */
+.services{display:grid;grid-template-columns:repeat(2,1fr);gap:24px}
+.s-card{
+  display:flex;gap:22px;padding:30px;border-radius:var(--radius);
+  background:var(--bg-soft);border:1px solid var(--line);
+  transition:transform .3s,border-color .3s;
+}
+.s-card:hover{transform:translateX(6px);border-color:rgba(0,210,255,.45)}
+.s-num{
+  font-size:34px;font-weight:800;line-height:1;
+  background:var(--grad);-webkit-background-clip:text;background-clip:text;color:transparent;
+  flex-shrink:0;
+}
+.s-card h3{font-size:18px;margin-bottom:8px}
+.s-card p{color:var(--muted);font-size:14.5px}
+.s-tags{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}
+.s-tags span{
+  font-size:12px;padding:4px 12px;border-radius:999px;
+  background:rgba(255,255,255,.05);border:1px solid var(--line);color:var(--muted);
+}
+
+/* ---------- 作品展示 ---------- */
+.works{display:grid;grid-template-columns:repeat(3,1fr);gap:24px}
+.w-card{
+  border-radius:var(--radius);overflow:hidden;border:1px solid var(--line);
+  background:var(--card);transition:transform .35s,box-shadow .35s;cursor:pointer;
+}
+.w-card:hover{transform:translateY(-8px);box-shadow:var(--shadow)}
+.w-cover{height:180px;position:relative;overflow:hidden;display:grid;place-items:center;font-size:44px}
+.w-cover.c1{background:linear-gradient(135deg,#6c5ce7,#341f97)}
+.w-cover.c2{background:linear-gradient(135deg,#00d2ff,#0066ff)}
+.w-cover.c3{background:linear-gradient(135deg,#ffb86b,#ff5e62)}
+.w-cover.c4{background:linear-gradient(135deg,#00b894,#006266)}
+.w-cover.c5{background:linear-gradient(135deg,#e84393,#6c5ce7)}
+.w-cover.c6{background:linear-gradient(135deg,#0984e3,#00cec9)}
+.w-cover span{transition:transform .4s}
+.w-card:hover .w-cover span{transform:scale(1.2) rotate(-6deg)}
+.w-body{padding:20px 22px}
+.w-body h3{font-size:16.5px;margin-bottom:6px}
+.w-body p{color:var(--muted);font-size:13.5px}
+
+/* ---------- 客户评价 ---------- */
+.quotes{display:grid;grid-template-columns:repeat(3,1fr);gap:24px}
+.q-card{
+  background:linear-gradient(160deg,var(--card),var(--bg-soft));
+  border:1px solid var(--line);border-radius:var(--radius);padding:30px;
+  transition:transform .3s,border-color .3s;display:flex;flex-direction:column;
+}
+.q-card:hover{transform:translateY(-6px);border-color:rgba(255,184,107,.4)}
+.q-stars{color:var(--accent);letter-spacing:3px;margin-bottom:16px;font-size:15px}
+.q-card p{color:var(--muted);font-size:14.5px;flex:1}
+.q-who{display:flex;align-items:center;gap:12px;margin-top:22px}
+.q-avatar{
+  width:44px;height:44px;border-radius:50%;display:grid;place-items:center;
+  font-weight:700;color:#fff;background:var(--grad);flex-shrink:0;
+}
+.q-who b{display:block;font-size:14.5px}
+.q-who span{font-size:12.5px;color:var(--muted)}
+
+/* ---------- 合作伙伴 ---------- */
+.partners{border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding:44px 0;background:var(--bg-soft)}
+.partner-track{display:flex;justify-content:space-around;align-items:center;gap:30px;flex-wrap:wrap}
+.partner-track span{
+  font-size:19px;font-weight:700;color:var(--muted);opacity:.55;
+  transition:opacity .3s,color .3s,transform .3s;cursor:default;letter-spacing:1px;
+}
+.partner-track span:hover{opacity:1;color:var(--text);transform:scale(1.06)}
+
+/* ---------- 页脚 ---------- */
+footer{background:#080a10;padding:70px 0 30px;border-top:1px solid var(--line)}
+.foot-grid{display:grid;grid-template-columns:1.6fr 1fr 1fr 1.3fr;gap:44px;margin-bottom:50px}
+.foot-grid h4{font-size:15px;margin-bottom:18px}
+.foot-grid ul{list-style:none;display:grid;gap:11px}
+.foot-grid ul a{color:var(--muted);font-size:14px;transition:color .25s,padding-left .25s}
+.foot-grid ul a:hover{color:var(--brand2);padding-left:5px}
+.foot-desc{color:var(--muted);font-size:14px;margin:16px 0 22px;max-width:300px}
+.socials{display:flex;gap:12px}
+.socials a{
+  width:40px;height:40px;border-radius:12px;display:grid;place-items:center;
+  background:rgba(255,255,255,.05);border:1px solid var(--line);font-size:16px;
+  transition:transform .3s,background .3s,border-color .3s;
+}
+.socials a:hover{transform:translateY(-4px);background:var(--grad);border-color:transparent}
+.foot-contact li{color:var(--muted);font-size:14px;display:flex;gap:10px;align-items:flex-start}
+.copyright{
+  border-top:1px solid var(--line);padding-top:26px;text-align:center;
+  color:var(--muted);font-size:13px;
+}
+
+/* ---------- 滚动动画 ---------- */
+.reveal{opacity:0;transform:translateY(34px);transition:opacity .8s cubic-bezier(.2,.8,.2,1),transform .8s cubic-bezier(.2,.8,.2,1)}
+.reveal.in{opacity:1;transform:none}
+.reveal.d1{transition-delay:.1s}.reveal.d2{transition-delay:.2s}.reveal.d3{transition-delay:.3s}
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation:none!important;transition:none!important}
+  .reveal{opacity:1;transform:none}
+}
+
+/* ---------- 响应式 ---------- */
+@media (max-width:960px){
+  .hero-grid{grid-template-columns:1fr;gap:70px}
+  .hero-visual{max-width:480px}
+  .features,.works,.quotes{grid-template-columns:repeat(2,1fr)}
+  .foot-grid{grid-template-columns:1fr 1fr}
+}
+@media (max-width:680px){
+  section{padding:70px 0}
+  .nav-links{
+    position:fixed;top:68px;left:0;right:0;flex-direction:column;gap:0;
+    background:rgba(11,14,20,.97);backdrop-filter:blur(16px);
+    border-bottom:1px solid var(--line);
+    max-height:0;overflow:hidden;transition:max-height .35s;
+  }
+  .nav-links.open{max-height:340px}
+  .nav-links li{width:100%;text-align:center}
+  .nav-links a{display:block;padding:16px}
+  .nav-links a::after{display:none}
+  .nav-cta{margin:12px 0 20px}
+  .burger{display:flex}
+  .features,.works,.quotes,.services{grid-template-columns:1fr}
+  .hero-stats{gap:26px;flex-wrap:wrap}
+  .float-badge.b1{right:0}
+  .float-badge.b2{left:0}
+  .foot-grid{grid-template-columns:1fr;gap:34px}
+  .s-card{flex-direction:column;gap:12px}
+}
+</style>
+</head>
+<body>
+
+<div class="aurora"></div>
+
+<!-- 导航栏 -->
+<nav class="nav" id="nav">
+  <div class="container nav-inner">
+    <a class="logo" href="#top"><span class="logo-mark">N</span>Nebula</a>
+    <ul class="nav-links" id="navLinks">
+      <li><a href="#features">产品特性</a></li>
+      <li><a href="#services">服务</a></li>
+      <li><a href="#works">案例</a></li>
+      <li><a href="#quotes">客户评价</a></li>
+      <li><a href="#contact" class="nav-cta">开始合作</a></li>
+    </ul>
+    <button class="burger" id="burger" aria-label="菜单"><span></span><span></span><span></span></button>
+  </div>
+</nav>
+
+<!-- 主页横幅 -->
+<header class="hero" id="top">
+  <div class="container hero-grid">
+    <div>
+      <div class="hero-tag"><i></i>2026 全新品牌升级</div>
+      <h1>打造下一代<br><span class="grad">数字体验</span><br>从想法到增长</h1>
+      <p>Nebula 是一家专注品牌、产品与增长的数字工作室。我们用设计与工程的力量,帮初创团队与成熟企业把想法变成用户喜爱的产品。</p>
+      <div class="hero-actions">
+        <a href="#contact" class="btn btn-primary">免费咨询 →</a>
+        <a href="#works" class="btn btn-ghost">查看案例</a>
+      </div>
+      <div class="hero-stats">
+        <div><b>120+</b><span>交付项目</span></div>
+        <div><b>98%</b><span>客户满意度</span></div>
+        <div><b>8 年</b><span>行业经验</span></div>
+      </div>
+    </div>
+    <div class="hero-visual">
+      <div class="hero-card">
+        <div class="hero-card-inner">
+          <div class="kpi"><span>本月增长</span><b>+128.4%</b></div>
+          <div class="chart-row"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+        </div>
+      </div>
+      <div class="float-badge b1">⚡ 转化率 <b>+64%</b></div>
+      <div class="float-badge b2">🏆 设计大奖 <b>×12</b></div>
+    </div>
+  </div>
+</header>
+
+<!-- 产品特性 -->
+<section id="features">
+  <div class="container">
+    <div class="sec-head reveal">
+      <span class="sec-kicker">Features</span>
+      <h2>为什么选择 Nebula</h2>
+      <p>六大核心能力,覆盖产品从 0 到 1、从 1 到 100 的每个阶段</p>
+    </div>
+    <div class="features">
+      <div class="f-card reveal"><div class="f-icon">🎨</div><h3>品牌与视觉设计</h3><p>从 Logo 到完整视觉系统,建立一致且有记忆点的品牌语言,让用户一眼记住你。</p></div>
+      <div class="f-card reveal d1"><div class="f-icon">💻</div><h3>Web / App 开发</h3><p>现代技术栈构建高性能应用,响应式适配全端,秒级加载,稳定可靠。</p></div>
+      <div class="f-card reveal d2"><div class="f-icon">📈</div><h3>数据驱动增长</h3><p>埋点分析与 A/B 实验闭环,每一次改版都有数据支撑,增长不再靠运气。</p></div>
+      <div class="f-card reveal"><div class="f-icon">🤖</div><h3>AI 能力集成</h3><p>智能客服、内容生成、推荐系统,把最新 AI 能力无缝嵌入你的产品流程。</p></div>
+      <div class="f-card reveal d1"><div class="f-icon">🛡️</div><h3>安全与合规</h3><p>从架构层落实安全实践,数据加密、权限隔离、审计日志一应俱全。</p></div>
+      <div class="f-card reveal d2"><div class="f-icon">🚀</div><h3>持续运维支持</h3><p>7×24 监控告警,灰度发布与快速回滚,让产品始终在线、持续进化。</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- 服务介绍 -->
+<section id="services" style="background:var(--bg-soft);border-top:1px solid var(--line);border-bottom:1px solid var(--line)">
+  <div class="container">
+    <div class="sec-head reveal">
+      <span class="sec-kicker">Services</span>
+      <h2>我们的服务流程</h2>
+      <p>四个阶段,标准化交付,每一步都可追踪、可验收</p>
+    </div>
+    <div class="services">
+      <div class="s-card reveal"><div class="s-num">01</div><div><h3>需求洞察</h3><p>深入业务场景,梳理用户旅程与核心指标,输出可落地的产品蓝图。</p><div class="s-tags"><span>用户访谈</span><span>竞品分析</span><span>PRD</span></div></div></div>
+      <div class="s-card reveal d1"><div class="s-num">02</div><div><h3>体验设计</h3><p>从信息架构到高保真原型,多轮评审打磨每个交互细节。</p><div class="s-tags"><span>UI/UX</span><span>设计系统</span><span>原型测试</span></div></div></div>
+      <div class="s-card reveal"><div class="s-num">03</div><div><h3>敏捷开发</h3><p>双周迭代、持续交付,代码评审与自动化测试保障质量底线。</p><div class="s-tags"><span>CI/CD</span><span>代码评审</span><span>自动化测试</span></div></div></div>
+      <div class="s-card reveal d1"><div class="s-num">04</div><div><h3>增长运营</h3><p>上线不是终点。数据看板 + 增长实验,陪跑产品持续进化。</p><div class="s-tags"><span>数据看板</span><span>A/B 实验</span><span>SEO</span></div></div></div>
+    </div>
+  </div>
+</section>
+
+<!-- 作品展示 -->
+<section id="works">
+  <div class="container">
+    <div class="sec-head reveal">
+      <span class="sec-kicker">Works</span>
+      <h2>精选案例</h2>
+      <p>每一个项目,都是一次与客户共同完成的创造</p>
+    </div>
+    <div class="works">
+      <div class="w-card reveal"><div class="w-cover c1"><span>🛍️</span></div><div class="w-body"><h3>星选电商 App</h3><p>重构购物流程,转化率提升 64%,月活破百万。</p></div></div>
+      <div class="w-card reveal d1"><div class="w-cover c2"><span>🏦</span></div><div class="w-body"><h3>蓝海金融平台</h3><p>理财 SaaS 全案设计开发,服务 30+ 机构客户。</p></div></div>
+      <div class="w-card reveal d2"><div class="w-cover c3"><span>🍜</span></div><div class="w-body"><h3>食光餐饮连锁</h3><p>小程序点餐 + 会员体系,复购率提升 41%。</p></div></div>
+      <div class="w-card reveal"><div class="w-cover c4"><span>🌿</span></div><div class="w-body"><h3>绿洲健康</h3><p>AI 健康助手,上线 6 个月用户突破 50 万。</p></div></div>
+      <div class="w-card reveal d1"><div class="w-cover c5"><span>🎓</span></div><div class="w-body"><h3>启明在线教育</h3><p>互动课堂重构,完课率从 38% 提升至 72%。</p></div></div>
+      <div class="w-card reveal d2"><div class="w-cover c6"><span>✈️</span></div><div class="w-body"><h3>云旅出行</h3><p>一站式差旅平台,企业客户续费率 95%。</p></div></div>
+    </div>
+  </div>
+</section>
+
+<!-- 客户评价 -->
+<section id="quotes" style="background:var(--bg-soft);border-top:1px solid var(--line)">
+  <div class="container">
+    <div class="sec-head reveal">
+      <span class="sec-kicker">Testimonials</span>
+      <h2>客户怎么说</h2>
+      <p>真实的反馈,是我们最好的名片</p>
+    </div>
+    <div class="quotes">
+      <div class="q-card reveal">
+        <div class="q-stars">★★★★★</div>
+        <p>"Nebula 团队对细节的追求令人印象深刻。新官网上线后,我们的询盘量翻了三倍,超出预期太多。"</p>
+        <div class="q-who"><div class="q-avatar">林</div><div><b>林晓峰</b><span>星选电商 · CEO</span></div></div>
+      </div>
+      <div class="q-card reveal d1">
+        <div class="q-stars">★★★★★</div>
+        <p>"从需求到上线只用了八周,沟通顺畅、交付准时。这是我合作过最专业的外部团队,没有之一。"</p>
+        <div class="q-who"><div class="q-avatar">苏</div><div><b>苏婉清</b><span>蓝海金融 · 产品总监</span></div></div>
+      </div>
+      <div class="q-card reveal d2">
+        <div class="q-stars">★★★★★</div>
+        <p>"他们不只是执行需求,还会主动挑战我们的假设,用数据证明什么是对的。这种伙伴非常难得。"</p>
+        <div class="q-who"><div class="q-avatar">陈</div><div><b>陈默</b><span>绿洲健康 · 创始人</span></div></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 合作伙伴 -->
+<div class="partners">
+  <div class="container partner-track reveal">
+    <span>TENCENT</span><span>Alibaba</span><span>ByteDance</span><span>MEITUAN</span><span>Xiaomi</span><span>NetEase</span>
+  </div>
+</div>
+
+<!-- 页脚 -->
+<footer id="contact">
+  <div class="container">
+    <div class="foot-grid">
+      <div>
+        <a class="logo" href="#top"><span class="logo-mark">N</span>Nebula</a>
+        <p class="foot-desc">用设计与工程的力量,把想法变成用户喜爱的产品。期待与你的下一次合作。</p>
+        <div class="socials">
+          <a href="#" aria-label="微信">💬</a>
+          <a href="#" aria-label="微博">🔥</a>
+          <a href="#" aria-label="GitHub">🐙</a>
+          <a href="#" aria-label="B站">📺</a>
+        </div>
+      </div>
+      <div>
+        <h4>快速导航</h4>
+        <ul>
+          <li><a href="#features">产品特性</a></li>
+          <li><a href="#services">服务流程</a></li>
+          <li><a href="#works">精选案例</a></li>
+          <li><a href="#quotes">客户评价</a></li>
+        </ul>
+      </div>
+      <div>
+        <h4>服务</h4>
+        <ul>
+          <li><a href="#">品牌设计</a></li>
+          <li><a href="#">Web 开发</a></li>
+          <li><a href="#">移动应用</a></li>
+          <li><a href="#">增长咨询</a></li>
+        </ul>
+      </div>
+      <div>
+        <h4>联系我们</h4>
+        <ul class="foot-contact">
+          <li>📍 武汉市洪山区光谷创意大厦 12F</li>
+          <li>📧 hello@nebula.studio</li>
+          <li>📞 027-8888-6666</li>
+          <li>🕐 周一至周五 9:00 – 18:30</li>
+        </ul>
+      </div>
+    </div>
+    <div class="copyright">© 2026 Nebula Studio · 保留所有权利 · 鄂ICP备00000000号</div>
+  </div>
+</footer>
+
+<script>
+// 导航栏滚动态
+const nav=document.getElementById('nav');
+addEventListener('scroll',()=>nav.classList.toggle('scrolled',scrollY>10),{passive:true});
+
+// 移动端菜单
+const burger=document.getElementById('burger'),links=document.getElementById('navLinks');
+burger.addEventListener('click',()=>{burger.classList.toggle('open');links.classList.toggle('open')});
+links.addEventListener('click',e=>{if(e.target.tagName==='A'){burger.classList.remove('open');links.classList.remove('open')}});
+
+// 滚动进入动画
+const io=new IntersectionObserver(es=>es.forEach(e=>{
+  if(e.isIntersecting){e.target.classList.add('in');io.unobserve(e.target)}
+}),{threshold:.12});
+document.querySelectorAll('.reveal').forEach(el=>io.observe(el));
+</script>
+</body>
+</html>

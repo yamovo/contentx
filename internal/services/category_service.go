@@ -52,19 +52,20 @@ func NewCategoryServiceWithRepo(repo repository.CategoryRepository) *CategorySer
 	return &CategoryService{repo: repo}
 }
 
-// List returns all categories in a tree structure.
-func (s *CategoryService) List(showAll bool) ([]models.Category, error) {
-	return s.repo.List(showAll)
+// List returns all categories in a tree structure, scoped to the tenant.
+func (s *CategoryService) List(showAll bool, tenantID uint) ([]models.Category, error) {
+	return s.repo.List(showAll, tenantID)
 }
 
 // Get returns a single category by ID with parent and children loaded.
-func (s *CategoryService) Get(id uint) (*models.Category, error) {
-	return s.repo.GetByID(id)
+func (s *CategoryService) Get(id, tenantID uint) (*models.Category, error) {
+	return s.repo.GetByID(id, tenantID)
 }
 
-// Create creates a new category.
-func (s *CategoryService) Create(req CreateCategoryRequest) (*models.Category, error) {
+// Create creates a new category within the tenant.
+func (s *CategoryService) Create(req CreateCategoryRequest, tenantID uint) (*models.Category, error) {
 	category := models.Category{
+		TenantID:    tenantID, // RFC-001 §5
 		Name:        req.Name,
 		Description: req.Description,
 		ParentID:    req.ParentID,
@@ -85,7 +86,7 @@ func (s *CategoryService) Create(req CreateCategoryRequest) (*models.Category, e
 		category.Slug = models.GenerateSlug(req.Name)
 	}
 
-	uniqueSlug, err := s.repo.EnsureUniqueSlug(category.Slug, 0)
+	uniqueSlug, err := s.repo.EnsureUniqueSlug(category.Slug, 0, tenantID)
 	if err != nil {
 		return nil, err
 	}
@@ -98,9 +99,9 @@ func (s *CategoryService) Create(req CreateCategoryRequest) (*models.Category, e
 	return &category, nil
 }
 
-// Update updates an existing category.
-func (s *CategoryService) Update(id uint, req CreateCategoryRequest) error {
-	category, err := s.repo.FindByID(id)
+// Update updates an existing category within the tenant.
+func (s *CategoryService) Update(id uint, req CreateCategoryRequest, tenantID uint) error {
+	category, err := s.repo.FindByID(id, tenantID)
 	if err != nil {
 		return errors.New("category not found")
 	}
@@ -117,14 +118,14 @@ func (s *CategoryService) Update(id uint, req CreateCategoryRequest) error {
 	}
 
 	if req.Slug != "" {
-		uniqueSlug, err := s.repo.EnsureUniqueSlug(req.Slug, category.ID)
+		uniqueSlug, err := s.repo.EnsureUniqueSlug(req.Slug, category.ID, tenantID)
 		if err != nil {
 			return err
 		}
 		updates["slug"] = uniqueSlug
 	} else if req.Name != category.Name {
 		newSlug := models.GenerateSlug(req.Name)
-		uniqueSlug, err := s.repo.EnsureUniqueSlug(newSlug, category.ID)
+		uniqueSlug, err := s.repo.EnsureUniqueSlug(newSlug, category.ID, tenantID)
 		if err != nil {
 			return err
 		}
@@ -135,18 +136,18 @@ func (s *CategoryService) Update(id uint, req CreateCategoryRequest) error {
 		updates["is_active"] = *req.IsActive
 	}
 
-	return s.repo.UpdateFields(id, updates)
+	return s.repo.UpdateFields(id, updates, tenantID)
 }
 
-// Delete removes a category, moving its articles and children.
-func (s *CategoryService) Delete(id uint) error {
-	return s.repo.Delete(id)
+// Delete removes a category, moving its articles and children, within the tenant.
+func (s *CategoryService) Delete(id, tenantID uint) error {
+	return s.repo.Delete(id, tenantID)
 }
 
 // Reorder updates sort order (and optionally parent) for multiple categories.
-func (s *CategoryService) Reorder(items []ReorderItem) error {
+func (s *CategoryService) Reorder(items []ReorderItem, tenantID uint) error {
 	for _, item := range items {
-		if err := s.repo.UpdateSortOrder(item.ID, item.SortOrder, item.ParentID); err != nil {
+		if err := s.repo.UpdateSortOrder(item.ID, item.SortOrder, item.ParentID, tenantID); err != nil {
 			return err
 		}
 	}

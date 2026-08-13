@@ -40,7 +40,7 @@ func (h *TagHandler) List(c *gin.Context) {
 		Search: c.Query("search"),
 	}
 
-	tags, total, err := h.svc.List(params)
+	tags, total, err := h.svc.List(params, getCurrentTenant(c))
 	if err != nil {
 		handleServiceError(c, err)
 		return
@@ -70,7 +70,7 @@ func (h *TagHandler) Get(c *gin.Context) {
 		return
 	}
 
-	tag, err := h.svc.Get(uint(id))
+	tag, err := h.svc.Get(uint(id), getCurrentTenant(c))
 	if err != nil {
 		handleServiceError(c, err)
 		return
@@ -101,7 +101,7 @@ func (h *TagHandler) Create(c *gin.Context) {
 		return
 	}
 
-	tag, err := h.svc.Create(req)
+	tag, err := h.svc.Create(req, getCurrentTenant(c))
 	if err != nil {
 		handleServiceError(c, err)
 		return
@@ -140,7 +140,7 @@ func (h *TagHandler) Update(c *gin.Context) {
 		return
 	}
 
-	if err := h.svc.Update(uint(id), req); err != nil {
+	if err := h.svc.Update(uint(id), req, getCurrentTenant(c)); err != nil {
 		handleServiceError(c, err)
 		return
 	}
@@ -170,7 +170,7 @@ func (h *TagHandler) Delete(c *gin.Context) {
 		return
 	}
 
-	if err := h.svc.Delete(uint(id)); err != nil {
+	if err := h.svc.Delete(uint(id), getCurrentTenant(c)); err != nil {
 		handleServiceError(c, err)
 		return
 	}
@@ -204,7 +204,7 @@ func (h *TagHandler) Merge(c *gin.Context) {
 		return
 	}
 
-	if err := h.svc.Merge(req.SourceIDs, req.TargetID, req.DeleteOld); err != nil {
+	if err := h.svc.Merge(req.SourceIDs, req.TargetID, getCurrentTenant(c), req.DeleteOld); err != nil {
 		handleServiceError(c, err)
 		return
 	}

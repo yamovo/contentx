@@ -31,6 +31,10 @@ type Claims struct {
 	RoleSlug    string `json:"role"`
 	DisplayName string `json:"display_name"`
 	TokenUse    string `json:"token_use"`
+	// TenantID is the tenant bound at token issuance (RFC-001 §4.2).
+	// 0 means "unspecified" — resolvers fall back to the default tenant,
+	// which keeps pre-multi-tenancy tokens fully compatible.
+	TenantID uint `json:"tenant_id"`
 	jwt.RegisteredClaims
 }
 
@@ -53,13 +57,23 @@ func NewJWTManager(cfg config.JWTConfig) *JWTManager {
 	return &JWTManager{cfg: cfg}
 }
 
-// GenerateTokenPair creates both access and refresh tokens.
+// GenerateTokenPair creates both access and refresh tokens bound to the
+// default tenant (TenantID=0, resolved at request time). Use
+// GenerateTokenPairWithTenant to bind an explicit tenant.
 func (m *JWTManager) GenerateTokenPair(userID uint, username, email, roleSlug, displayName string) (*TokenPair, error) {
+	return m.GenerateTokenPairWithTenant(userID, 0, username, email, roleSlug, displayName)
+}
+
+// GenerateTokenPairWithTenant creates both access and refresh tokens. The
+// tenantID is embedded in the access token so downstream middleware can
+// resolve the request tenant without extra lookups (RFC-001 §4.2).
+func (m *JWTManager) GenerateTokenPairWithTenant(userID, tenantID uint, username, email, roleSlug, displayName string) (*TokenPair, error) {
 	now := time.Now()
 
 	// Access token.
 	accessClaims := &Claims{
 		UserID:      userID,
+		TenantID:    tenantID,
 		Username:    username,
 		Email:       email,
 		RoleSlug:    roleSlug,

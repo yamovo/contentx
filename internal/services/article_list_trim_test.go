@@ -18,7 +18,7 @@ func TestArticleService_ListOmitsContentByDefault(t *testing.T) {
 	svc := NewArticleService(db, "http://localhost:8080")
 
 	// Default (Full=false): Content omitted, other fields intact.
-	resp, err := svc.List(ListArticlesFilter{Page: 1, PageSize: 10})
+	resp, err := svc.List(ListArticlesFilter{Page: 1, PageSize: 10}, models.DefaultTenantID)
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -36,7 +36,7 @@ func TestArticleService_ListOmitsContentByDefault(t *testing.T) {
 	}
 
 	// Full=true: Content present.
-	full, err := svc.List(ListArticlesFilter{Page: 1, PageSize: 10, Full: true})
+	full, err := svc.List(ListArticlesFilter{Page: 1, PageSize: 10, Full: true}, models.DefaultTenantID)
 	if err != nil {
 		t.Fatalf("List full: %v", err)
 	}

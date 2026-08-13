@@ -389,3 +389,96 @@ func TestAuthMiddleware_RestoreInvalidationReloadsUser(t *testing.T) {
 		t.Fatalf("request after invalidation should reload disabled user, got %d", w.Code)
 	}
 }
+
+func TestGetCurrentTenant_DefaultsToDefaultTenant(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	c, _ := gin.CreateTestContext(nil)
+	if got := GetCurrentTenant(c); got != models.DefaultTenantID {
+		t.Fatalf("GetCurrentTenant() = %d, want %d", got, models.DefaultTenantID)
+	}
+}
+
+func TestAuthMiddleware_TenantFromClaims(t *testing.T) {
+	db := setupAuthTestDB(t)
+	m := testJWT()
+	pair, err := m.GenerateTokenPairWithTenant(1, 7, "u", "e@x.com", "admin", "Admin")
+	if err != nil {
+		t.Fatalf("generate token: %v", err)
+	}
+
+	var gotTenant uint
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(AuthMiddleware(m, db, nil))
+	r.GET("/test", func(c *gin.Context) {
+		gotTenant = GetCurrentTenant(c)
+		c.Status(http.StatusOK)
+	})
+
+	w := doRequest(r, http.MethodGet, "/test", map[string]string{"Authorization": "Bearer " + pair.AccessToken})
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	if gotTenant != 7 {
+		t.Fatalf("GetCurrentTenant() = %d, want 7", gotTenant)
+	}
+}
+
+func TestAuthMiddleware_TenantOverrideHeaderForAdmin(t *testing.T) {
+	db := setupAuthTestDB(t)
+	m := testJWT()
+	pair, err := m.GenerateTokenPairWithTenant(1, 7, "u", "e@x.com", "admin", "Admin")
+	if err != nil {
+		t.Fatalf("generate token: %v", err)
+	}
+
+	var gotTenant uint
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(AuthMiddleware(m, db, nil))
+	r.GET("/test", func(c *gin.Context) {
+		gotTenant = GetCurrentTenant(c)
+		c.Status(http.StatusOK)
+	})
+
+	w := doRequest(r, http.MethodGet, "/test", map[string]string{
+		"Authorization": "Bearer " + pair.AccessToken,
+		"X-Tenant-ID":   "9",
+	})
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	if gotTenant != 9 {
+		t.Fatalf("admin override: GetCurrentTenant() = %d, want 9", gotTenant)
+	}
+}
+
+func TestAuthMiddleware_TenantOverrideIgnoredForNonAdmin(t *testing.T) {
+	db := setupAuthTestDB(t)
+	m := testJWT()
+	// Viewer (ID 3) with a tenant-bound token; header must be ignored.
+	pair, err := m.GenerateTokenPairWithTenant(3, 5, "v", "v@x.com", "viewer", "Viewer")
+	if err != nil {
+		t.Fatalf("generate token: %v", err)
+	}
+
+	var gotTenant uint
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(AuthMiddleware(m, db, nil))
+	r.GET("/test", func(c *gin.Context) {
+		gotTenant = GetCurrentTenant(c)
+		c.Status(http.StatusOK)
+	})
+
+	w := doRequest(r, http.MethodGet, "/test", map[string]string{
+		"Authorization": "Bearer " + pair.AccessToken,
+		"X-Tenant-ID":   "9",
+	})
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	if gotTenant != 5 {
+		t.Fatalf("non-admin override must be ignored: GetCurrentTenant() = %d, want 5", gotTenant)
+	}
+}

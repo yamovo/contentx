@@ -28,7 +28,7 @@ func TestMockComment_List_Success(t *testing.T) {
 	}
 	svc := NewCommentServiceWithRepo(repo)
 
-	result, total, err := svc.List(CommentListParams{Page: 1, PageSize: 10})
+	result, total, err := svc.List(CommentListParams{Page: 1, PageSize: 10}, models.DefaultTenantID)
 	if err != nil {
 		t.Fatalf("List failed: %v", err)
 	}
@@ -44,7 +44,7 @@ func TestMockComment_List_Error(t *testing.T) {
 	repo := &MockCommentRepository{ListErr: gorm.ErrInvalidDB}
 	svc := NewCommentServiceWithRepo(repo)
 
-	_, _, err := svc.List(CommentListParams{Page: 1, PageSize: 10})
+	_, _, err := svc.List(CommentListParams{Page: 1, PageSize: 10}, models.DefaultTenantID)
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -56,7 +56,7 @@ func TestMockComment_Update_Success(t *testing.T) {
 	repo := &MockCommentRepository{}
 	svc := NewCommentServiceWithRepo(repo)
 
-	if err := svc.Update(1, "updated content"); err != nil {
+	if err := svc.Update(1, "updated content", models.DefaultTenantID); err != nil {
 		t.Fatalf("Update failed: %v", err)
 	}
 	if len(repo.UpdatedContent) != 1 {
@@ -74,7 +74,7 @@ func TestMockComment_Update_NotFound(t *testing.T) {
 	// zeroRowsCommentRepo returns 0 rows affected → service returns "comment not found".
 	svc := NewCommentServiceWithRepo(&zeroRowsCommentRepo{})
 
-	err := svc.Update(99, "x")
+	err := svc.Update(99, "x", models.DefaultTenantID)
 	if err == nil {
 		t.Fatal("expected error for not found")
 	}
@@ -87,7 +87,7 @@ func TestMockComment_Update_Error(t *testing.T) {
 	repo := &MockCommentRepository{UpdateContentErr: gorm.ErrInvalidDB}
 	svc := NewCommentServiceWithRepo(repo)
 
-	if err := svc.Update(1, "x"); err == nil {
+	if err := svc.Update(1, "x", models.DefaultTenantID); err == nil {
 		t.Fatal("expected error")
 	}
 }
@@ -98,7 +98,7 @@ func TestMockComment_Create_ArticleNotFound(t *testing.T) {
 	repo := &MockCommentRepository{FindArticleByIDErr: gorm.ErrRecordNotFound}
 	svc := NewCommentServiceWithRepo(repo)
 
-	_, err := svc.Create(CreateCommentRequest{ArticleID: 99, Content: "hi"}, "1.2.3.4", "ua", nil, false)
+	_, err := svc.Create(CreateCommentRequest{ArticleID: 99, Content: "hi"}, "1.2.3.4", "ua", nil, false, models.DefaultTenantID)
 	if err == nil || err.Error() != "article not found" {
 		t.Errorf("expected 'article not found', got %v", err)
 	}
@@ -110,7 +110,7 @@ func TestMockComment_Create_CommentsDisabled(t *testing.T) {
 	}
 	svc := NewCommentServiceWithRepo(repo)
 
-	_, err := svc.Create(CreateCommentRequest{ArticleID: 1, Content: "hi"}, "1.2.3.4", "ua", nil, false)
+	_, err := svc.Create(CreateCommentRequest{ArticleID: 1, Content: "hi"}, "1.2.3.4", "ua", nil, false, models.DefaultTenantID)
 	if err == nil || err.Error() != "comments are disabled for this article" {
 		t.Errorf("expected comments disabled error, got %v", err)
 	}
@@ -124,7 +124,7 @@ func TestMockComment_Create_AnonymousSuccess(t *testing.T) {
 
 	comment, err := svc.Create(CreateCommentRequest{
 		ArticleID: 1, Content: "nice post", AuthorName: "Guest",
-	}, "1.2.3.4", "ua", nil, false)
+	}, "1.2.3.4", "ua", nil, false, models.DefaultTenantID)
 	if err != nil {
 		t.Fatalf("Create failed: %v", err)
 	}
@@ -148,7 +148,7 @@ func TestMockComment_Create_AuthenticatedEditor(t *testing.T) {
 	uid := uint(5)
 	comment, err := svc.Create(CreateCommentRequest{
 		ArticleID: 1, Content: "editor comment",
-	}, "1.2.3.4", "ua", &uid, true)
+	}, "1.2.3.4", "ua", &uid, true, models.DefaultTenantID)
 	if err != nil {
 		t.Fatalf("Create failed: %v", err)
 	}
@@ -169,7 +169,7 @@ func TestMockComment_Create_AuthenticatedNonEditor(t *testing.T) {
 	uid := uint(5)
 	comment, err := svc.Create(CreateCommentRequest{
 		ArticleID: 1, Content: "user comment",
-	}, "1.2.3.4", "ua", &uid, false)
+	}, "1.2.3.4", "ua", &uid, false, models.DefaultTenantID)
 	if err != nil {
 		t.Fatalf("Create failed: %v", err)
 	}
@@ -189,7 +189,7 @@ func TestMockComment_Create_WithParent(t *testing.T) {
 	pid := uint(10)
 	comment, err := svc.Create(CreateCommentRequest{
 		ArticleID: 1, Content: "reply", ParentID: &pid,
-	}, "1.2.3.4", "ua", nil, false)
+	}, "1.2.3.4", "ua", nil, false, models.DefaultTenantID)
 	if err != nil {
 		t.Fatalf("Create failed: %v", err)
 	}
@@ -209,7 +209,7 @@ func TestMockComment_Create_ParentNotFound(t *testing.T) {
 	pid := uint(99)
 	comment, err := svc.Create(CreateCommentRequest{
 		ArticleID: 1, Content: "reply", ParentID: &pid,
-	}, "1.2.3.4", "ua", nil, false)
+	}, "1.2.3.4", "ua", nil, false, models.DefaultTenantID)
 	if err != nil {
 		t.Fatalf("Create failed: %v", err)
 	}
@@ -225,7 +225,7 @@ func TestMockComment_Create_RepoError(t *testing.T) {
 	}
 	svc := NewCommentServiceWithRepo(repo)
 
-	_, err := svc.Create(CreateCommentRequest{ArticleID: 1, Content: "hi"}, "1.2.3.4", "ua", nil, false)
+	_, err := svc.Create(CreateCommentRequest{ArticleID: 1, Content: "hi"}, "1.2.3.4", "ua", nil, false, models.DefaultTenantID)
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -237,7 +237,7 @@ func TestMockComment_UpdateStatus_Success(t *testing.T) {
 	repo := &MockCommentRepository{}
 	svc := NewCommentServiceWithRepo(repo)
 
-	if err := svc.UpdateStatus(1, "approved"); err != nil {
+	if err := svc.UpdateStatus(1, "approved", models.DefaultTenantID); err != nil {
 		t.Fatalf("UpdateStatus failed: %v", err)
 	}
 	if len(repo.UpdatedStatus) != 1 {
@@ -248,7 +248,7 @@ func TestMockComment_UpdateStatus_Success(t *testing.T) {
 func TestMockComment_UpdateStatus_NotFound(t *testing.T) {
 	svc := NewCommentServiceWithRepo(&zeroRowsCommentRepo{})
 
-	err := svc.UpdateStatus(99, "approved")
+	err := svc.UpdateStatus(99, "approved", models.DefaultTenantID)
 	if err == nil || err.Error() != "comment not found" {
 		t.Errorf("expected 'comment not found', got %v", err)
 	}
@@ -277,7 +277,7 @@ func TestMockComment_BulkAction_AllBranches(t *testing.T) {
 			repo := &MockCommentRepository{}
 			svc := NewCommentServiceWithRepo(repo)
 
-			affected, err := svc.BulkAction(ids, tc.action)
+			affected, err := svc.BulkAction(ids, tc.action, models.DefaultTenantID)
 			if tc.wantErr {
 				if err == nil {
 					t.Fatal("expected error")
@@ -314,7 +314,7 @@ func TestMockComment_Stats_Success(t *testing.T) {
 	}
 	svc := NewCommentServiceWithRepo(repo)
 
-	stats, err := svc.Stats()
+	stats, err := svc.Stats(models.DefaultTenantID)
 	if err != nil {
 		t.Fatalf("Stats failed: %v", err)
 	}
@@ -328,7 +328,7 @@ func TestMockComment_Stats_Error(t *testing.T) {
 	repo := &MockCommentRepository{StatsErr: gorm.ErrInvalidDB}
 	svc := NewCommentServiceWithRepo(repo)
 
-	stats, err := svc.Stats()
+	stats, err := svc.Stats(models.DefaultTenantID)
 	if err != nil {
 		t.Errorf("expected nil error on stats error, got %v", err)
 	}
@@ -344,7 +344,7 @@ func TestMockComment_ArticleComments_Success(t *testing.T) {
 	repo := &MockCommentRepository{ArticleComments: comments}
 	svc := NewCommentServiceWithRepo(repo)
 
-	result, err := svc.ArticleComments(1)
+	result, err := svc.ArticleComments(1, models.DefaultTenantID)
 	if err != nil {
 		t.Fatalf("ArticleComments failed: %v", err)
 	}
@@ -357,7 +357,7 @@ func TestMockComment_ArticleComments_Error(t *testing.T) {
 	repo := &MockCommentRepository{FindArticleCommentsErr: gorm.ErrInvalidDB}
 	svc := NewCommentServiceWithRepo(repo)
 
-	_, err := svc.ArticleComments(1)
+	_, err := svc.ArticleComments(1, models.DefaultTenantID)
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -371,7 +371,7 @@ func TestMockComment_Get_Success(t *testing.T) {
 	}
 	svc := NewCommentServiceWithRepo(repo)
 
-	comment, err := svc.Get(1)
+	comment, err := svc.Get(1, models.DefaultTenantID)
 	if err != nil {
 		t.Fatalf("Get failed: %v", err)
 	}
@@ -384,36 +384,36 @@ func TestMockComment_Get_Success(t *testing.T) {
 // simulating a "not found" scenario.
 type zeroRowsCommentRepo struct{}
 
-func (z *zeroRowsCommentRepo) List(_ repository.CommentListFilter) ([]models.Comment, int64, error) {
+func (z *zeroRowsCommentRepo) List(_ repository.CommentListFilter, _ uint) ([]models.Comment, int64, error) {
 	return nil, 0, nil
 }
-func (z *zeroRowsCommentRepo) GetByID(_ uint) (*models.Comment, error) {
+func (z *zeroRowsCommentRepo) GetByID(_, _ uint) (*models.Comment, error) {
 	return nil, gorm.ErrRecordNotFound
 }
-func (z *zeroRowsCommentRepo) FindArticleByID(_ uint) (*models.Article, error) {
+func (z *zeroRowsCommentRepo) FindArticleByID(_, _ uint) (*models.Article, error) {
 	return nil, gorm.ErrRecordNotFound
 }
-func (z *zeroRowsCommentRepo) FindCommentByID(_ uint) (*models.Comment, error) {
+func (z *zeroRowsCommentRepo) FindCommentByID(_, _ uint) (*models.Comment, error) {
 	return nil, gorm.ErrRecordNotFound
 }
 func (z *zeroRowsCommentRepo) Create(_ *models.Comment) error { return nil }
-func (z *zeroRowsCommentRepo) UpdateContent(_ uint, _ string) (int64, error) {
+func (z *zeroRowsCommentRepo) UpdateContent(_ uint, _ string, _ uint) (int64, error) {
 	return 0, nil
 }
-func (z *zeroRowsCommentRepo) UpdateStatus(_ uint, _ string) (int64, error) {
+func (z *zeroRowsCommentRepo) UpdateStatus(_ uint, _ string, _ uint) (int64, error) {
 	return 0, nil
 }
-func (z *zeroRowsCommentRepo) BulkUpdateStatus(_ []uint, _ string) (int64, error) {
+func (z *zeroRowsCommentRepo) BulkUpdateStatus(_ []uint, _ string, _ uint) (int64, error) {
 	return 0, nil
 }
-func (z *zeroRowsCommentRepo) BulkDelete(_ []uint) (int64, error) {
+func (z *zeroRowsCommentRepo) BulkDelete(_ []uint, _ uint) (int64, error) {
 	return 0, nil
 }
-func (z *zeroRowsCommentRepo) FindArticleComments(_ uint) ([]models.Comment, error) {
+func (z *zeroRowsCommentRepo) FindArticleComments(_, _ uint) ([]models.Comment, error) {
 	return nil, nil
 }
-func (z *zeroRowsCommentRepo) IncrementArticleCommentCount(_ uint) error { return nil }
-func (z *zeroRowsCommentRepo) Stats() (repository.CommentStatsData, error) {
+func (z *zeroRowsCommentRepo) IncrementArticleCommentCount(_, _ uint) error { return nil }
+func (z *zeroRowsCommentRepo) Stats(_ uint) (repository.CommentStatsData, error) {
 	return repository.CommentStatsData{}, nil
 }
-func (z *zeroRowsCommentRepo) CountToday() (int64, error) { return 0, nil }
+func (z *zeroRowsCommentRepo) CountToday(_ uint) (int64, error) { return 0, nil }

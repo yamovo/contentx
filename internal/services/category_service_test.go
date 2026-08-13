@@ -11,7 +11,7 @@ func TestCategoryService_Create(t *testing.T) {
 	svc := NewCategoryService(db)
 
 	req := CreateCategoryRequest{Name: "Tech"}
-	cat, err := svc.Create(req)
+	cat, err := svc.Create(req, models.DefaultTenantID)
 	if err != nil {
 		t.Fatalf("Create() error: %v", err)
 	}
@@ -29,12 +29,12 @@ func TestCategoryService_Create_UniqueSlug(t *testing.T) {
 	svc := NewCategoryService(db)
 
 	// Use an explicit slug to test that duplicate slugs get deduplicated.
-	cat1, err := svc.Create(CreateCategoryRequest{Name: "First", Slug: "dup-slug"})
+	cat1, err := svc.Create(CreateCategoryRequest{Name: "First", Slug: "dup-slug"}, models.DefaultTenantID)
 	if err != nil {
 		t.Fatalf("Create() first error: %v", err)
 	}
 
-	cat2, err := svc.Create(CreateCategoryRequest{Name: "Second", Slug: "dup-slug"})
+	cat2, err := svc.Create(CreateCategoryRequest{Name: "Second", Slug: "dup-slug"}, models.DefaultTenantID)
 	if err != nil {
 		t.Fatalf("Create() second error: %v", err)
 	}
@@ -51,10 +51,10 @@ func TestCategoryService_List_Tree(t *testing.T) {
 	db := setupTestDB(t)
 	svc := NewCategoryService(db)
 
-	parent, _ := svc.Create(CreateCategoryRequest{Name: "Parent"})
-	svc.Create(CreateCategoryRequest{Name: "Child", ParentID: &parent.ID})
+	parent, _ := svc.Create(CreateCategoryRequest{Name: "Parent"}, models.DefaultTenantID)
+	svc.Create(CreateCategoryRequest{Name: "Child", ParentID: &parent.ID}, models.DefaultTenantID)
 
-	cats, err := svc.List(true)
+	cats, err := svc.List(true, models.DefaultTenantID)
 	if err != nil {
 		t.Fatalf("List() error: %v", err)
 	}
@@ -68,14 +68,14 @@ func TestCategoryService_Update(t *testing.T) {
 	db := setupTestDB(t)
 	svc := NewCategoryService(db)
 
-	cat, _ := svc.Create(CreateCategoryRequest{Name: "Original"})
+	cat, _ := svc.Create(CreateCategoryRequest{Name: "Original"}, models.DefaultTenantID)
 
-	err := svc.Update(cat.ID, CreateCategoryRequest{Name: "Updated"})
+	err := svc.Update(cat.ID, CreateCategoryRequest{Name: "Updated"}, models.DefaultTenantID)
 	if err != nil {
 		t.Fatalf("Update() error: %v", err)
 	}
 
-	got, _ := svc.Get(cat.ID)
+	got, _ := svc.Get(cat.ID, models.DefaultTenantID)
 	if got.Name != "Updated" {
 		t.Errorf("Name = %q, want %q", got.Name, "Updated")
 	}
@@ -85,14 +85,14 @@ func TestCategoryService_Delete(t *testing.T) {
 	db := setupTestDB(t)
 	svc := NewCategoryService(db)
 
-	cat, _ := svc.Create(CreateCategoryRequest{Name: "ToDelete"})
+	cat, _ := svc.Create(CreateCategoryRequest{Name: "ToDelete"}, models.DefaultTenantID)
 
-	err := svc.Delete(cat.ID)
+	err := svc.Delete(cat.ID, models.DefaultTenantID)
 	if err != nil {
 		t.Fatalf("Delete() error: %v", err)
 	}
 
-	_, err = svc.Get(cat.ID)
+	_, err = svc.Get(cat.ID, models.DefaultTenantID)
 	if err == nil {
 		t.Error("Get() should fail after delete")
 	}
@@ -102,19 +102,19 @@ func TestCategoryService_Reorder(t *testing.T) {
 	db := setupTestDB(t)
 	svc := NewCategoryService(db)
 
-	c1, _ := svc.Create(CreateCategoryRequest{Name: "First"})
-	c2, _ := svc.Create(CreateCategoryRequest{Name: "Second"})
+	c1, _ := svc.Create(CreateCategoryRequest{Name: "First"}, models.DefaultTenantID)
+	c2, _ := svc.Create(CreateCategoryRequest{Name: "Second"}, models.DefaultTenantID)
 
 	err := svc.Reorder([]ReorderItem{
 		{ID: c1.ID, SortOrder: 10},
 		{ID: c2.ID, SortOrder: 5},
-	})
+	}, models.DefaultTenantID)
 	if err != nil {
 		t.Fatalf("Reorder() error: %v", err)
 	}
 
-	got1, _ := svc.Get(c1.ID)
-	got2, _ := svc.Get(c2.ID)
+	got1, _ := svc.Get(c1.ID, models.DefaultTenantID)
+	got2, _ := svc.Get(c2.ID, models.DefaultTenantID)
 	if got1.SortOrder != 10 || got2.SortOrder != 5 {
 		t.Errorf("SortOrder: got %d/%d, want 10/5", got1.SortOrder, got2.SortOrder)
 	}

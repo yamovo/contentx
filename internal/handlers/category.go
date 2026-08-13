@@ -32,7 +32,7 @@ func NewCategoryHandler(svc *services.CategoryService) *CategoryHandler {
 func (h *CategoryHandler) List(c *gin.Context) {
 	showAll := c.Query("all") == "true"
 
-	categories, err := h.svc.List(showAll)
+	categories, err := h.svc.List(showAll, getCurrentTenant(c))
 	if err != nil {
 		handleServiceError(c, err)
 		return
@@ -63,7 +63,7 @@ func (h *CategoryHandler) Get(c *gin.Context) {
 		return
 	}
 
-	category, err := h.svc.Get(uint(id))
+	category, err := h.svc.Get(uint(id), getCurrentTenant(c))
 	if err != nil {
 		handleServiceError(c, err)
 		return
@@ -94,7 +94,7 @@ func (h *CategoryHandler) Create(c *gin.Context) {
 		return
 	}
 
-	category, err := h.svc.Create(req)
+	category, err := h.svc.Create(req, getCurrentTenant(c))
 	if err != nil {
 		handleServiceError(c, err)
 		return
@@ -133,7 +133,7 @@ func (h *CategoryHandler) Update(c *gin.Context) {
 		return
 	}
 
-	if err := h.svc.Update(uint(id), req); err != nil {
+	if err := h.svc.Update(uint(id), req, getCurrentTenant(c)); err != nil {
 		handleServiceError(c, err)
 		return
 	}
@@ -163,7 +163,7 @@ func (h *CategoryHandler) Delete(c *gin.Context) {
 		return
 	}
 
-	if err := h.svc.Delete(uint(id)); err != nil {
+	if err := h.svc.Delete(uint(id), getCurrentTenant(c)); err != nil {
 		handleServiceError(c, err)
 		return
 	}
@@ -195,7 +195,7 @@ func (h *CategoryHandler) Reorder(c *gin.Context) {
 		return
 	}
 
-	if err := h.svc.Reorder(req.Items); err != nil {
+	if err := h.svc.Reorder(req.Items, getCurrentTenant(c)); err != nil {
 		handleServiceError(c, err)
 		return
 	}

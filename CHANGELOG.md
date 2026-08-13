@@ -7,7 +7,7 @@
 
 ## [1.4.0] - 2026-07-30
 
-当前未发布改动聚焦安全与稳定性收口、管理后台重构、MCP、Webhook 持久化投递、S3 正式 SDK、审计日志和文章更新乐观锁。PostgreSQL 16.14 恢复演练与核心加固已提交为 `05de8f3`；审查后的恢复边界修复位于 `504d510`，其[草稿 PR #1](https://github.com/yamovo/contentx/pull/1) 已通过远程 CI。发布前仍需评审合并该 PR 并完成版本整理。
+v1.4.0 聚焦安全与稳定性收口、管理后台重构、MCP、Webhook 持久化投递、S3 正式 SDK、审计日志和文章更新乐观锁。PostgreSQL 16.14 恢复演练与核心加固提交为 `05de8f3`；审查后的恢复边界修复位于 `504d510`，已随[PR #1](https://github.com/yamovo/contentx/pull/1) 合并，随后完成版本整理并发布。
 
 ### Fixed — PostgreSQL 恢复加固
 - PostgreSQL 备份增加 `--no-owner --no-privileges`，恢复增加 `ON_ERROR_STOP=1 --single-transaction`，避免角色/ACL 漂移并在 SQL 错误时整次回滚

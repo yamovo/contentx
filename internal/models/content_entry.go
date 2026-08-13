@@ -9,6 +9,7 @@ import (
 // ContentEntry represents a single record of a content type.
 type ContentEntry struct {
 	ID            uint         `gorm:"primarykey" json:"id"`
+	TenantID      uint         `gorm:"not null;default:1;index" json:"-"` // RFC-001 §4.3
 	ContentTypeID uint         `gorm:"index;not null" json:"content_type_id"`
 	ContentType   *ContentType `gorm:"foreignKey:ContentTypeID" json:"content_type,omitempty"`
 	DocumentID    string       `gorm:"uniqueIndex;size:36;not null" json:"document_id"`      // UUID

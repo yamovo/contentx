@@ -59,7 +59,7 @@ func TestArticleService_ReindexAllBypassesStaleListCache(t *testing.T) {
 	// path used, then insert an article directly to simulate a database restore.
 	if _, err := svc.List(ListArticlesFilter{
 		Page: 1, PageSize: 100, Sort: "oldest", Full: true,
-	}); err != nil {
+	}, models.DefaultTenantID); err != nil {
 		t.Fatalf("prime stale list cache: %v", err)
 	}
 	createTestArticle(t, db, user.ID, "Restored article")
@@ -104,7 +104,7 @@ func TestArticleService_Create(t *testing.T) {
 		Status:  "published",
 	}
 
-	article, err := svc.Create(req, user.ID)
+	article, err := svc.Create(req, models.DefaultTenantID, user.ID)
 	if err != nil {
 		t.Fatalf("Create() error: %v", err)
 	}
@@ -144,7 +144,7 @@ func TestArticleService_Update_IgnoresLifecycleAndPostTypeFields(t *testing.T) {
 		PublishedAt:  &now,
 		ScheduledAt:  &now,
 		RevisionNote: "attempt lifecycle bypass",
-	}, user.ID, false)
+	}, models.DefaultTenantID, user.ID, false)
 	if err != nil {
 		t.Fatalf("Update() error: %v", err)
 	}
@@ -173,12 +173,12 @@ func TestArticleService_Create_SlugGeneration(t *testing.T) {
 
 	// Create two articles with the same title.
 	req := CreateArticleRequest{Title: "Same Title", Status: "draft"}
-	a1, err := svc.Create(req, user.ID)
+	a1, err := svc.Create(req, models.DefaultTenantID, user.ID)
 	if err != nil {
 		t.Fatalf("Create() error: %v", err)
 	}
 
-	a2, err := svc.Create(req, user.ID)
+	a2, err := svc.Create(req, models.DefaultTenantID, user.ID)
 	if err != nil {
 		t.Fatalf("Create() error: %v", err)
 	}
@@ -195,8 +195,8 @@ func TestArticleService_Create_WithTags(t *testing.T) {
 
 	// Create tags first.
 	tagSvc := NewTagService(db)
-	tag1, _ := tagSvc.Create(CreateTagRequest{Name: "Go"})
-	tag2, _ := tagSvc.Create(CreateTagRequest{Name: "Testing"})
+	tag1, _ := tagSvc.Create(CreateTagRequest{Name: "Go"}, models.DefaultTenantID)
+	tag2, _ := tagSvc.Create(CreateTagRequest{Name: "Testing"}, models.DefaultTenantID)
 
 	req := CreateArticleRequest{
 		Title:  "Tagged Article",
@@ -204,7 +204,7 @@ func TestArticleService_Create_WithTags(t *testing.T) {
 		Status: "draft",
 	}
 
-	article, err := svc.Create(req, user.ID)
+	article, err := svc.Create(req, models.DefaultTenantID, user.ID)
 	if err != nil {
 		t.Fatalf("Create() error: %v", err)
 	}
@@ -220,7 +220,7 @@ func TestArticleService_Get(t *testing.T) {
 	user := createTestUser(t, db, "author1", "author")
 	article := createTestArticle(t, db, user.ID, "Test Article")
 
-	got, err := svc.Get(article.ID)
+	got, err := svc.Get(article.ID, models.DefaultTenantID)
 	if err != nil {
 		t.Fatalf("Get() error: %v", err)
 	}
@@ -236,7 +236,7 @@ func TestArticleService_Get_NotFound(t *testing.T) {
 	db := setupTestDB(t)
 	svc := NewArticleService(db, "http://localhost:8080")
 
-	_, err := svc.Get(9999)
+	_, err := svc.Get(9999, models.DefaultTenantID)
 	if err == nil {
 		t.Error("Get() should return error for non-existent article")
 	}
@@ -252,9 +252,9 @@ func TestArticleService_List_FilterByStatus(t *testing.T) {
 
 	// Create a draft.
 	draft := CreateArticleRequest{Title: "Draft 1", Status: "draft"}
-	svc.Create(draft, user.ID)
+	svc.Create(draft, models.DefaultTenantID, user.ID)
 
-	result, err := svc.List(ListArticlesFilter{Status: "published", Page: 1, PageSize: 20, Sort: "newest"})
+	result, err := svc.List(ListArticlesFilter{Status: "published", Page: 1, PageSize: 20, Sort: "newest"}, models.DefaultTenantID)
 	if err != nil {
 		t.Fatalf("List() error: %v", err)
 	}
@@ -271,7 +271,7 @@ func TestArticleService_Update(t *testing.T) {
 	article := createTestArticle(t, db, user.ID, "Original Title")
 
 	newTitle := "Updated Title"
-	updated, err := svc.Update(article.ID, UpdateArticleRequest{Title: &newTitle}, user.ID, false)
+	updated, err := svc.Update(article.ID, UpdateArticleRequest{Title: &newTitle}, models.DefaultTenantID, user.ID, false)
 	if err != nil {
 		t.Fatalf("Update() error: %v", err)
 	}
@@ -280,7 +280,7 @@ func TestArticleService_Update(t *testing.T) {
 	}
 
 	// Verify revision was created.
-	revisions, _ := svc.Revisions(article.ID)
+	revisions, _ := svc.Revisions(article.ID, models.DefaultTenantID)
 	if len(revisions) < 2 {
 		t.Errorf("Expected >= 2 revisions, got %d", len(revisions))
 	}
@@ -294,7 +294,7 @@ func TestArticleService_Update_Forbidden(t *testing.T) {
 	article := createTestArticle(t, db, author.ID, "My Article")
 
 	newTitle := "Hacked"
-	_, err := svc.Update(article.ID, UpdateArticleRequest{Title: &newTitle}, other.ID, false)
+	_, err := svc.Update(article.ID, UpdateArticleRequest{Title: &newTitle}, models.DefaultTenantID, other.ID, false)
 	if err == nil {
 		t.Error("Update() should return forbidden for non-owner, non-editor")
 	}
@@ -312,7 +312,7 @@ func TestArticleService_Update_OptimisticLock_Conflict(t *testing.T) {
 	_, err := svc.Update(article.ID, UpdateArticleRequest{
 		Title:           &firstTitle,
 		ExpectedVersion: &v1,
-	}, author.ID, true)
+	}, models.DefaultTenantID, author.ID, true)
 	if err != nil {
 		t.Fatalf("first update should succeed: %v", err)
 	}
@@ -322,7 +322,7 @@ func TestArticleService_Update_OptimisticLock_Conflict(t *testing.T) {
 	_, err = svc.Update(article.ID, UpdateArticleRequest{
 		Title:           &staleTitle,
 		ExpectedVersion: &v1, // 过期的 version
-	}, author.ID, true)
+	}, models.DefaultTenantID, author.ID, true)
 	if err == nil {
 		t.Fatal("expected ErrConcurrentModification, got nil")
 	}
@@ -341,13 +341,13 @@ func TestArticleService_Update_OptimisticLock_CoversTagOnlyChanges(t *testing.T)
 	if _, err := svc.Update(article.ID, UpdateArticleRequest{
 		TagIDs:          []uint{},
 		ExpectedVersion: &v1,
-	}, author.ID, true); err != nil {
+	}, models.DefaultTenantID, author.ID, true); err != nil {
 		t.Fatalf("first tag-only update should succeed: %v", err)
 	}
 	if _, err := svc.Update(article.ID, UpdateArticleRequest{
 		TagIDs:          []uint{},
 		ExpectedVersion: &v1,
-	}, author.ID, true); !errors.Is(err, errs.ErrConcurrentModification) {
+	}, models.DefaultTenantID, author.ID, true); !errors.Is(err, errs.ErrConcurrentModification) {
 		t.Fatalf("stale tag-only update = %v, want concurrent modification", err)
 	}
 }
@@ -358,12 +358,12 @@ func TestArticleService_Delete(t *testing.T) {
 	user := createTestUser(t, db, "author1", "author")
 	article := createTestArticle(t, db, user.ID, "To Delete")
 
-	if err := svc.Delete(article.ID, user.ID, false); err != nil {
+	if err := svc.Delete(article.ID, models.DefaultTenantID, user.ID, false); err != nil {
 		t.Fatalf("Delete() error: %v", err)
 	}
 
 	// Verify soft-deleted.
-	_, err := svc.Get(article.ID)
+	_, err := svc.Get(article.ID, models.DefaultTenantID)
 	if err == nil {
 		t.Error("Get() should fail for deleted article")
 	}
@@ -381,7 +381,7 @@ func TestArticleService_BulkAction(t *testing.T) {
 	affected, err := svc.BulkAction(BulkActionRequest{
 		ArticleIDs: []uint{a1.ID, a2.ID},
 		Action:     "publish",
-	})
+	}, models.DefaultTenantID)
 	if err != nil {
 		t.Fatalf("BulkAction(publish) error: %v", err)
 	}
@@ -398,7 +398,7 @@ func TestArticleService_GenerateFeed(t *testing.T) {
 	createTestArticle(t, db, user.ID, "Feed Article 1")
 	createTestArticle(t, db, user.ID, "Feed Article 2")
 
-	feed, err := svc.GenerateFeed()
+	feed, err := svc.GenerateFeed(models.DefaultTenantID)
 	if err != nil {
 		t.Fatalf("GenerateFeed() error: %v", err)
 	}
@@ -420,11 +420,11 @@ func TestArticleService_LikeArticle(t *testing.T) {
 	user := createTestUser(t, db, "author1", "author")
 	article := createTestArticle(t, db, user.ID, "Likeable")
 
-	if err := svc.LikeArticle(article.ID); err != nil {
+	if err := svc.LikeArticle(article.ID, models.DefaultTenantID); err != nil {
 		t.Fatalf("LikeArticle() error: %v", err)
 	}
 
-	got, _ := svc.Get(article.ID)
+	got, _ := svc.Get(article.ID, models.DefaultTenantID)
 	if got.LikeCount != 1 {
 		t.Errorf("LikeCount = %d, want 1", got.LikeCount)
 	}

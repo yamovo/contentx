@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"strconv"
 	"time"
 
 	"github.com/yamovo/contentx/internal/models"
@@ -12,12 +13,15 @@ import (
 // ============================================================
 
 // SettingsRepository defines data-access operations for site settings.
+// Site settings carry a nullable tenant_id (NULL = global default, non-NULL =
+// tenant override, RFC-001 §4.3): queries always include the global rows and
+// the request tenant's overrides.
 type SettingsRepository interface {
-	List(group string) ([]models.SiteSetting, error)
-	Get(key string) (*models.SiteSetting, error)
-	UpdateValue(key, value string) (rowsAffected int64, err error)
-	Create(setting *models.SiteSetting) error
-	ListPublic() ([]models.SiteSetting, error)
+	List(group string, tenantID uint) ([]models.SiteSetting, error)
+	Get(key string, tenantID uint) (*models.SiteSetting, error)
+	UpdateValue(key, value string, tenantID uint) (rowsAffected int64, err error)
+	Create(setting *models.SiteSetting) error // TenantID nil = global default
+	ListPublic(tenantID uint) ([]models.SiteSetting, error)
 }
 
 // gormSettingsRepository implements SettingsRepository with GORM.
@@ -30,8 +34,14 @@ func NewSettingsRepository(db *gorm.DB) SettingsRepository {
 	return &gormSettingsRepository{db: db}
 }
 
-func (r *gormSettingsRepository) List(group string) ([]models.SiteSetting, error) {
-	query := r.db.Model(&models.SiteSetting{})
+// tenantScope returns a WHERE fragment matching the request tenant's rows
+// plus global (NULL tenant_id) rows.
+func tenantScope(tenantID uint) string {
+	return "(tenant_id = " + strconv.FormatUint(uint64(tenantID), 10) + " OR tenant_id IS NULL)"
+}
+
+func (r *gormSettingsRepository) List(group string, tenantID uint) ([]models.SiteSetting, error) {
+	query := r.db.Model(&models.SiteSetting{}).Where(tenantScope(tenantID))
 	if group != "" {
 		query = query.Where("`group` = ?", group)
 	}
@@ -42,17 +52,17 @@ func (r *gormSettingsRepository) List(group string) ([]models.SiteSetting, error
 	return settings, nil
 }
 
-func (r *gormSettingsRepository) Get(key string) (*models.SiteSetting, error) {
+func (r *gormSettingsRepository) Get(key string, tenantID uint) (*models.SiteSetting, error) {
 	var setting models.SiteSetting
-	if err := r.db.Where("key = ?", key).First(&setting).Error; err != nil {
+	if err := r.db.Where("key = ? AND "+tenantScope(tenantID), key).First(&setting).Error; err != nil {
 		return nil, err
 	}
 	return &setting, nil
 }
 
-func (r *gormSettingsRepository) UpdateValue(key, value string) (int64, error) {
+func (r *gormSettingsRepository) UpdateValue(key, value string, tenantID uint) (int64, error) {
 	result := r.db.Model(&models.SiteSetting{}).
-		Where("key = ?", key).
+		Where("key = ? AND "+tenantScope(tenantID), key).
 		Update("value", value)
 	return result.RowsAffected, result.Error
 }
@@ -61,9 +71,9 @@ func (r *gormSettingsRepository) Create(setting *models.SiteSetting) error {
 	return r.db.Create(setting).Error
 }
 
-func (r *gormSettingsRepository) ListPublic() ([]models.SiteSetting, error) {
+func (r *gormSettingsRepository) ListPublic(tenantID uint) ([]models.SiteSetting, error) {
 	var settings []models.SiteSetting
-	if err := r.db.Where("is_public = ?", true).Order("sort_order ASC").Find(&settings).Error; err != nil {
+	if err := r.db.Where("is_public = ? AND "+tenantScope(tenantID), true).Order("sort_order ASC").Find(&settings).Error; err != nil {
 		return nil, err
 	}
 	return settings, nil
@@ -74,15 +84,15 @@ func (r *gormSettingsRepository) ListPublic() ([]models.SiteSetting, error) {
 // ============================================================
 
 // SEORepository defines data-access operations for SEO settings, redirect rules,
-// and the sitemap article query.
+// and the sitemap article query, scoped to a tenant (RFC-001 §5).
 type SEORepository interface {
-	GetSetting(entityType string, entityID uint) (*models.SEOSetting, error)
-	CreateSetting(setting *models.SEOSetting) error
+	GetSetting(entityType string, entityID, tenantID uint) (*models.SEOSetting, error)
+	CreateSetting(setting *models.SEOSetting) error // setting.TenantID must be set by the caller
 	SaveSetting(setting *models.SEOSetting) error
-	ListPublishedArticlesForSitemap() ([]models.Article, error)
-	ListRedirects() ([]models.RedirectRule, error)
-	CreateRedirect(rule *models.RedirectRule) error
-	DeleteRedirect(id uint) error
+	ListPublishedArticlesForSitemap(tenantID uint) ([]models.Article, error)
+	ListRedirects(tenantID uint) ([]models.RedirectRule, error)
+	CreateRedirect(rule *models.RedirectRule) error // rule.TenantID must be set by the caller
+	DeleteRedirect(id, tenantID uint) error
 }
 
 // gormSEORepository implements SEORepository with GORM.
@@ -95,9 +105,9 @@ func NewSEORepository(db *gorm.DB) SEORepository {
 	return &gormSEORepository{db: db}
 }
 
-func (r *gormSEORepository) GetSetting(entityType string, entityID uint) (*models.SEOSetting, error) {
+func (r *gormSEORepository) GetSetting(entityType string, entityID, tenantID uint) (*models.SEOSetting, error) {
 	var setting models.SEOSetting
-	if err := r.db.Where("entity_type = ? AND entity_id = ?", entityType, entityID).
+	if err := r.db.Where("entity_type = ? AND entity_id = ? AND tenant_id = ?", entityType, entityID, tenantID).
 		First(&setting).Error; err != nil {
 		return nil, err
 	}
@@ -112,18 +122,18 @@ func (r *gormSEORepository) SaveSetting(setting *models.SEOSetting) error {
 	return r.db.Save(setting).Error
 }
 
-func (r *gormSEORepository) ListPublishedArticlesForSitemap() ([]models.Article, error) {
+func (r *gormSEORepository) ListPublishedArticlesForSitemap(tenantID uint) ([]models.Article, error) {
 	var articles []models.Article
-	if err := r.db.Where("status = ? AND post_type = ?", models.StatusPublished, models.PostTypePost).
+	if err := r.db.Where("status = ? AND post_type = ? AND tenant_id = ?", models.StatusPublished, models.PostTypePost, tenantID).
 		Order("updated_at DESC").Find(&articles).Error; err != nil {
 		return nil, err
 	}
 	return articles, nil
 }
 
-func (r *gormSEORepository) ListRedirects() ([]models.RedirectRule, error) {
+func (r *gormSEORepository) ListRedirects(tenantID uint) ([]models.RedirectRule, error) {
 	var rules []models.RedirectRule
-	if err := r.db.Order("from_path ASC").Find(&rules).Error; err != nil {
+	if err := r.db.Where("tenant_id = ?", tenantID).Order("from_path ASC").Find(&rules).Error; err != nil {
 		return nil, err
 	}
 	return rules, nil
@@ -133,27 +143,28 @@ func (r *gormSEORepository) CreateRedirect(rule *models.RedirectRule) error {
 	return r.db.Create(rule).Error
 }
 
-func (r *gormSEORepository) DeleteRedirect(id uint) error {
-	return r.db.Delete(&models.RedirectRule{}, id).Error
+func (r *gormSEORepository) DeleteRedirect(id, tenantID uint) error {
+	return r.db.Where("id = ? AND tenant_id = ?", id, tenantID).Delete(&models.RedirectRule{}).Error
 }
 
 // ============================================================
 // MenuRepository
 // ============================================================
 
-// MenuRepository defines data-access operations for menus and menu items.
+// MenuRepository defines data-access operations for menus and menu items,
+// scoped to a tenant (RFC-001 §5).
 type MenuRepository interface {
-	ListMenus() ([]models.Menu, error)
-	GetMenuByID(id uint) (*models.Menu, error)
-	FindMenu(id uint) (*models.Menu, error)
-	CreateMenu(menu *models.Menu) error
-	UpdateMenuFields(id uint, fields map[string]interface{}) error
-	DeleteMenu(id uint) error
-	FindItem(id uint) (*models.MenuItem, error)
-	CreateItem(item *models.MenuItem) error
-	UpdateItemFields(id uint, fields map[string]interface{}) error
-	DeleteItem(id uint) error
-	MaxItemSortOrder(menuID uint) (int, error)
+	ListMenus(tenantID uint) ([]models.Menu, error)
+	GetMenuByID(id, tenantID uint) (*models.Menu, error)
+	FindMenu(id, tenantID uint) (*models.Menu, error)
+	CreateMenu(menu *models.Menu) error // menu.TenantID must be set by the caller
+	UpdateMenuFields(id uint, fields map[string]interface{}, tenantID uint) error
+	DeleteMenu(id, tenantID uint) error
+	FindItem(id, tenantID uint) (*models.MenuItem, error)
+	CreateItem(item *models.MenuItem) error // item.TenantID must be set by the caller
+	UpdateItemFields(id uint, fields map[string]interface{}, tenantID uint) error
+	DeleteItem(id, tenantID uint) error
+	MaxItemSortOrder(menuID, tenantID uint) (int, error)
 }
 
 // gormMenuRepository implements MenuRepository with GORM.
@@ -166,29 +177,29 @@ func NewMenuRepository(db *gorm.DB) MenuRepository {
 	return &gormMenuRepository{db: db}
 }
 
-func (r *gormMenuRepository) ListMenus() ([]models.Menu, error) {
+func (r *gormMenuRepository) ListMenus(tenantID uint) ([]models.Menu, error) {
 	var menus []models.Menu
 	if err := r.db.Preload("Items", func(db *gorm.DB) *gorm.DB {
-		return db.Order("sort_order ASC")
-	}).Find(&menus).Error; err != nil {
+		return db.Where("tenant_id = ?", tenantID).Order("sort_order ASC")
+	}).Where("tenant_id = ?", tenantID).Find(&menus).Error; err != nil {
 		return nil, err
 	}
 	return menus, nil
 }
 
-func (r *gormMenuRepository) GetMenuByID(id uint) (*models.Menu, error) {
+func (r *gormMenuRepository) GetMenuByID(id, tenantID uint) (*models.Menu, error) {
 	var menu models.Menu
 	if err := r.db.Preload("Items", func(db *gorm.DB) *gorm.DB {
-		return db.Order("sort_order ASC")
-	}).First(&menu, id).Error; err != nil {
+		return db.Where("tenant_id = ?", tenantID).Order("sort_order ASC")
+	}).Where("id = ? AND tenant_id = ?", id, tenantID).First(&menu).Error; err != nil {
 		return nil, err
 	}
 	return &menu, nil
 }
 
-func (r *gormMenuRepository) FindMenu(id uint) (*models.Menu, error) {
+func (r *gormMenuRepository) FindMenu(id, tenantID uint) (*models.Menu, error) {
 	var menu models.Menu
-	if err := r.db.First(&menu, id).Error; err != nil {
+	if err := r.db.Where("id = ? AND tenant_id = ?", id, tenantID).First(&menu).Error; err != nil {
 		return nil, err
 	}
 	return &menu, nil
@@ -198,21 +209,21 @@ func (r *gormMenuRepository) CreateMenu(menu *models.Menu) error {
 	return r.db.Create(menu).Error
 }
 
-func (r *gormMenuRepository) UpdateMenuFields(id uint, fields map[string]interface{}) error {
-	return r.db.Model(&models.Menu{}).Where("id = ?", id).Updates(fields).Error
+func (r *gormMenuRepository) UpdateMenuFields(id uint, fields map[string]interface{}, tenantID uint) error {
+	return r.db.Model(&models.Menu{}).Where("id = ? AND tenant_id = ?", id, tenantID).Updates(fields).Error
 }
 
-func (r *gormMenuRepository) DeleteMenu(id uint) error {
+func (r *gormMenuRepository) DeleteMenu(id, tenantID uint) error {
 	// Best-effort: delete items first, then the menu (mirrors prior service behaviour).
-	if err := r.db.Where("menu_id = ?", id).Delete(&models.MenuItem{}).Error; err != nil {
+	if err := r.db.Where("menu_id = ? AND tenant_id = ?", id, tenantID).Delete(&models.MenuItem{}).Error; err != nil {
 		return err
 	}
-	return r.db.Delete(&models.Menu{}, id).Error
+	return r.db.Where("id = ? AND tenant_id = ?", id, tenantID).Delete(&models.Menu{}).Error
 }
 
-func (r *gormMenuRepository) FindItem(id uint) (*models.MenuItem, error) {
+func (r *gormMenuRepository) FindItem(id, tenantID uint) (*models.MenuItem, error) {
 	var item models.MenuItem
-	if err := r.db.First(&item, id).Error; err != nil {
+	if err := r.db.Where("id = ? AND tenant_id = ?", id, tenantID).First(&item).Error; err != nil {
 		return nil, err
 	}
 	return &item, nil
@@ -222,17 +233,17 @@ func (r *gormMenuRepository) CreateItem(item *models.MenuItem) error {
 	return r.db.Create(item).Error
 }
 
-func (r *gormMenuRepository) UpdateItemFields(id uint, fields map[string]interface{}) error {
-	return r.db.Model(&models.MenuItem{}).Where("id = ?", id).Updates(fields).Error
+func (r *gormMenuRepository) UpdateItemFields(id uint, fields map[string]interface{}, tenantID uint) error {
+	return r.db.Model(&models.MenuItem{}).Where("id = ? AND tenant_id = ?", id, tenantID).Updates(fields).Error
 }
 
-func (r *gormMenuRepository) DeleteItem(id uint) error {
-	return r.db.Delete(&models.MenuItem{}, id).Error
+func (r *gormMenuRepository) DeleteItem(id, tenantID uint) error {
+	return r.db.Where("id = ? AND tenant_id = ?", id, tenantID).Delete(&models.MenuItem{}).Error
 }
 
-func (r *gormMenuRepository) MaxItemSortOrder(menuID uint) (int, error) {
+func (r *gormMenuRepository) MaxItemSortOrder(menuID, tenantID uint) (int, error) {
 	var maxSort int
-	if err := r.db.Model(&models.MenuItem{}).Where("menu_id = ?", menuID).
+	if err := r.db.Model(&models.MenuItem{}).Where("menu_id = ? AND tenant_id = ?", menuID, tenantID).
 		Select("COALESCE(MAX(sort_order), 0)").Scan(&maxSort).Error; err != nil {
 		return 0, err
 	}

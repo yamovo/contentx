@@ -18,7 +18,7 @@ func TestArticleService_Create_DefaultLocale(t *testing.T) {
 		Title:   "English Title",
 		Content: "<p>Hello</p>",
 		Status:  "draft",
-	}, user.ID)
+	}, models.DefaultTenantID, user.ID)
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -40,7 +40,7 @@ func TestArticleService_Create_ExplicitLocale(t *testing.T) {
 		Content: "<p>你好</p>",
 		Status:  "draft",
 		Locale:  "zh",
-	}, user.ID)
+	}, models.DefaultTenantID, user.ID)
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -55,12 +55,12 @@ func TestArticleService_List_FilterByLocale(t *testing.T) {
 	user := createTestUser(t, db, "author1", "author")
 
 	// Create one EN and two ZH articles.
-	svc.Create(CreateArticleRequest{Title: "EN One", Content: "<p>x</p>", Status: "draft", Locale: "en"}, user.ID)
-	svc.Create(CreateArticleRequest{Title: "ZH One", Content: "<p>一</p>", Status: "draft", Locale: "zh"}, user.ID)
-	svc.Create(CreateArticleRequest{Title: "ZH Two", Content: "<p>二</p>", Status: "draft", Locale: "zh"}, user.ID)
+	svc.Create(CreateArticleRequest{Title: "EN One", Content: "<p>x</p>", Status: "draft", Locale: "en"}, models.DefaultTenantID, user.ID)
+	svc.Create(CreateArticleRequest{Title: "ZH One", Content: "<p>一</p>", Status: "draft", Locale: "zh"}, models.DefaultTenantID, user.ID)
+	svc.Create(CreateArticleRequest{Title: "ZH Two", Content: "<p>二</p>", Status: "draft", Locale: "zh"}, models.DefaultTenantID, user.ID)
 
 	// No filter — total 3.
-	resp, err := svc.List(ListArticlesFilter{Page: 1, PageSize: 50})
+	resp, err := svc.List(ListArticlesFilter{Page: 1, PageSize: 50}, models.DefaultTenantID)
 	if err != nil {
 		t.Fatalf("List all: %v", err)
 	}
@@ -69,7 +69,7 @@ func TestArticleService_List_FilterByLocale(t *testing.T) {
 	}
 
 	// Filter by zh — total 2.
-	resp, err = svc.List(ListArticlesFilter{Page: 1, PageSize: 50, Locale: "zh"})
+	resp, err = svc.List(ListArticlesFilter{Page: 1, PageSize: 50, Locale: "zh"}, models.DefaultTenantID)
 	if err != nil {
 		t.Fatalf("List zh: %v", err)
 	}
@@ -78,7 +78,7 @@ func TestArticleService_List_FilterByLocale(t *testing.T) {
 	}
 
 	// Filter by en — total 1.
-	resp, err = svc.List(ListArticlesFilter{Page: 1, PageSize: 50, Locale: "en"})
+	resp, err = svc.List(ListArticlesFilter{Page: 1, PageSize: 50, Locale: "en"}, models.DefaultTenantID)
 	if err != nil {
 		t.Fatalf("List en: %v", err)
 	}
@@ -98,7 +98,7 @@ func TestArticleService_CreateTranslation_Success(t *testing.T) {
 		Content: "<p>Hello</p>",
 		Status:  "published",
 		Locale:  "en",
-	}, user.ID)
+	}, models.DefaultTenantID, user.ID)
 	if err != nil {
 		t.Fatalf("Create source: %v", err)
 	}
@@ -107,7 +107,7 @@ func TestArticleService_CreateTranslation_Success(t *testing.T) {
 	translated, err := svc.CreateTranslation(source.ID, "zh", CreateArticleRequest{
 		Title:   "你好世界",
 		Content: "<p>你好</p>",
-	}, user.ID)
+	}, models.DefaultTenantID, user.ID)
 	if err != nil {
 		t.Fatalf("CreateTranslation: %v", err)
 	}
@@ -139,7 +139,7 @@ func TestArticleService_CreateTranslation_DuplicateLocale(t *testing.T) {
 		Content: "<p>Hi</p>",
 		Status:  "draft",
 		Locale:  "en",
-	}, user.ID)
+	}, models.DefaultTenantID, user.ID)
 	if err != nil {
 		t.Fatalf("Create source: %v", err)
 	}
@@ -147,14 +147,14 @@ func TestArticleService_CreateTranslation_DuplicateLocale(t *testing.T) {
 	// First zh translation — OK.
 	if _, err := svc.CreateTranslation(source.ID, "zh", CreateArticleRequest{
 		Title: "你好", Content: "<p>你好</p>",
-	}, user.ID); err != nil {
+	}, models.DefaultTenantID, user.ID); err != nil {
 		t.Fatalf("first translation: %v", err)
 	}
 
 	// Second zh translation — should fail.
 	_, err = svc.CreateTranslation(source.ID, "zh", CreateArticleRequest{
 		Title: "你好2", Content: "<p>你好2</p>",
-	}, user.ID)
+	}, models.DefaultTenantID, user.ID)
 	if err == nil {
 		t.Fatal("expected error for duplicate locale translation")
 	}
@@ -167,14 +167,14 @@ func TestArticleService_CreateTranslation_MissingLocale(t *testing.T) {
 
 	source, err := svc.Create(CreateArticleRequest{
 		Title: "X", Content: "<p>x</p>", Status: "draft",
-	}, user.ID)
+	}, models.DefaultTenantID, user.ID)
 	if err != nil {
 		t.Fatalf("Create source: %v", err)
 	}
 
 	_, err = svc.CreateTranslation(source.ID, "", CreateArticleRequest{
 		Title: "Y", Content: "<p>y</p>",
-	}, user.ID)
+	}, models.DefaultTenantID, user.ID)
 	if err == nil {
 		t.Fatal("expected error for empty locale")
 	}
@@ -190,22 +190,22 @@ func TestArticleService_ListTranslations(t *testing.T) {
 		Content: "<p>Hi</p>",
 		Status:  "draft",
 		Locale:  "en",
-	}, user.ID)
+	}, models.DefaultTenantID, user.ID)
 	if err != nil {
 		t.Fatalf("Create source: %v", err)
 	}
 	if _, err := svc.CreateTranslation(source.ID, "zh", CreateArticleRequest{
 		Title: "你好", Content: "<p>你好</p>",
-	}, user.ID); err != nil {
+	}, models.DefaultTenantID, user.ID); err != nil {
 		t.Fatalf("translation zh: %v", err)
 	}
 	if _, err := svc.CreateTranslation(source.ID, "ja", CreateArticleRequest{
 		Title: "こんにちは", Content: "<p>こんにちは</p>",
-	}, user.ID); err != nil {
+	}, models.DefaultTenantID, user.ID); err != nil {
 		t.Fatalf("translation ja: %v", err)
 	}
 
-	translations, err := svc.ListTranslations(source.ID)
+	translations, err := svc.ListTranslations(source.ID, models.DefaultTenantID)
 	if err != nil {
 		t.Fatalf("ListTranslations: %v", err)
 	}
@@ -214,7 +214,7 @@ func TestArticleService_ListTranslations(t *testing.T) {
 	}
 
 	// Each translation should also see its siblings (including the source).
-	zhTranslations, err := svc.ListTranslations(getIDOfTranslation(t, translations, "zh"))
+	zhTranslations, err := svc.ListTranslations(getIDOfTranslation(t, translations, "zh"), models.DefaultTenantID)
 	if err != nil {
 		t.Fatalf("ListTranslations from zh: %v", err)
 	}
@@ -227,7 +227,7 @@ func TestArticleService_ListTranslations_SourceNotFound(t *testing.T) {
 	db := setupTestDB(t)
 	svc := NewArticleService(db, "http://localhost:8080")
 
-	_, err := svc.ListTranslations(99999)
+	_, err := svc.ListTranslations(99999, models.DefaultTenantID)
 	if err == nil {
 		t.Fatal("expected error for missing source")
 	}

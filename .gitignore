@@ -69,5 +69,7 @@ cover_func.txt
 
 # Local assistant memory & throwaway diff artifacts
 .workbuddy/
+.reasonix/
+reasonix.toml
 tmp_*.txt
 tmp_*.yml

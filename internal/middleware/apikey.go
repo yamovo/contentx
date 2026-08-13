@@ -54,6 +54,10 @@ func APIKeyMiddleware(db *gorm.DB) gin.HandlerFunc {
 
 		c.Set(ContextKeyUser, &user)
 		c.Set("api_key", &apiKey)
+		// auth.APIKey has no tenant binding yet; API-key traffic resolves to
+		// the default tenant until token-level tenant binding lands (RFC-001
+		// §11 open question 2).
+		c.Set(ContextKeyTenant, models.DefaultTenantID)
 		c.Next()
 	}
 }

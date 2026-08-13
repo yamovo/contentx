@@ -56,7 +56,7 @@ func TestStorage_Upload_DelegatesToDriver(t *testing.T) {
 	f, header := openFileHeader(t, fh)
 	defer f.Close()
 
-	media, err := s.Upload(f, header, "pics", "alt", "title", "cap", "desc", 7)
+	media, err := s.Upload(f, header, "pics", "alt", "title", "cap", "desc", 7, models.DefaultTenantID)
 	if err != nil {
 		t.Fatalf("Upload failed: %v", err)
 	}
@@ -117,7 +117,7 @@ func TestStorage_Upload_DriverError(t *testing.T) {
 	f, header := openFileHeader(t, fh)
 	defer f.Close()
 
-	_, err := s.Upload(f, header, "", "", "", "", "", 1)
+	_, err := s.Upload(f, header, "", "", "", "", "", 1, models.DefaultTenantID)
 	if err == nil || !strings.Contains(err.Error(), "failed to upload to storage") {
 		t.Fatalf("expected storage upload error, got %v", err)
 	}
@@ -138,7 +138,7 @@ func TestStorage_Upload_RepoCreateError_CleansUpViaDriver(t *testing.T) {
 	f, header := openFileHeader(t, fh)
 	defer f.Close()
 
-	_, err := s.Upload(f, header, "", "", "", "", "", 1)
+	_, err := s.Upload(f, header, "", "", "", "", "", 1, models.DefaultTenantID)
 	if err == nil {
 		t.Fatal("expected error from repo.Create")
 	}
@@ -166,7 +166,7 @@ func TestStorage_Upload_SVGSanitizedThenUploaded(t *testing.T) {
 	f, header := openFileHeader(t, fh)
 	defer f.Close()
 
-	media, err := s.Upload(f, header, "icons", "", "", "", "", 1)
+	media, err := s.Upload(f, header, "icons", "", "", "", "", 1, models.DefaultTenantID)
 	if err != nil {
 		t.Fatalf("Upload SVG failed: %v", err)
 	}
@@ -192,7 +192,7 @@ func TestStorage_Delete_DelegatesToDriver(t *testing.T) {
 	s := NewMediaServiceWithRepo(repo, newStorageTestConfig(t))
 	s.SetStorageDriver(store)
 
-	if err := s.Delete(9, 0, true); err != nil {
+	if err := s.Delete(9, models.DefaultTenantID, 0, true); err != nil {
 		t.Fatalf("Delete failed: %v", err)
 	}
 	// Driver must receive exactly one Delete with the object key.
@@ -220,7 +220,7 @@ func TestStorage_Delete_RepoErrorStillReturnsError(t *testing.T) {
 	s := NewMediaServiceWithRepo(repo, newStorageTestConfig(t))
 	s.SetStorageDriver(store)
 
-	err := s.Delete(9, 0, true)
+	err := s.Delete(9, models.DefaultTenantID, 0, true)
 	if err == nil {
 		t.Fatal("expected error from repo.Delete")
 	}
@@ -242,7 +242,7 @@ func TestStorage_BulkDelete_DelegatesToDriver(t *testing.T) {
 	s := NewMediaServiceWithRepo(repo, newStorageTestConfig(t))
 	s.SetStorageDriver(store)
 
-	n, err := s.BulkDelete([]uint{1, 2, 3}, 0, true)
+	n, err := s.BulkDelete([]uint{1, 2, 3}, models.DefaultTenantID, 0, true)
 	if err != nil {
 		t.Fatalf("BulkDelete failed: %v", err)
 	}
@@ -280,7 +280,7 @@ func TestStorage_BulkDelete_DriverDeleteErrorIgnored(t *testing.T) {
 	s := NewMediaServiceWithRepo(repo, newStorageTestConfig(t))
 	s.SetStorageDriver(store)
 
-	n, err := s.BulkDelete([]uint{1, 2}, 0, true)
+	n, err := s.BulkDelete([]uint{1, 2}, models.DefaultTenantID, 0, true)
 	if err != nil {
 		t.Fatalf("BulkDelete should not surface driver Delete errors: %v", err)
 	}
@@ -308,7 +308,7 @@ func TestStorage_Delete_FallbackToLocalWhenNoDriver(t *testing.T) {
 	s := NewMediaServiceWithRepo(repo, config.UploadConfig{StoragePath: dir, URLPrefix: "/uploads"})
 	// No SetStorageDriver → legacy path.
 
-	if err := s.Delete(7, 0, true); err != nil {
+	if err := s.Delete(7, models.DefaultTenantID, 0, true); err != nil {
 		t.Fatalf("Delete failed: %v", err)
 	}
 	if _, err := os.Stat(filePath); !os.IsNotExist(err) {

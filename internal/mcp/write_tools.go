@@ -83,7 +83,7 @@ func (t *toolset) createArticle(_ context.Context, req *mcpsdk.CallToolRequest, 
 		CategoryID: in.CategoryID,
 		TagIDs:     in.TagIDs,
 		Locale:     in.Locale,
-	}, id.UserID)
+	}, t.tenantID(), id.UserID)
 	if err != nil {
 		return nil, articleSummary{}, err
 	}
@@ -126,7 +126,7 @@ func (t *toolset) updateArticle(_ context.Context, req *mcpsdk.CallToolRequest, 
 		CategoryID:      in.CategoryID,
 		TagIDs:          in.TagIDs,
 		ExpectedVersion: &in.ExpectedVersion,
-	}, id.UserID, canUpdateAll)
+	}, t.tenantID(), id.UserID, canUpdateAll)
 	if err != nil {
 		return nil, articleSummary{}, err
 	}

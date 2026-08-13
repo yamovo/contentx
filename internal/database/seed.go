@@ -89,6 +89,17 @@ func seedAdminUser(db *gorm.DB) error {
 	if err := db.Create(&admin).Error; err != nil {
 		return err
 	}
+	// Multi-tenancy (RFC-001): the seeded admin belongs to the default tenant
+	// as its admin. Kept in sync with migration 008's backfill so a fresh
+	// database (migrations → seed) ends up with the same memberships as an
+	// upgraded one.
+	if err := db.Create(&models.TenantMembership{
+		TenantID: models.DefaultTenantID,
+		UserID:   admin.ID,
+		RoleSlug: models.TenantRoleAdmin,
+	}).Error; err != nil {
+		return err
+	}
 	slog.Info("created admin user")
 	return nil
 }

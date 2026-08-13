@@ -118,12 +118,12 @@ func (s *ArticleService) unindexArticle(id uint, postType models.PostType) {
 //
 // Skipped entirely when the indexer is NoopIndexer (search disabled) to
 // avoid the extra GetByID DB round-trip.
-func (s *ArticleService) reindexByID(id uint) {
+func (s *ArticleService) reindexByID(id, tenantID uint) {
 	idx := s.indexer()
 	if idx == nil || idx.Name() == "noop" {
 		return
 	}
-	article, err := s.repo.GetByID(id)
+	article, err := s.repo.GetByID(id, tenantID)
 	if err != nil {
 		slog.Warn("search reindex: reload failed", "article_id", id, "error", err)
 		return
@@ -245,8 +245,9 @@ type BulkActionRequest struct {
 
 // ---------- Service Methods ----------
 
-// List returns a paginated list of articles matching the given filters.
-func (s *ArticleService) List(filter ListArticlesFilter) (models.ListResponse, error) {
+// List returns a paginated list of articles matching the given filters,
+// scoped to the request tenant (RFC-001 §5).
+func (s *ArticleService) List(filter ListArticlesFilter, tenantID uint) (models.ListResponse, error) {
 	if filter.Page < 1 {
 		filter.Page = 1
 	}
@@ -257,11 +258,11 @@ func (s *ArticleService) List(filter ListArticlesFilter) (models.ListResponse, e
 		filter.Sort = "newest"
 	}
 
-	// Cache check.
+	// Cache check (keys are tenant-scoped, RFC-001 §6).
 	if s.cache == nil {
-		return s.listUncached(filter, "")
+		return s.listUncached(filter, "", tenantID)
 	}
-	cacheKey := s.listCacheKey(filter)
+	cacheKey := s.listCacheKey(filter, tenantID)
 	if cached, hit := s.cacheGetList(cacheKey); hit {
 		return cached, nil
 	}
@@ -272,7 +273,7 @@ func (s *ArticleService) List(filter ListArticlesFilter) (models.ListResponse, e
 		if cached, hit := s.cacheGetList(cacheKey); hit {
 			return cached, nil
 		}
-		return s.listUncached(filter, cacheKey)
+		return s.listUncached(filter, cacheKey, tenantID)
 	})
 	if err != nil {
 		return models.ListResponse{}, err
@@ -286,7 +287,7 @@ func (s *ArticleService) List(filter ListArticlesFilter) (models.ListResponse, e
 
 // listUncached queries the repository directly and (when cacheKey is
 // non-empty) stores the result in cache.
-func (s *ArticleService) listUncached(filter ListArticlesFilter, cacheKey string) (models.ListResponse, error) {
+func (s *ArticleService) listUncached(filter ListArticlesFilter, cacheKey string, tenantID uint) (models.ListResponse, error) {
 	articles, total, err := s.repo.List(repository.ArticleListFilter{
 		Page:       filter.Page,
 		PageSize:   filter.PageSize,
@@ -300,7 +301,7 @@ func (s *ArticleService) listUncached(filter ListArticlesFilter, cacheKey string
 		AuthorID:   filter.AuthorID,
 		Locale:     filter.Locale,
 		Full:       filter.Full,
-	})
+	}, tenantID)
 	if err != nil {
 		return models.ListResponse{}, err
 	}
@@ -323,6 +324,10 @@ func (s *ArticleService) Search(ctx context.Context, q SearchQuery) (*SearchResu
 
 // ReindexAll rebuilds the search index from scratch using all articles in
 // the database. Intended for startup warm-up or admin-triggered reindex.
+//
+// Multi-tenancy note: currently rebuilds the default tenant only. A
+// tenant-by-tenant pass lands with search-index tenant scoping (RFC-001 §6,
+// PR-4); behaviour is unchanged while all data lives in the default tenant.
 func (s *ArticleService) ReindexAll(ctx context.Context) (int, error) {
 	// Pull all articles directly from the repository in batches, then hand the
 	// full slice to the indexer's ReindexAll (which atomically clears and
@@ -339,7 +344,7 @@ func (s *ArticleService) ReindexAll(ctx context.Context) (int, error) {
 	for {
 		articles, _, err := s.repo.List(repository.ArticleListFilter{
 			Page: page, PageSize: batchSize, Sort: "oldest", Full: true,
-		})
+		}, models.DefaultTenantID)
 		if err != nil {
 			return 0, err
 		}
@@ -358,18 +363,18 @@ func (s *ArticleService) ReindexAll(ctx context.Context) (int, error) {
 	return len(all), nil
 }
 
-// Get returns a single article by ID.
-func (s *ArticleService) Get(id uint) (*models.Article, error) {
-	if a := s.cacheGetArticle(id); a != nil {
+// Get returns a single article by ID within the request tenant.
+func (s *ArticleService) Get(id, tenantID uint) (*models.Article, error) {
+	if a := s.cacheGetArticle(id, tenantID); a != nil {
 		return a, nil
 	}
 	// SEC-9: single-flight — concurrent misses on the same article share one
 	// DB load instead of stampeding the database.
-	v, err, _ := s.flight.Do(articleCacheKey(id), func() (interface{}, error) {
-		if a := s.cacheGetArticle(id); a != nil {
+	v, err, _ := s.flight.Do(articleCacheKey(id, tenantID), func() (interface{}, error) {
+		if a := s.cacheGetArticle(id, tenantID); a != nil {
 			return a, nil
 		}
-		a, err := s.repo.GetByID(id)
+		a, err := s.repo.GetByID(id, tenantID)
 		if err != nil {
 			return nil, err
 		}
@@ -386,23 +391,25 @@ func (s *ArticleService) Get(id uint) (*models.Article, error) {
 	return article, nil
 }
 
-// GetBySlug returns a single published article by slug and increments its view count.
-func (s *ArticleService) GetBySlug(articleSlug string) (*models.Article, error) {
-	article, err := s.repo.GetPublishedBySlug(articleSlug)
+// GetBySlug returns a single published article by slug within the request
+// tenant and increments its view count.
+func (s *ArticleService) GetBySlug(articleSlug string, tenantID uint) (*models.Article, error) {
+	article, err := s.repo.GetPublishedBySlug(articleSlug, tenantID)
 	if err != nil {
 		return nil, err
 	}
 
 	// Increment view count (best-effort, preserves prior behaviour).
-	_ = s.repo.IncrementViewCount(article.ID)
+	_ = s.repo.IncrementViewCount(article.ID, tenantID)
 	article.ViewCount++
 
 	return article, nil
 }
 
-// Create creates a new article and its initial revision.
-func (s *ArticleService) Create(req CreateArticleRequest, userID uint) (*models.Article, error) {
+// Create creates a new article and its initial revision within the tenant.
+func (s *ArticleService) Create(req CreateArticleRequest, tenantID, userID uint) (*models.Article, error) {
 	article := models.Article{
+		TenantID:      tenantID, // RFC-001 §5: created rows always carry the request tenant
 		Title:         req.Title,
 		Content:       req.Content,
 		Excerpt:       req.Excerpt,
@@ -461,8 +468,8 @@ func (s *ArticleService) Create(req CreateArticleRequest, userID uint) (*models.
 	} else {
 		article.Slug = models.GenerateSlug(req.Title)
 	}
-	// Ensure unique slug.
-	uniqueSlug, err := s.repo.EnsureUniqueSlug(article.Slug, 0)
+	// Ensure unique slug (tenant-scoped uniqueness, RFC-001 §4.4).
+	uniqueSlug, err := s.repo.EnsureUniqueSlug(article.Slug, 0, tenantID)
 	if err != nil {
 		return nil, errs.ErrInternal.Wrap(err)
 	}
@@ -492,7 +499,7 @@ func (s *ArticleService) Create(req CreateArticleRequest, userID uint) (*models.
 		"user_id": userID,
 	})
 
-	s.invalidateArticle(article.ID)
+	s.invalidateArticle(tenantID, article.ID)
 	return &article, nil
 }
 
@@ -509,28 +516,28 @@ func effectiveGroupID(a *models.Article) uint {
 }
 
 // ListTranslations returns all sibling translations of the given article
-// (excluding the article itself). The article's own locale is not included.
-func (s *ArticleService) ListTranslations(articleID uint) ([]models.Article, error) {
-	article, err := s.repo.FindByID(articleID)
+// (excluding the article itself), scoped to the tenant.
+func (s *ArticleService) ListTranslations(articleID, tenantID uint) ([]models.Article, error) {
+	article, err := s.repo.FindByID(articleID, tenantID)
 	if err != nil {
 		return nil, err
 	}
-	return s.repo.ListTranslations(effectiveGroupID(article), articleID)
+	return s.repo.ListTranslations(effectiveGroupID(article), articleID, tenantID)
 }
 
 // CreateTranslation creates a new article as a translation of an existing one.
 // The new article inherits the source's category, tags, and translation group,
 // but gets its own title/content/slug and the requested locale.
-func (s *ArticleService) CreateTranslation(sourceID uint, locale string, req CreateArticleRequest, userID uint) (*models.Article, error) {
+func (s *ArticleService) CreateTranslation(sourceID uint, locale string, req CreateArticleRequest, tenantID, userID uint) (*models.Article, error) {
 	if locale == "" {
 		return nil, errs.ErrBadRequest.WithMessage("locale is required for translation")
 	}
-	source, err := s.repo.FindByID(sourceID)
+	source, err := s.repo.FindByID(sourceID, tenantID)
 	if err != nil {
 		return nil, err
 	}
 	// Refuse duplicate locale within the same group.
-	if existing, err := s.repo.FindTranslationInLocale(effectiveGroupID(source), locale); err == nil && existing != nil {
+	if existing, err := s.repo.FindTranslationInLocale(effectiveGroupID(source), locale, tenantID); err == nil && existing != nil {
 		return nil, errs.ErrConflict.WithMessage("translation already exists for this locale")
 	} else if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, err
@@ -539,6 +546,7 @@ func (s *ArticleService) CreateTranslation(sourceID uint, locale string, req Cre
 	// Build the translated article from the source's metadata.
 	article := models.Article{
 		Title:              req.Title,
+		TenantID:           tenantID,
 		Content:            req.Content,
 		Excerpt:            req.Excerpt,
 		AuthorID:           userID,
@@ -586,7 +594,7 @@ func (s *ArticleService) CreateTranslation(sourceID uint, locale string, req Cre
 	} else {
 		article.Slug = models.GenerateSlug(req.Title)
 	}
-	uniqueSlug, err := s.repo.EnsureUniqueSlug(article.Slug, 0)
+	uniqueSlug, err := s.repo.EnsureUniqueSlug(article.Slug, 0, tenantID)
 	if err != nil {
 		return nil, errs.ErrInternal.Wrap(err)
 	}
@@ -623,9 +631,10 @@ func (s *ArticleService) CreateTranslation(sourceID uint, locale string, req Cre
 	return &article, nil
 }
 
-// Update updates an existing article. The caller must verify ownership or editor status.
-func (s *ArticleService) Update(id uint, req UpdateArticleRequest, userID uint, isEditor bool) (*models.Article, error) {
-	article, err := s.repo.FindByID(id)
+// Update updates an existing article within the tenant. The caller must
+// verify ownership or editor status.
+func (s *ArticleService) Update(id uint, req UpdateArticleRequest, tenantID, userID uint, isEditor bool) (*models.Article, error) {
+	article, err := s.repo.FindByID(id, tenantID)
 	if err != nil {
 		return nil, err
 	}
@@ -635,12 +644,12 @@ func (s *ArticleService) Update(id uint, req UpdateArticleRequest, userID uint, 
 		return nil, errs.ErrForbidden.WithMessage("Not authorized to edit this article")
 	}
 
-	updates, tagIDs, err := s.buildUpdateMap(article, req)
+	updates, tagIDs, err := s.buildUpdateMap(article, req, tenantID)
 	if err != nil {
 		return nil, err
 	}
 
-	if err := s.repo.Update(article, updates, tagIDs, req.RevisionNote, userID, req.ExpectedVersion); err != nil {
+	if err := s.repo.Update(article, updates, tagIDs, req.RevisionNote, userID, req.ExpectedVersion, tenantID); err != nil {
 		if errors.Is(err, repository.ErrConcurrentModification) {
 			return nil, errs.ErrConcurrentModification
 		}
@@ -665,7 +674,7 @@ func (s *ArticleService) Update(id uint, req UpdateArticleRequest, userID uint, 
 			"title": article.Title, "slug": article.Slug, "version": article.Version,
 		},
 	})
-	s.invalidateArticle(article.ID)
+	s.invalidateArticle(tenantID, article.ID)
 	return article, nil
 }
 
@@ -674,12 +683,12 @@ func (s *ArticleService) Update(id uint, req UpdateArticleRequest, userID uint, 
 // nullable fields are handled generically via setIf; fields with special logic
 // (slug, status) are handled explicitly. Returns (updates, tagIDs, err) where
 // tagIDs is nil when the request does not touch tags.
-func (s *ArticleService) buildUpdateMap(article *models.Article, req UpdateArticleRequest) (map[string]interface{}, []uint, error) {
+func (s *ArticleService) buildUpdateMap(article *models.Article, req UpdateArticleRequest, tenantID uint) (map[string]interface{}, []uint, error) {
 	updates := map[string]interface{}{}
 
 	// Fields with special logic.
 	if req.Slug != nil {
-		uniqueSlug, err := s.repo.EnsureUniqueSlug(*req.Slug, article.ID)
+		uniqueSlug, err := s.repo.EnsureUniqueSlug(*req.Slug, article.ID, tenantID)
 		if err != nil {
 			return nil, nil, errs.ErrInternal.Wrap(err)
 		}
@@ -722,9 +731,10 @@ func setIf[T any](updates map[string]interface{}, key string, v *T) {
 	}
 }
 
-// Delete soft-deletes an article. The caller must verify ownership or editor status.
-func (s *ArticleService) Delete(id uint, userID uint, isEditor bool) error {
-	article, err := s.repo.FindByID(id)
+// Delete soft-deletes an article within the tenant. The caller must verify
+// ownership or editor status.
+func (s *ArticleService) Delete(id, tenantID, userID uint, isEditor bool) error {
+	article, err := s.repo.FindByID(id, tenantID)
 	if err != nil {
 		return err
 	}
@@ -734,7 +744,7 @@ func (s *ArticleService) Delete(id uint, userID uint, isEditor bool) error {
 		return errs.ErrForbidden.WithMessage("Not authorized")
 	}
 
-	if err := s.repo.Delete(article); err != nil {
+	if err := s.repo.Delete(article, tenantID); err != nil {
 		return err
 	}
 
@@ -754,12 +764,13 @@ func (s *ArticleService) Delete(id uint, userID uint, isEditor bool) error {
 		Action: "article.delete", Entity: "article", EntityID: id,
 		Details: map[string]any{"title": article.Title, "slug": article.Slug},
 	})
-	s.invalidateArticle(id)
+	s.invalidateArticle(tenantID, id)
 	return nil
 }
 
-// BulkAction performs a bulk operation on a set of articles. Requires editor privileges.
-func (s *ArticleService) BulkAction(req BulkActionRequest) (int64, error) {
+// BulkAction performs a bulk operation on a set of articles within the
+// tenant. Requires editor privileges.
+func (s *ArticleService) BulkAction(req BulkActionRequest, tenantID uint) (int64, error) {
 	var event string
 	switch req.Action {
 	case "publish":
@@ -768,7 +779,7 @@ func (s *ArticleService) BulkAction(req BulkActionRequest) (int64, error) {
 		event = models.WebhookEventEntryDelete
 	}
 
-	n, err := s.bulkActionRepo(req)
+	n, err := s.bulkActionRepo(req, tenantID)
 	if err != nil {
 		return n, err
 	}
@@ -780,48 +791,49 @@ func (s *ArticleService) BulkAction(req BulkActionRequest) (int64, error) {
 			"count":  n,
 		})
 	}
-	s.invalidateArticle(req.ArticleIDs...)
+	s.invalidateArticle(tenantID, req.ArticleIDs...)
 	return n, nil
 }
 
 // bulkActionRepo dispatches to the repository without webhook side-effects.
-func (s *ArticleService) bulkActionRepo(req BulkActionRequest) (int64, error) {
+func (s *ArticleService) bulkActionRepo(req BulkActionRequest, tenantID uint) (int64, error) {
 	switch req.Action {
 	case "publish":
-		return s.repo.BulkPublish(req.ArticleIDs, time.Now())
+		return s.repo.BulkPublish(req.ArticleIDs, time.Now(), tenantID)
 	case "draft":
-		return s.repo.BulkUpdateStatus(req.ArticleIDs, string(models.StatusDraft))
+		return s.repo.BulkUpdateStatus(req.ArticleIDs, string(models.StatusDraft), tenantID)
 	case "trash":
-		return s.repo.BulkUpdateStatus(req.ArticleIDs, string(models.StatusTrash))
+		return s.repo.BulkUpdateStatus(req.ArticleIDs, string(models.StatusTrash), tenantID)
 	case "delete":
-		return s.repo.BulkDelete(req.ArticleIDs)
+		return s.repo.BulkDelete(req.ArticleIDs, tenantID)
 	case "move":
 		if req.CategoryID == nil {
 			return 0, errs.ErrBadRequest.WithMessage("category_id required for move action")
 		}
-		return s.repo.BulkMoveCategory(req.ArticleIDs, *req.CategoryID)
+		return s.repo.BulkMoveCategory(req.ArticleIDs, *req.CategoryID, tenantID)
 	case "pin":
-		return s.repo.BulkSetPinned(req.ArticleIDs, true)
+		return s.repo.BulkSetPinned(req.ArticleIDs, true, tenantID)
 	case "unpin":
-		return s.repo.BulkSetPinned(req.ArticleIDs, false)
+		return s.repo.BulkSetPinned(req.ArticleIDs, false, tenantID)
 	default:
 		return 0, errs.ErrBadRequest.WithMessage("Unknown action")
 	}
 }
 
-// Revisions returns the revision history for an article.
-func (s *ArticleService) Revisions(articleID uint) ([]models.Revision, error) {
-	return s.repo.ListRevisions(articleID)
+// Revisions returns the revision history for an article within the tenant.
+func (s *ArticleService) Revisions(articleID, tenantID uint) ([]models.Revision, error) {
+	return s.repo.ListRevisions(articleID, tenantID)
 }
 
-// RestoreRevision restores an article to a specific revision and creates a new revision recording the restore.
-func (s *ArticleService) RestoreRevision(articleID uint, revisionID uint, userID uint, isEditor bool) error {
-	revision, err := s.repo.FindRevision(revisionID, articleID)
+// RestoreRevision restores an article to a specific revision and creates a
+// new revision recording the restore, scoped to the tenant.
+func (s *ArticleService) RestoreRevision(articleID, revisionID, tenantID, userID uint, isEditor bool) error {
+	revision, err := s.repo.FindRevision(revisionID, articleID, tenantID)
 	if err != nil {
 		return err
 	}
 
-	article, err := s.repo.FindByID(articleID)
+	article, err := s.repo.FindByID(articleID, tenantID)
 	if err != nil {
 		return err
 	}
@@ -831,12 +843,12 @@ func (s *ArticleService) RestoreRevision(articleID uint, revisionID uint, userID
 		return errs.ErrForbidden.WithMessage("Not authorized to restore revisions of this article")
 	}
 
-	if err := s.repo.RestoreRevision(article, revision, userID); err != nil {
+	if err := s.repo.RestoreRevision(article, revision, userID, tenantID); err != nil {
 		return err
 	}
 	// Content changed: re-index with full preloaded metadata.
-	s.reindexByID(articleID)
-	s.invalidateArticle(articleID)
+	s.reindexByID(articleID, tenantID)
+	s.invalidateArticle(tenantID, articleID)
 	return nil
 }
 
@@ -852,8 +864,8 @@ func (s *ArticleService) RestoreRevision(articleID uint, revisionID uint, userID
 // It loads the article, checks the state machine, applies the update via the
 // repository, and returns the reloaded article. The caller is responsible for
 // webhook dispatch (so it can choose the right event name).
-func (s *ArticleService) transitionTo(id uint, target models.ArticleStatus, publishedAt, scheduledAt *time.Time) (*models.Article, error) {
-	article, err := s.repo.FindByID(id)
+func (s *ArticleService) transitionTo(id uint, target models.ArticleStatus, publishedAt, scheduledAt *time.Time, tenantID uint) (*models.Article, error) {
+	article, err := s.repo.FindByID(id, tenantID)
 	if err != nil {
 		return nil, err
 	}
@@ -861,12 +873,12 @@ func (s *ArticleService) transitionTo(id uint, target models.ArticleStatus, publ
 		return nil, errs.ErrBadRequest.WithMessage(
 			fmt.Sprintf("illegal status transition: %s → %s", article.Status, target))
 	}
-	if err := s.repo.UpdateStatus(id, string(target), publishedAt, scheduledAt); err != nil {
+	if err := s.repo.UpdateStatus(id, string(target), publishedAt, scheduledAt, tenantID); err != nil {
 		return nil, err
 	}
 	// Reload to reflect the persisted state (FindByID does not preload; for
 	// webhook payloads the bare fields are sufficient).
-	updated, err := s.repo.FindByID(id)
+	updated, err := s.repo.FindByID(id, tenantID)
 	if err != nil {
 		slog.Warn("transitionTo: reload after status update failed, returning pre-update snapshot",
 			"article_id", id, "target_status", target, "error", err)
@@ -874,26 +886,28 @@ func (s *ArticleService) transitionTo(id uint, target models.ArticleStatus, publ
 	}
 	// Status changes affect search visibility (e.g. draft→published makes the
 	// article publicly searchable). Re-index with full preloaded metadata.
-	s.reindexByID(id)
-	s.invalidateArticle(id)
+	s.reindexByID(id, tenantID)
+	s.invalidateArticle(tenantID, id)
 	return updated, nil
 }
 
 // Publish flips an article to published status, recording the publish time if
-// it has none. Triggers the entry.publish webhook event.
+// it has none. Triggers the entry.publish webhook event. Default-tenant
+// variant for internal/scheduler use; prefer PublishAs for request paths.
 func (s *ArticleService) Publish(id uint) (*models.Article, error) {
-	return s.publish(id, nil)
+	return s.publish(id, nil, models.DefaultTenantID)
 }
 
-// PublishAs publishes an article and records the authenticated actor.
-func (s *ArticleService) PublishAs(id, userID uint) (*models.Article, error) {
-	return s.publish(id, &userID)
+// PublishAs publishes an article within the tenant and records the
+// authenticated actor.
+func (s *ArticleService) PublishAs(id, tenantID, userID uint) (*models.Article, error) {
+	return s.publish(id, &userID, tenantID)
 }
 
-func (s *ArticleService) publish(id uint, userID *uint) (*models.Article, error) {
+func (s *ArticleService) publish(id uint, userID *uint, tenantID uint) (*models.Article, error) {
 	// Only set PublishedAt if the article doesn't already have one. We need
 	// to inspect the current article to decide, so load it first.
-	current, err := s.repo.FindByID(id)
+	current, err := s.repo.FindByID(id, tenantID)
 	if err != nil {
 		return nil, err
 	}
@@ -902,7 +916,7 @@ func (s *ArticleService) publish(id uint, userID *uint) (*models.Article, error)
 		now := time.Now()
 		publishedAt = &now
 	}
-	updated, err := s.transitionTo(id, models.StatusPublished, publishedAt, nil)
+	updated, err := s.transitionTo(id, models.StatusPublished, publishedAt, nil, tenantID)
 	if err != nil {
 		return nil, err
 	}
@@ -919,16 +933,17 @@ func (s *ArticleService) publish(id uint, userID *uint) (*models.Article, error)
 // Unpublish reverts a published/scheduled article back to draft. Triggers the
 // entry.unpublish webhook event.
 func (s *ArticleService) Unpublish(id uint) (*models.Article, error) {
-	return s.unpublish(id, nil)
+	return s.unpublish(id, nil, models.DefaultTenantID)
 }
 
-// UnpublishAs unpublishes an article and records the authenticated actor.
-func (s *ArticleService) UnpublishAs(id, userID uint) (*models.Article, error) {
-	return s.unpublish(id, &userID)
+// UnpublishAs unpublishes an article within the tenant and records the
+// authenticated actor.
+func (s *ArticleService) UnpublishAs(id, tenantID, userID uint) (*models.Article, error) {
+	return s.unpublish(id, &userID, tenantID)
 }
 
-func (s *ArticleService) unpublish(id uint, userID *uint) (*models.Article, error) {
-	updated, err := s.transitionTo(id, models.StatusDraft, nil, nil)
+func (s *ArticleService) unpublish(id uint, userID *uint, tenantID uint) (*models.Article, error) {
+	updated, err := s.transitionTo(id, models.StatusDraft, nil, nil, tenantID)
 	if err != nil {
 		return nil, err
 	}
@@ -944,16 +959,16 @@ func (s *ArticleService) unpublish(id uint, userID *uint) (*models.Article, erro
 
 // SubmitForReview moves a draft into the pending (review) queue.
 func (s *ArticleService) SubmitForReview(id uint) (*models.Article, error) {
-	return s.submitForReview(id, nil)
+	return s.submitForReview(id, nil, models.DefaultTenantID)
 }
 
 // SubmitForReviewAs records who submitted the article for review.
-func (s *ArticleService) SubmitForReviewAs(id, userID uint) (*models.Article, error) {
-	return s.submitForReview(id, &userID)
+func (s *ArticleService) SubmitForReviewAs(id, tenantID, userID uint) (*models.Article, error) {
+	return s.submitForReview(id, &userID, tenantID)
 }
 
-func (s *ArticleService) submitForReview(id uint, userID *uint) (*models.Article, error) {
-	updated, err := s.transitionTo(id, models.StatusPending, nil, nil)
+func (s *ArticleService) submitForReview(id uint, userID *uint, tenantID uint) (*models.Article, error) {
+	updated, err := s.transitionTo(id, models.StatusPending, nil, nil, tenantID)
 	if err != nil {
 		return nil, err
 	}
@@ -965,33 +980,34 @@ func (s *ArticleService) submitForReview(id uint, userID *uint) (*models.Article
 }
 
 // Approve marks a pending article as published, recording the publish time if
-// it has none. Triggers the entry.publish webhook event.
+// it has none. Triggers the entry.publish webhook event. Default-tenant
+// variant; prefer ApproveAs for request paths.
 func (s *ArticleService) Approve(id uint) (*models.Article, error) {
-	return s.Publish(id) // pending → published reuses the Publish path
+	return s.Publish(id)
 }
 
-// ApproveAs approves an article and records the authenticated reviewer.
-func (s *ArticleService) ApproveAs(id, userID uint) (*models.Article, error) {
-	return s.PublishAs(id, userID)
+// ApproveAs approves an article within the tenant and records the reviewer.
+func (s *ArticleService) ApproveAs(id, tenantID, userID uint) (*models.Article, error) {
+	return s.PublishAs(id, tenantID, userID)
 }
 
 // Schedule marks an article for automatic publication at the given time. The
 // article stays non-public (status=scheduled) until the PublishScheduler flips
 // it. Triggers the entry.schedule webhook event.
 func (s *ArticleService) Schedule(id uint, at time.Time) (*models.Article, error) {
-	return s.schedule(id, at, nil)
+	return s.schedule(id, at, nil, models.DefaultTenantID)
 }
 
-// ScheduleAs schedules an article and records the authenticated actor.
-func (s *ArticleService) ScheduleAs(id uint, at time.Time, userID uint) (*models.Article, error) {
-	return s.schedule(id, at, &userID)
+// ScheduleAs schedules an article within the tenant and records the actor.
+func (s *ArticleService) ScheduleAs(id uint, at time.Time, tenantID, userID uint) (*models.Article, error) {
+	return s.schedule(id, at, &userID, tenantID)
 }
 
-func (s *ArticleService) schedule(id uint, at time.Time, userID *uint) (*models.Article, error) {
+func (s *ArticleService) schedule(id uint, at time.Time, userID *uint, tenantID uint) (*models.Article, error) {
 	if at.IsZero() {
 		return nil, errs.ErrBadRequest.WithMessage("scheduled_at is required")
 	}
-	updated, err := s.transitionTo(id, models.StatusScheduled, nil, &at)
+	updated, err := s.transitionTo(id, models.StatusScheduled, nil, &at, tenantID)
 	if err != nil {
 		return nil, err
 	}
@@ -1007,16 +1023,16 @@ func (s *ArticleService) schedule(id uint, at time.Time, userID *uint) (*models.
 
 // Archive moves an article out of the active lifecycle.
 func (s *ArticleService) Archive(id uint) (*models.Article, error) {
-	return s.archive(id, nil)
+	return s.archive(id, nil, models.DefaultTenantID)
 }
 
-// ArchiveAs archives an article and records the authenticated actor.
-func (s *ArticleService) ArchiveAs(id, userID uint) (*models.Article, error) {
-	return s.archive(id, &userID)
+// ArchiveAs archives an article within the tenant and records the actor.
+func (s *ArticleService) ArchiveAs(id, tenantID, userID uint) (*models.Article, error) {
+	return s.archive(id, &userID, tenantID)
 }
 
-func (s *ArticleService) archive(id uint, userID *uint) (*models.Article, error) {
-	updated, err := s.transitionTo(id, models.StatusArchived, nil, nil)
+func (s *ArticleService) archive(id uint, userID *uint, tenantID uint) (*models.Article, error) {
+	updated, err := s.transitionTo(id, models.StatusArchived, nil, nil, tenantID)
 	if err != nil {
 		return nil, err
 	}
@@ -1030,8 +1046,11 @@ func (s *ArticleService) archive(id uint, userID *uint) (*models.Article, error)
 // PublishDueScheduled publishes all scheduled articles whose ScheduledAt is at
 // or before now. Returns the number of articles flipped. Used by the
 // PublishScheduler worker.
+//
+// Multi-tenancy note: currently scans the default tenant only; a tenant-by-
+// tenant pass lands with PR-4 (RFC-001 §5).
 func (s *ArticleService) PublishDueScheduled(now time.Time) (int, error) {
-	due, err := s.repo.ListScheduledDue(now)
+	due, err := s.repo.ListScheduledDue(now, models.DefaultTenantID)
 	if err != nil {
 		return 0, err
 	}
@@ -1042,7 +1061,7 @@ func (s *ArticleService) PublishDueScheduled(now time.Time) (int, error) {
 	for _, a := range due {
 		ids = append(ids, a.ID)
 	}
-	n, err := s.repo.BulkPublish(ids, now)
+	n, err := s.repo.BulkPublish(ids, now, models.DefaultTenantID)
 	if err != nil {
 		return 0, err
 	}
@@ -1055,20 +1074,21 @@ func (s *ArticleService) PublishDueScheduled(now time.Time) (int, error) {
 	}
 	// Re-index auto-published articles so they become publicly searchable.
 	for _, id := range ids {
-		s.reindexByID(id)
+		s.reindexByID(id, models.DefaultTenantID)
 	}
-	s.invalidateArticle(ids...)
+	s.invalidateArticle(models.DefaultTenantID, ids...)
 	return int(n), nil
 }
 
-// LikeArticle increments the like count for an article.
-func (s *ArticleService) LikeArticle(id uint) error {
-	return s.repo.IncrementLikeCount(id)
+// LikeArticle increments the like count for an article within the tenant.
+func (s *ArticleService) LikeArticle(id, tenantID uint) error {
+	return s.repo.IncrementLikeCount(id, tenantID)
 }
 
-// GenerateFeed produces an RSS 2.0 XML string of the latest published articles.
-func (s *ArticleService) GenerateFeed() (string, error) {
-	articles, err := s.repo.ListPublishedForFeed(defaultFeedSize)
+// GenerateFeed produces an RSS 2.0 XML string of the latest published
+// articles within the tenant.
+func (s *ArticleService) GenerateFeed(tenantID uint) (string, error) {
+	articles, err := s.repo.ListPublishedForFeed(defaultFeedSize, tenantID)
 	if err != nil {
 		return "", err
 	}

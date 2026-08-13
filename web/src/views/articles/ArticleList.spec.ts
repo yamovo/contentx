@@ -110,7 +110,7 @@ describe('ArticleList', () => {
     vm.selectedIds = [1]
     await wrapper.vm.$nextTick()
 
-    const bulkBtn = wrapper.findAll('button').find((b) => b.text().includes('转为草稿'))
+    const bulkBtn = wrapper.findAll('button').find((b) => b.text().includes('批量发布'))
     await bulkBtn!.trigger('click')
     await flushPromises()
 

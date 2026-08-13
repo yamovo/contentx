@@ -168,3 +168,32 @@ func TestBlacklist_ConsumeIsAtomic(t *testing.T) {
 		t.Fatalf("expected exactly one successful consume, got %d", successes)
 	}
 }
+
+func TestGenerateTokenPairWithTenant_EmbedsTenantID(t *testing.T) {
+	m := testJWTManager(time.Hour)
+
+	pair, err := m.GenerateTokenPairWithTenant(1, 42, "u", "e@x.com", "admin", "Admin")
+	if err != nil {
+		t.Fatalf("GenerateTokenPairWithTenant: %v", err)
+	}
+	claims, err := m.ValidateAccessToken(pair.AccessToken)
+	if err != nil {
+		t.Fatalf("ValidateAccessToken: %v", err)
+	}
+	if claims.TenantID != 42 {
+		t.Errorf("claims.TenantID = %d, want 42", claims.TenantID)
+	}
+
+	// Legacy path stays at 0 (resolved to default tenant by middleware).
+	pair2, err := m.GenerateTokenPair(1, "u", "e@x.com", "admin", "Admin")
+	if err != nil {
+		t.Fatalf("GenerateTokenPair: %v", err)
+	}
+	claims2, err := m.ValidateAccessToken(pair2.AccessToken)
+	if err != nil {
+		t.Fatalf("ValidateAccessToken: %v", err)
+	}
+	if claims2.TenantID != 0 {
+		t.Errorf("legacy claims.TenantID = %d, want 0", claims2.TenantID)
+	}
+}

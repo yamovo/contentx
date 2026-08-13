@@ -51,7 +51,7 @@ func (h *CommentHandler) List(c *gin.Context) {
 		Search:    c.Query("search"),
 	}
 
-	comments, total, err := h.svc.List(params)
+	comments, total, err := h.svc.List(params, getCurrentTenant(c))
 	if err != nil {
 		handleServiceError(c, err)
 		return
@@ -82,7 +82,7 @@ func (h *CommentHandler) Get(c *gin.Context) {
 		return
 	}
 
-	comment, err := h.svc.Get(uint(id))
+	comment, err := h.svc.Get(uint(id), getCurrentTenant(c))
 	if err != nil {
 		handleServiceError(c, err)
 		return
@@ -118,7 +118,7 @@ func (h *CommentHandler) Create(c *gin.Context) {
 		isEditor = user.IsEditor()
 	}
 
-	comment, err := h.svc.Create(req, c.ClientIP(), c.Request.UserAgent(), userID, isEditor)
+	comment, err := h.svc.Create(req, c.ClientIP(), c.Request.UserAgent(), userID, isEditor, getCurrentTenant(c))
 	if err != nil {
 		handleServiceError(c, err)
 		return
@@ -163,7 +163,7 @@ func (h *CommentHandler) Update(c *gin.Context) {
 		return
 	}
 
-	if err := h.svc.Update(uint(id), req.Content); err != nil {
+	if err := h.svc.Update(uint(id), req.Content, getCurrentTenant(c)); err != nil {
 		handleServiceError(c, err)
 		return
 	}
@@ -232,7 +232,7 @@ func (h *CommentHandler) updateStatus(c *gin.Context, status string) {
 		return
 	}
 
-	if err := h.svc.UpdateStatus(uint(id), status); err != nil {
+	if err := h.svc.UpdateStatus(uint(id), status, getCurrentTenant(c)); err != nil {
 		handleServiceError(c, err)
 		return
 	}
@@ -270,7 +270,7 @@ func (h *CommentHandler) BulkAction(c *gin.Context) {
 		return
 	}
 
-	affected, err := h.svc.BulkAction(req.CommentIDs, req.Action)
+	affected, err := h.svc.BulkAction(req.CommentIDs, req.Action, getCurrentTenant(c))
 	if err != nil {
 		handleServiceError(c, err)
 		return
@@ -298,7 +298,7 @@ func (h *CommentHandler) ArticleComments(c *gin.Context) {
 		return
 	}
 
-	comments, err := h.svc.ArticleComments(uint(id))
+	comments, err := h.svc.ArticleComments(uint(id), getCurrentTenant(c))
 	if err != nil {
 		handleServiceError(c, err)
 		return
@@ -320,7 +320,7 @@ func (h *CommentHandler) ArticleComments(c *gin.Context) {
 //	@Failure      403  {object}  APIResponse
 //	@Router       /comments/stats [get]
 func (h *CommentHandler) Stats(c *gin.Context) {
-	stats, err := h.svc.Stats()
+	stats, err := h.svc.Stats(getCurrentTenant(c))
 	if err != nil {
 		handleServiceError(c, err)
 		return

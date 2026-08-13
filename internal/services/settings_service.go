@@ -156,8 +156,10 @@ func (s *SettingsService) SetAuditLogger(l AuditLogger) {
 }
 
 // List returns all settings, optionally filtered by group, plus a grouped map.
-func (s *SettingsService) List(group string) ([]models.SiteSetting, map[string][]models.SiteSetting, error) {
-	settings, err := s.repo.List(group)
+// List returns settings grouped by group, scoped to the tenant (global rows
+// plus the tenant's overrides).
+func (s *SettingsService) List(group string, tenantID uint) ([]models.SiteSetting, map[string][]models.SiteSetting, error) {
+	settings, err := s.repo.List(group, tenantID)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -170,16 +172,16 @@ func (s *SettingsService) List(group string) ([]models.SiteSetting, map[string][
 	return settings, grouped, nil
 }
 
-// Get returns a single setting by key.
-func (s *SettingsService) Get(key string) (*models.SiteSetting, error) {
-	return s.repo.Get(key)
+// Get returns a single setting by key within the tenant's scope.
+func (s *SettingsService) Get(key string, tenantID uint) (*models.SiteSetting, error) {
+	return s.repo.Get(key, tenantID)
 }
 
-// Update upserts multiple settings at once.
-func (s *SettingsService) Update(settings map[string]interface{}, actorIDs ...uint) error {
+// Update upserts multiple settings at once within the tenant's scope.
+func (s *SettingsService) Update(settings map[string]interface{}, tenantID uint, actorIDs ...uint) error {
 	for key, value := range settings {
 		strValue := stringifyValue(value)
-		rowsAffected, err := s.repo.UpdateValue(key, strValue)
+		rowsAffected, err := s.repo.UpdateValue(key, strValue, tenantID)
 		if err != nil {
 			return err
 		}
@@ -224,9 +226,10 @@ func isSensitiveSetting(key string) bool {
 	return false
 }
 
-// PublicSettings returns public settings as a flat key-value map.
-func (s *SettingsService) PublicSettings() (map[string]string, error) {
-	settings, err := s.repo.ListPublic()
+// PublicSettings returns public settings as a flat key-value map, scoped to
+// the tenant.
+func (s *SettingsService) PublicSettings(tenantID uint) (map[string]string, error) {
+	settings, err := s.repo.ListPublic(tenantID)
 	if err != nil {
 		return nil, err
 	}
@@ -259,17 +262,18 @@ func NewSEOServiceWithRepo(repo repository.SEORepository, baseURL string) *SEOSe
 	return &SEOService{repo: repo, baseURL: baseURL}
 }
 
-// GetSetting returns the SEO setting for a specific entity.
-func (s *SEOService) GetSetting(entityType string, entityID uint) (*models.SEOSetting, error) {
-	return s.repo.GetSetting(entityType, entityID)
+// GetSetting returns the SEO setting for a specific entity within the tenant.
+func (s *SEOService) GetSetting(entityType string, entityID, tenantID uint) (*models.SEOSetting, error) {
+	return s.repo.GetSetting(entityType, entityID, tenantID)
 }
 
-// UpdateSetting upserts SEO settings for a specific entity.
-func (s *SEOService) UpdateSetting(entityType string, entityID uint, req SEOSettingRequest) error {
-	setting, err := s.repo.GetSetting(entityType, entityID)
+// UpdateSetting upserts SEO settings for a specific entity within the tenant.
+func (s *SEOService) UpdateSetting(entityType string, entityID, tenantID uint, req SEOSettingRequest) error {
+	setting, err := s.repo.GetSetting(entityType, entityID, tenantID)
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
 			setting = &models.SEOSetting{
+				TenantID:   tenantID, // RFC-001 §5
 				EntityType: entityType,
 				EntityID:   entityID,
 				Title:      req.Title,
@@ -297,9 +301,10 @@ func (s *SEOService) UpdateSetting(entityType string, entityID uint, req SEOSett
 	return s.repo.SaveSetting(setting)
 }
 
-// Sitemap generates a sitemap XML string using the configured base URL.
-func (s *SEOService) Sitemap() (string, error) {
-	articles, err := s.repo.ListPublishedArticlesForSitemap()
+// Sitemap generates a sitemap XML string using the configured base URL,
+// scoped to the tenant.
+func (s *SEOService) Sitemap(tenantID uint) (string, error) {
+	articles, err := s.repo.ListPublishedArticlesForSitemap(tenantID)
 	if err != nil {
 		return "", err
 	}
@@ -332,17 +337,19 @@ Sitemap: ` + s.baseURL + `/sitemap.xml
 `
 }
 
-// ListRedirects returns all redirect rules ordered by from_path.
-func (s *SEOService) ListRedirects() ([]models.RedirectRule, error) {
-	return s.repo.ListRedirects()
+// ListRedirects returns all redirect rules ordered by from_path within the
+// tenant.
+func (s *SEOService) ListRedirects(tenantID uint) ([]models.RedirectRule, error) {
+	return s.repo.ListRedirects(tenantID)
 }
 
-// CreateRedirect creates a new redirect rule.
-func (s *SEOService) CreateRedirect(req CreateRedirectRequest) (*models.RedirectRule, error) {
+// CreateRedirect creates a new redirect rule within the tenant.
+func (s *SEOService) CreateRedirect(req CreateRedirectRequest, tenantID uint) (*models.RedirectRule, error) {
 	if req.StatusCode == 0 {
 		req.StatusCode = 301
 	}
 	rule := models.RedirectRule{
+		TenantID:   tenantID, // RFC-001 §5
 		FromPath:   req.FromPath,
 		ToPath:     req.ToPath,
 		StatusCode: req.StatusCode,
@@ -355,9 +362,9 @@ func (s *SEOService) CreateRedirect(req CreateRedirectRequest) (*models.Redirect
 	return &rule, nil
 }
 
-// DeleteRedirect deletes a redirect rule by ID.
-func (s *SEOService) DeleteRedirect(id uint) error {
-	return s.repo.DeleteRedirect(id)
+// DeleteRedirect deletes a redirect rule by ID within the tenant.
+func (s *SEOService) DeleteRedirect(id, tenantID uint) error {
+	return s.repo.DeleteRedirect(id, tenantID)
 }
 
 // ============================================================
@@ -381,19 +388,21 @@ func NewMenuServiceWithRepo(repo repository.MenuRepository) *MenuService {
 	return &MenuService{repo: repo}
 }
 
-// List returns all menus with their items sorted by sort_order.
-func (s *MenuService) List() ([]models.Menu, error) {
-	return s.repo.ListMenus()
+// List returns all menus with their items sorted by sort_order, scoped to the
+// tenant.
+func (s *MenuService) List(tenantID uint) ([]models.Menu, error) {
+	return s.repo.ListMenus(tenantID)
 }
 
 // Get returns a single menu by ID with its items sorted by sort_order.
-func (s *MenuService) Get(id uint) (*models.Menu, error) {
-	return s.repo.GetMenuByID(id)
+func (s *MenuService) Get(id, tenantID uint) (*models.Menu, error) {
+	return s.repo.GetMenuByID(id, tenantID)
 }
 
-// Create creates a new menu.
-func (s *MenuService) Create(req CreateMenuRequest) (*models.Menu, error) {
+// Create creates a new menu within the tenant.
+func (s *MenuService) Create(req CreateMenuRequest, tenantID uint) (*models.Menu, error) {
 	menu := models.Menu{
+		TenantID:  tenantID, // RFC-001 §5
 		Name:      req.Name,
 		Slug:      req.Slug,
 		Locations: req.Locations,
@@ -404,28 +413,30 @@ func (s *MenuService) Create(req CreateMenuRequest) (*models.Menu, error) {
 	return &menu, nil
 }
 
-// Update updates a menu's name and locations.
-func (s *MenuService) Update(id uint, req UpdateMenuRequest) error {
-	if _, err := s.repo.FindMenu(id); err != nil {
+// Update updates a menu's name and locations within the tenant.
+func (s *MenuService) Update(id uint, req UpdateMenuRequest, tenantID uint) error {
+	if _, err := s.repo.FindMenu(id, tenantID); err != nil {
 		return err
 	}
 	return s.repo.UpdateMenuFields(id, map[string]interface{}{
 		"name":      req.Name,
 		"locations": req.Locations,
-	})
+	}, tenantID)
 }
 
-// Delete deletes a menu and its associated items.
-func (s *MenuService) Delete(id uint) error {
-	if _, err := s.repo.FindMenu(id); err != nil {
+// Delete deletes a menu and its associated items within the tenant.
+func (s *MenuService) Delete(id, tenantID uint) error {
+	if _, err := s.repo.FindMenu(id, tenantID); err != nil {
 		return err
 	}
-	return s.repo.DeleteMenu(id)
+	return s.repo.DeleteMenu(id, tenantID)
 }
 
-// AddItem adds a new item to a menu, auto-setting sort_order and default target.
-func (s *MenuService) AddItem(menuID uint, req AddMenuItemRequest) (*models.MenuItem, error) {
+// AddItem adds a new item to a menu, auto-setting sort_order and default
+// target, within the tenant.
+func (s *MenuService) AddItem(menuID uint, req AddMenuItemRequest, tenantID uint) (*models.MenuItem, error) {
 	item := models.MenuItem{
+		TenantID:   tenantID, // RFC-001 §5
 		MenuID:     menuID,
 		Title:      req.Title,
 		URL:        req.URL,
@@ -440,7 +451,7 @@ func (s *MenuService) AddItem(menuID uint, req AddMenuItemRequest) (*models.Menu
 		item.Target = "_self"
 	}
 
-	maxSort, err := s.repo.MaxItemSortOrder(menuID)
+	maxSort, err := s.repo.MaxItemSortOrder(menuID, tenantID)
 	if err != nil {
 		return nil, err
 	}
@@ -452,9 +463,10 @@ func (s *MenuService) AddItem(menuID uint, req AddMenuItemRequest) (*models.Menu
 	return &item, nil
 }
 
-// UpdateItem updates a menu item, only modifying fields that are non-nil.
-func (s *MenuService) UpdateItem(itemID uint, req UpdateMenuItemRequest) error {
-	if _, err := s.repo.FindItem(itemID); err != nil {
+// UpdateItem updates a menu item, only modifying fields that are non-nil,
+// within the tenant.
+func (s *MenuService) UpdateItem(itemID uint, req UpdateMenuItemRequest, tenantID uint) error {
+	if _, err := s.repo.FindItem(itemID, tenantID); err != nil {
 		return err
 	}
 
@@ -484,22 +496,23 @@ func (s *MenuService) UpdateItem(itemID uint, req UpdateMenuItemRequest) error {
 		updates["parent_id"] = *req.ParentID
 	}
 
-	return s.repo.UpdateItemFields(itemID, updates)
+	return s.repo.UpdateItemFields(itemID, updates, tenantID)
 }
 
-// DeleteItem removes a menu item by ID.
-func (s *MenuService) DeleteItem(itemID uint) error {
-	return s.repo.DeleteItem(itemID)
+// DeleteItem removes a menu item by ID within the tenant.
+func (s *MenuService) DeleteItem(itemID, tenantID uint) error {
+	return s.repo.DeleteItem(itemID, tenantID)
 }
 
-// ReorderItems updates sort_order (and optionally parent_id) for a batch of items.
-func (s *MenuService) ReorderItems(items []ReorderItem) error {
+// ReorderItems updates sort_order (and optionally parent_id) for a batch of
+// items within the tenant.
+func (s *MenuService) ReorderItems(items []ReorderItem, tenantID uint) error {
 	for _, item := range items {
 		updates := map[string]interface{}{"sort_order": item.SortOrder}
 		if item.ParentID != nil {
 			updates["parent_id"] = item.ParentID
 		}
-		if err := s.repo.UpdateItemFields(item.ID, updates); err != nil {
+		if err := s.repo.UpdateItemFields(item.ID, updates, tenantID); err != nil {
 			return err
 		}
 	}

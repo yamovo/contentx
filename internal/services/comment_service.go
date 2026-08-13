@@ -57,26 +57,26 @@ func NewCommentServiceWithRepo(repo repository.CommentRepository) *CommentServic
 // SetWebhookDispatcher attaches a webhook dispatcher for event triggering.
 func (s *CommentService) SetWebhookDispatcher(d WebhookDispatcher) { s.webhook = d }
 
-// List returns comments with pagination and filters.
-func (s *CommentService) List(params CommentListParams) ([]models.Comment, int64, error) {
+// List returns comments with pagination and filters, scoped to the tenant.
+func (s *CommentService) List(params CommentListParams, tenantID uint) ([]models.Comment, int64, error) {
 	return s.repo.List(repository.CommentListFilter{
 		Page:      params.Page,
 		PageSize:  params.PageSize,
 		Status:    params.Status,
 		ArticleID: params.ArticleID,
 		Search:    params.Search,
-	})
+	}, tenantID)
 }
 
-// Get returns a single comment by ID.
-func (s *CommentService) Get(id uint) (*models.Comment, error) {
-	return s.repo.GetByID(id)
+// Get returns a single comment by ID within the tenant.
+func (s *CommentService) Get(id, tenantID uint) (*models.Comment, error) {
+	return s.repo.GetByID(id, tenantID)
 }
 
-// Create creates a new comment.
-func (s *CommentService) Create(req CreateCommentRequest, clientIP, userAgent string, userID *uint, isEditor bool) (*models.Comment, error) {
-	// Verify article exists and allows comments.
-	article, err := s.repo.FindArticleByID(req.ArticleID)
+// Create creates a new comment within the tenant.
+func (s *CommentService) Create(req CreateCommentRequest, clientIP, userAgent string, userID *uint, isEditor bool, tenantID uint) (*models.Comment, error) {
+	// Verify article exists (within the tenant) and allows comments.
+	article, err := s.repo.FindArticleByID(req.ArticleID, tenantID)
 	if err != nil {
 		return nil, errors.New("article not found")
 	}
@@ -85,6 +85,7 @@ func (s *CommentService) Create(req CreateCommentRequest, clientIP, userAgent st
 	}
 
 	comment := models.Comment{
+		TenantID:    tenantID, // RFC-001 §5
 		ArticleID:   req.ArticleID,
 		ParentID:    req.ParentID,
 		Content:     req.Content,
@@ -107,7 +108,7 @@ func (s *CommentService) Create(req CreateCommentRequest, clientIP, userAgent st
 
 	// Calculate depth from parent (best-effort, mirrors prior behaviour: silently ignore missing parent).
 	if req.ParentID != nil {
-		if parent, err := s.repo.FindCommentByID(*req.ParentID); err == nil {
+		if parent, err := s.repo.FindCommentByID(*req.ParentID, tenantID); err == nil {
 			comment.Depth = parent.Depth + 1
 		}
 	}
@@ -117,7 +118,7 @@ func (s *CommentService) Create(req CreateCommentRequest, clientIP, userAgent st
 	}
 
 	// Update article comment count (best-effort).
-	_ = s.repo.IncrementArticleCommentCount(article.ID)
+	_ = s.repo.IncrementArticleCommentCount(article.ID, tenantID)
 
 	if s.webhook != nil {
 		s.webhook.Dispatch(models.WebhookEventCommentCreate, &comment)
@@ -126,9 +127,9 @@ func (s *CommentService) Create(req CreateCommentRequest, clientIP, userAgent st
 	return &comment, nil
 }
 
-// Update updates a comment's content.
-func (s *CommentService) Update(id uint, content string) error {
-	rowsAffected, err := s.repo.UpdateContent(id, content)
+// Update updates a comment's content within the tenant.
+func (s *CommentService) Update(id uint, content string, tenantID uint) error {
+	rowsAffected, err := s.repo.UpdateContent(id, content, tenantID)
 	if err != nil {
 		return err
 	}
@@ -138,9 +139,9 @@ func (s *CommentService) Update(id uint, content string) error {
 	return nil
 }
 
-// UpdateStatus updates a comment's status.
-func (s *CommentService) UpdateStatus(id uint, status string) error {
-	rowsAffected, err := s.repo.UpdateStatus(id, status)
+// UpdateStatus updates a comment's status within the tenant.
+func (s *CommentService) UpdateStatus(id uint, status string, tenantID uint) error {
+	rowsAffected, err := s.repo.UpdateStatus(id, status, tenantID)
 	if err != nil {
 		return err
 	}
@@ -150,30 +151,31 @@ func (s *CommentService) UpdateStatus(id uint, status string) error {
 	return nil
 }
 
-// BulkAction performs a bulk action on comments by IDs.
-func (s *CommentService) BulkAction(ids []uint, action string) (int64, error) {
+// BulkAction performs a bulk action on comments by IDs within the tenant.
+func (s *CommentService) BulkAction(ids []uint, action string, tenantID uint) (int64, error) {
 	switch action {
 	case "approve":
-		return s.repo.BulkUpdateStatus(ids, "approved")
+		return s.repo.BulkUpdateStatus(ids, "approved", tenantID)
 	case "spam":
-		return s.repo.BulkUpdateStatus(ids, "spam")
+		return s.repo.BulkUpdateStatus(ids, "spam", tenantID)
 	case "trash":
-		return s.repo.BulkUpdateStatus(ids, "trash")
+		return s.repo.BulkUpdateStatus(ids, "trash", tenantID)
 	case "delete":
-		return s.repo.BulkDelete(ids)
+		return s.repo.BulkDelete(ids, tenantID)
 	default:
 		return 0, errors.New("unknown action")
 	}
 }
 
-// ArticleComments returns approved top-level comments for an article with nested children.
-func (s *CommentService) ArticleComments(articleID uint) ([]models.Comment, error) {
-	return s.repo.FindArticleComments(articleID)
+// ArticleComments returns approved top-level comments for an article with
+// nested children, scoped to the tenant.
+func (s *CommentService) ArticleComments(articleID, tenantID uint) ([]models.Comment, error) {
+	return s.repo.FindArticleComments(articleID, tenantID)
 }
 
-// Stats returns aggregated comment statistics.
-func (s *CommentService) Stats() (CommentStats, error) {
-	data, err := s.repo.Stats()
+// Stats returns aggregated comment statistics within the tenant.
+func (s *CommentService) Stats(tenantID uint) (CommentStats, error) {
+	data, err := s.repo.Stats(tenantID)
 	if err != nil {
 		// Preserve prior behaviour: the original implementation never returned an error
 		// from Stats() because each Count call's error was ignored. We mirror that by

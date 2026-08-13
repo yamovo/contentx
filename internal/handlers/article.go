@@ -64,7 +64,7 @@ func (h *ArticleHandler) List(c *gin.Context) {
 		Full:       c.Query("full") == "true",
 	}
 
-	result, err := h.svc.List(filter)
+	result, err := h.svc.List(filter, getCurrentTenant(c))
 	if err != nil {
 		handleServiceError(c, err)
 		return
@@ -93,7 +93,7 @@ func (h *ArticleHandler) Get(c *gin.Context) {
 		return
 	}
 
-	article, err := h.svc.Get(uint(id))
+	article, err := h.svc.Get(uint(id), getCurrentTenant(c))
 	if err != nil {
 		handleServiceError(c, err)
 		return
@@ -114,7 +114,7 @@ func (h *ArticleHandler) Get(c *gin.Context) {
 //	@Failure      404  {object}  APIResponse
 //	@Router       /articles/slug/{slug} [get]
 func (h *ArticleHandler) GetBySlug(c *gin.Context) {
-	article, err := h.svc.GetBySlug(c.Param("slug"))
+	article, err := h.svc.GetBySlug(c.Param("slug"), getCurrentTenant(c))
 	if err != nil {
 		handleServiceError(c, err)
 		return
@@ -150,7 +150,7 @@ func (h *ArticleHandler) Create(c *gin.Context) {
 		return
 	}
 
-	article, err := h.svc.Create(req, user.ID)
+	article, err := h.svc.Create(req, getCurrentTenant(c), user.ID)
 	if err != nil {
 		handleServiceError(c, err)
 		return
@@ -195,7 +195,7 @@ func (h *ArticleHandler) Update(c *gin.Context) {
 		return
 	}
 
-	article, err := h.svc.Update(uint(id), req, user.ID, user.IsEditor())
+	article, err := h.svc.Update(uint(id), req, getCurrentTenant(c), user.ID, user.IsEditor())
 	if err != nil {
 		handleServiceError(c, err)
 		return
@@ -231,7 +231,7 @@ func (h *ArticleHandler) Delete(c *gin.Context) {
 		return
 	}
 
-	if err := h.svc.Delete(uint(id), user.ID, user.IsEditor()); err != nil {
+	if err := h.svc.Delete(uint(id), getCurrentTenant(c), user.ID, user.IsEditor()); err != nil {
 		handleServiceError(c, err)
 		return
 	}
@@ -262,7 +262,7 @@ func (h *ArticleHandler) BulkAction(c *gin.Context) {
 		return
 	}
 
-	affected, err := h.svc.BulkAction(req)
+	affected, err := h.svc.BulkAction(req, getCurrentTenant(c))
 	if err != nil {
 		BadRequest(c, sanitizeBindErr(err))
 		return
@@ -296,7 +296,7 @@ func (h *ArticleHandler) Revisions(c *gin.Context) {
 		return
 	}
 
-	revisions, err := h.svc.Revisions(uint(id))
+	revisions, err := h.svc.Revisions(uint(id), getCurrentTenant(c))
 	if err != nil {
 		handleServiceError(c, err)
 		return
@@ -337,7 +337,7 @@ func (h *ArticleHandler) RestoreRevision(c *gin.Context) {
 		return
 	}
 
-	if err := h.svc.RestoreRevision(uint(id), uint(revisionID), user.ID, user.IsEditor()); err != nil {
+	if err := h.svc.RestoreRevision(uint(id), uint(revisionID), getCurrentTenant(c), user.ID, user.IsEditor()); err != nil {
 		handleServiceError(c, err)
 		return
 	}
@@ -354,7 +354,7 @@ func (h *ArticleHandler) LikeArticle(c *gin.Context) {
 		return
 	}
 
-	if err := h.svc.LikeArticle(uint(id)); err != nil {
+	if err := h.svc.LikeArticle(uint(id), getCurrentTenant(c)); err != nil {
 		handleServiceError(c, err)
 		return
 	}
@@ -397,7 +397,7 @@ func (h *ArticleHandler) Publish(c *gin.Context) {
 	if user == nil {
 		return
 	}
-	article, err := h.svc.PublishAs(uint(id), user.ID)
+	article, err := h.svc.PublishAs(uint(id), getCurrentTenant(c), user.ID)
 	if err != nil {
 		handleServiceError(c, err)
 		return
@@ -431,7 +431,7 @@ func (h *ArticleHandler) Unpublish(c *gin.Context) {
 	if user == nil {
 		return
 	}
-	article, err := h.svc.UnpublishAs(uint(id), user.ID)
+	article, err := h.svc.UnpublishAs(uint(id), getCurrentTenant(c), user.ID)
 	if err != nil {
 		handleServiceError(c, err)
 		return
@@ -465,7 +465,7 @@ func (h *ArticleHandler) SubmitForReview(c *gin.Context) {
 	if user == nil {
 		return
 	}
-	article, err := h.svc.SubmitForReviewAs(uint(id), user.ID)
+	article, err := h.svc.SubmitForReviewAs(uint(id), getCurrentTenant(c), user.ID)
 	if err != nil {
 		handleServiceError(c, err)
 		return
@@ -499,7 +499,7 @@ func (h *ArticleHandler) Approve(c *gin.Context) {
 	if user == nil {
 		return
 	}
-	article, err := h.svc.ApproveAs(uint(id), user.ID)
+	article, err := h.svc.ApproveAs(uint(id), getCurrentTenant(c), user.ID)
 	if err != nil {
 		handleServiceError(c, err)
 		return
@@ -545,7 +545,7 @@ func (h *ArticleHandler) Schedule(c *gin.Context) {
 	if user == nil {
 		return
 	}
-	article, err := h.svc.ScheduleAs(uint(id), at, user.ID)
+	article, err := h.svc.ScheduleAs(uint(id), at, getCurrentTenant(c), user.ID)
 	if err != nil {
 		handleServiceError(c, err)
 		return
@@ -565,7 +565,7 @@ func (h *ArticleHandler) Archive(c *gin.Context) {
 	if user == nil {
 		return
 	}
-	article, err := h.svc.ArchiveAs(uint(id), user.ID)
+	article, err := h.svc.ArchiveAs(uint(id), getCurrentTenant(c), user.ID)
 	if err != nil {
 		handleServiceError(c, err)
 		return
@@ -591,7 +591,7 @@ func parseScheduleTime(s string) (time.Time, error) {
 // Feed returns articles as RSS/XML.
 // GET /api/v1/feed
 func (h *ArticleHandler) Feed(c *gin.Context) {
-	xml, err := h.svc.GenerateFeed()
+	xml, err := h.svc.GenerateFeed(getCurrentTenant(c))
 	if err != nil {
 		handleServiceError(c, err)
 		return
@@ -622,7 +622,7 @@ func (h *ArticleHandler) ListTranslations(c *gin.Context) {
 		BadRequest(c, "Invalid article ID")
 		return
 	}
-	translations, err := h.svc.ListTranslations(uint(id))
+	translations, err := h.svc.ListTranslations(uint(id), getCurrentTenant(c))
 	if err != nil {
 		handleServiceError(c, err)
 		return
@@ -668,7 +668,7 @@ func (h *ArticleHandler) CreateTranslation(c *gin.Context) {
 	if user == nil {
 		return
 	}
-	article, err := h.svc.CreateTranslation(uint(id), locale, req, user.ID)
+	article, err := h.svc.CreateTranslation(uint(id), locale, req, getCurrentTenant(c), user.ID)
 	if err != nil {
 		handleServiceError(c, err)
 		return
@@ -683,4 +683,10 @@ func getCurrentUser(c *gin.Context) *models.User {
 		Unauthorized(c, "Not authenticated")
 	}
 	return user
+}
+
+// getCurrentTenant returns the request tenant (defaults to the default
+// tenant for anonymous/public traffic; RFC-001 §4.2).
+func getCurrentTenant(c *gin.Context) uint {
+	return middleware.GetCurrentTenant(c)
 }

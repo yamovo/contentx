@@ -108,6 +108,7 @@ type Permission struct {
 // Article represents a blog post or page.
 type Article struct {
 	BaseModel
+	TenantID      uint          `gorm:"not null;default:1;index" json:"-"` // RFC-001 §4.3
 	Title         string        `gorm:"size:512;not null;index" json:"title" validate:"required,max=512"`
 	Slug          string        `gorm:"uniqueIndex;size:512;not null" json:"slug"`
 	Content       string        `gorm:"type:text" json:"content,omitempty"`
@@ -186,6 +187,7 @@ const (
 // Category represents an article category.
 type Category struct {
 	BaseModel
+	TenantID    uint       `gorm:"not null;default:1;index" json:"-"` // RFC-001 §4.3
 	Name        string     `gorm:"size:128;not null;uniqueIndex" json:"name" validate:"required,max=128"`
 	Slug        string     `gorm:"uniqueIndex;size:128;not null" json:"slug"`
 	Description string     `gorm:"type:text" json:"description"`
@@ -205,6 +207,7 @@ type Category struct {
 // Tag represents an article tag.
 type Tag struct {
 	BaseModel
+	TenantID uint      `gorm:"not null;default:1;index" json:"-"` // RFC-001 §4.3
 	Name     string    `gorm:"size:64;not null;uniqueIndex" json:"name" validate:"required,max=64"`
 	Slug     string    `gorm:"uniqueIndex;size:64;not null" json:"slug"`
 	Count    int       `gorm:"default:0" json:"count"`
@@ -215,6 +218,7 @@ type Tag struct {
 // Comment represents a user comment on an article.
 type Comment struct {
 	BaseModel
+	TenantID    uint      `gorm:"not null;default:1;index" json:"-"` // RFC-001 §4.3
 	Article     Article   `gorm:"foreignKey:ArticleID" json:"article,omitempty"`
 	ArticleID   uint      `gorm:"index;not null" json:"article_id"`
 	User        *User     `gorm:"foreignKey:UserID" json:"user,omitempty"`
@@ -237,6 +241,7 @@ type Comment struct {
 // Media represents an uploaded file.
 type Media struct {
 	BaseModel
+	TenantID     uint                   `gorm:"not null;default:1;index" json:"-"` // RFC-001 §4.3
 	Filename     string                 `gorm:"size:255;not null" json:"filename"`
 	OriginalName string                 `gorm:"size:255;not null" json:"original_name"`
 	FilePath     string                 `gorm:"size:512;not null" json:"file_path"`
@@ -263,6 +268,7 @@ type Media struct {
 // Revision stores article version history.
 type Revision struct {
 	BaseModel
+	TenantID  uint   `gorm:"not null;default:1;index" json:"-"` // RFC-001 §4.3
 	ArticleID uint   `gorm:"index;not null" json:"article_id"`
 	Title     string `gorm:"size:512" json:"title"`
 	Content   string `gorm:"type:text" json:"content"`
@@ -276,6 +282,7 @@ type Revision struct {
 // CustomField stores key-value metadata for articles.
 type CustomField struct {
 	BaseModel
+	TenantID  uint   `gorm:"not null;default:1;index" json:"-"` // RFC-001 §4.3
 	ArticleID uint   `gorm:"index;not null" json:"article_id"`
 	Key       string `gorm:"size:255;not null;index" json:"key"`
 	Value     string `gorm:"type:text" json:"value"`
@@ -284,6 +291,7 @@ type CustomField struct {
 // Menu represents a navigation menu.
 type Menu struct {
 	BaseModel
+	TenantID  uint       `gorm:"not null;default:1;index" json:"-"` // RFC-001 §4.3
 	Name      string     `gorm:"size:128;not null" json:"name"`
 	Slug      string     `gorm:"uniqueIndex;size:128;not null" json:"slug"`
 	Locations string     `gorm:"size:255" json:"locations"` // comma-separated: header,footer,sidebar
@@ -293,6 +301,7 @@ type Menu struct {
 // MenuItem represents a single item in a menu.
 type MenuItem struct {
 	BaseModel
+	TenantID  uint       `gorm:"not null;default:1;index" json:"-"` // RFC-001 §4.3
 	MenuID    uint       `gorm:"index;not null" json:"menu_id"`
 	Parent    *MenuItem  `gorm:"foreignKey:ParentID" json:"parent,omitempty"`
 	ParentID  *uint      `gorm:"index" json:"parent_id"`
@@ -312,6 +321,7 @@ type MenuItem struct {
 // SiteSetting stores key-value site configuration.
 type SiteSetting struct {
 	ID        uint   `gorm:"primarykey" json:"id"`
+	TenantID  *uint  `gorm:"index" json:"-"` // NULL = global default, RFC-001 §4.3
 	Key       string `gorm:"uniqueIndex;size:128;not null" json:"key"`
 	Value     string `gorm:"type:text" json:"value"`
 	Type      string `gorm:"size:20;default:'string'" json:"type"` // string, int, bool, json, text
@@ -325,6 +335,7 @@ type SiteSetting struct {
 // SEOSetting stores per-page SEO overrides.
 type SEOSetting struct {
 	BaseModel
+	TenantID   uint              `gorm:"not null;default:1;index" json:"-"`                                    // RFC-001 §4.3
 	EntityType string            `gorm:"size:50;not null;index;uniqueIndex:idx_seo_entity" json:"entity_type"` // article, category, tag, page
 	EntityID   uint              `gorm:"not null;index;uniqueIndex:idx_seo_entity" json:"entity_id"`
 	Title      string            `gorm:"size:255" json:"title"`
@@ -340,6 +351,7 @@ type SEOSetting struct {
 // RedirectRule manages URL redirects (301/302).
 type RedirectRule struct {
 	BaseModel
+	TenantID   uint   `gorm:"not null;default:1;index" json:"-"` // RFC-001 §4.3
 	FromPath   string `gorm:"size:512;not null;uniqueIndex" json:"from_path"`
 	ToPath     string `gorm:"size:512;not null" json:"to_path"`
 	StatusCode int    `gorm:"default:301" json:"status_code"`
@@ -381,6 +393,7 @@ type ThemeConfig struct {
 // PageView stores analytics data.
 type PageView struct {
 	ID        uint      `gorm:"primarykey" json:"id"`
+	TenantID  *uint     `gorm:"index" json:"-"` // NULL = anonymous/public traffic, RFC-001 §4.3
 	CreatedAt time.Time `gorm:"index" json:"created_at"`
 	ArticleID *uint     `gorm:"index" json:"article_id"`
 	Path      string    `gorm:"size:512;not null;index" json:"path"`
@@ -399,6 +412,7 @@ type PageView struct {
 // SitemapEntry represents a sitemap URL entry.
 type SitemapEntry struct {
 	BaseModel
+	TenantID   uint       `gorm:"not null;default:1;index" json:"-"` // RFC-001 §4.3
 	EntityType string     `gorm:"size:50;not null;index" json:"entity_type"`
 	EntityID   uint       `gorm:"not null;index" json:"entity_id"`
 	Loc        string     `gorm:"size:512;not null" json:"loc"`
@@ -424,6 +438,7 @@ type Notification struct {
 // ActivityLog records audit trail.
 type ActivityLog struct {
 	ID        uint      `gorm:"primarykey" json:"id"`
+	TenantID  *uint     `gorm:"index" json:"-"` // NULL = platform-level audit, RFC-001 §4.3
 	CreatedAt time.Time `gorm:"index" json:"created_at"`
 	UserID    *uint     `gorm:"index" json:"user_id"`
 	Action    string    `gorm:"size:50;not null;index" json:"action"` // create, update, delete, login, etc.
@@ -480,6 +495,7 @@ func (s *StringSlice) Scan(value interface{}) error {
 // APIToken represents a long-lived API token for external access.
 type APIToken struct {
 	ID          uint        `gorm:"primarykey" json:"id"`
+	TenantID    *uint       `gorm:"index" json:"-"` // NULL = creator's default tenant, RFC-001 §4.3
 	Name        string      `gorm:"size:128;not null" json:"name"`
 	Token       string      `gorm:"size:255;uniqueIndex;not null" json:"-"`
 	Permissions StringSlice `gorm:"type:text" json:"permissions"`

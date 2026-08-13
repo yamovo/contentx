@@ -46,23 +46,24 @@ func NewTagServiceWithRepo(repo repository.TagRepository) *TagService {
 	return &TagService{repo: repo}
 }
 
-// List returns tags with optional sorting, limit, and search.
-func (s *TagService) List(params TagListParams) ([]models.Tag, int64, error) {
+// List returns tags with optional sorting, limit, and search, scoped to the
+// tenant.
+func (s *TagService) List(params TagListParams, tenantID uint) ([]models.Tag, int64, error) {
 	return s.repo.List(repository.TagListFilter{
 		Sort:   params.Sort,
 		Limit:  params.Limit,
 		Search: params.Search,
-	})
+	}, tenantID)
 }
 
-// Get returns a single tag by ID.
-func (s *TagService) Get(id uint) (*models.Tag, error) {
-	return s.repo.GetByID(id)
+// Get returns a single tag by ID within the tenant.
+func (s *TagService) Get(id, tenantID uint) (*models.Tag, error) {
+	return s.repo.GetByID(id, tenantID)
 }
 
-// Create creates a new tag.
-func (s *TagService) Create(req CreateTagRequest) (*models.Tag, error) {
-	tag := models.Tag{Name: req.Name, Color: req.Color}
+// Create creates a new tag within the tenant.
+func (s *TagService) Create(req CreateTagRequest, tenantID uint) (*models.Tag, error) {
+	tag := models.Tag{TenantID: tenantID, Name: req.Name, Color: req.Color} // RFC-001 §5
 	if req.Slug != "" {
 		tag.Slug = req.Slug
 	} else {
@@ -76,9 +77,9 @@ func (s *TagService) Create(req CreateTagRequest) (*models.Tag, error) {
 	return &tag, nil
 }
 
-// Update updates a tag's fields.
-func (s *TagService) Update(id uint, req UpdateTagRequest) error {
-	if _, err := s.repo.FindByID(id); err != nil {
+// Update updates a tag's fields within the tenant.
+func (s *TagService) Update(id uint, req UpdateTagRequest, tenantID uint) error {
+	if _, err := s.repo.FindByID(id, tenantID); err != nil {
 		return errors.New("tag not found")
 	}
 
@@ -93,24 +94,25 @@ func (s *TagService) Update(id uint, req UpdateTagRequest) error {
 		updates["color"] = req.Color
 	}
 
-	return s.repo.UpdateFields(id, updates)
+	return s.repo.UpdateFields(id, updates, tenantID)
 }
 
-// Delete removes a tag and clears its article associations.
-func (s *TagService) Delete(id uint) error {
-	tag, err := s.repo.FindByID(id)
+// Delete removes a tag and clears its article associations within the tenant.
+func (s *TagService) Delete(id, tenantID uint) error {
+	tag, err := s.repo.FindByID(id, tenantID)
 	if err != nil {
 		return errors.New("tag not found")
 	}
 
 	// Remove associations (best-effort, mirrors prior behaviour).
-	_ = s.repo.ClearArticleAssociations(tag.ID)
-	return s.repo.Delete(tag)
+	_ = s.repo.ClearArticleAssociations(tag.ID, tenantID)
+	return s.repo.Delete(tag, tenantID)
 }
 
-// Merge merges source tags into a target tag, optionally deleting the source tags.
-func (s *TagService) Merge(sourceIDs []uint, targetID uint, deleteOld bool) error {
-	if _, err := s.repo.FindByID(targetID); err != nil {
+// Merge merges source tags into a target tag, optionally deleting the source
+// tags, scoped to the tenant.
+func (s *TagService) Merge(sourceIDs []uint, targetID, tenantID uint, deleteOld bool) error {
+	if _, err := s.repo.FindByID(targetID, tenantID); err != nil {
 		return errors.New("target tag not found")
 	}
 
@@ -119,18 +121,18 @@ func (s *TagService) Merge(sourceIDs []uint, targetID uint, deleteOld bool) erro
 		if srcID == targetID {
 			continue
 		}
-		_ = s.repo.MergeTags(srcID, targetID)
+		_ = s.repo.MergeTags(srcID, targetID, tenantID)
 	}
 
 	// Recalculate count using subquery.
-	count, err := s.repo.CountArticleAssociations(targetID)
+	count, err := s.repo.CountArticleAssociations(targetID, tenantID)
 	if err != nil {
 		return err
 	}
-	_ = s.repo.UpdateCount(targetID, count)
+	_ = s.repo.UpdateCount(targetID, count, tenantID)
 
 	if deleteOld {
-		_, _ = s.repo.DeleteByIDs(sourceIDs)
+		_, _ = s.repo.DeleteByIDs(sourceIDs, tenantID)
 	}
 
 	return nil

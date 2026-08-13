@@ -13,11 +13,11 @@ import 'element-plus/theme-chalk/el-message-box.css'
 import 'element-plus/theme-chalk/el-overlay.css'
 import 'element-plus/theme-chalk/el-loading.css'
 import {
-  ArrowDown, ArrowLeft, Bottom, Brush, ChatDotSquare, Connection,
-  DataAnalysis, Document, EditPen, Expand, Fold, Folder, Lightning, Lock,
-  Menu, Moon, Notebook, Odometer, Picture, Plus, PriceTag, Rank, Search,
-  Setting, StarFilled, Sunny, SwitchButton, Tickets, Top, TrendCharts,
-  Upload, User, View,
+  ArrowDown, ArrowLeft, Bottom, Brush, ChatDotSquare, Coin, Connection,
+  DataAnalysis, Document, EditPen, Expand, Fold, Folder, Grid, Key,
+  Lightning, Link, Lock, Menu, Moon, Notebook, Odometer, Picture, Plus,
+  PriceTag, Rank, Search, Setting, StarFilled, Sunny, SwitchButton,
+  Tickets, Top, TrendCharts, Upload, User, View,
 } from '@element-plus/icons-vue'
 import App from './App.vue'
 import router from './router'
@@ -35,11 +35,11 @@ app.use(router)
 // components, and template tags) instead of the full ~280-icon set.
 // This preserves tree-shaking and reduces bundle size.
 const icons = {
-  ArrowDown, ArrowLeft, Bottom, Brush, ChatDotSquare, Connection,
-  DataAnalysis, Document, EditPen, Expand, Fold, Folder, Lightning, Lock,
-  Menu, Moon, Notebook, Odometer, Picture, Plus, PriceTag, Rank, Search,
-  Setting, StarFilled, Sunny, SwitchButton, Tickets, Top, TrendCharts,
-  Upload, User, View,
+  ArrowDown, ArrowLeft, Bottom, Brush, ChatDotSquare, Coin, Connection,
+  DataAnalysis, Document, EditPen, Expand, Fold, Folder, Grid, Key,
+  Lightning, Link, Lock, Menu, Moon, Notebook, Odometer, Picture, Plus,
+  PriceTag, Rank, Search, Setting, StarFilled, Sunny, SwitchButton,
+  Tickets, Top, TrendCharts, Upload, User, View,
 }
 for (const [name, component] of Object.entries(icons)) {
   app.component(name, component)

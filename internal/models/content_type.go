@@ -7,6 +7,7 @@ import (
 // ContentType defines a user-created content structure (like Strapi Collection Type).
 type ContentType struct {
 	ID           uint           `gorm:"primarykey" json:"id"`
+	TenantID     uint           `gorm:"not null;default:1;index" json:"-"`       // RFC-001 §4.3
 	UID          string         `gorm:"uniqueIndex;size:64;not null" json:"uid"` // e.g. "product", "event"
 	Name         string         `gorm:"size:128;not null" json:"name"`           // display name
 	Description  string         `gorm:"size:512" json:"description"`
@@ -21,6 +22,7 @@ type ContentType struct {
 // ContentField defines a field within a content type.
 type ContentField struct {
 	ID            uint        `gorm:"primarykey" json:"id"`
+	TenantID      uint        `gorm:"not null;default:1;index" json:"-"` // RFC-001 §4.3
 	ContentTypeID uint        `gorm:"index;not null" json:"content_type_id"`
 	Name          string      `gorm:"size:64;not null" json:"name"`       // field name (snake_case)
 	Label         string      `gorm:"size:128;not null" json:"label"`     // display label

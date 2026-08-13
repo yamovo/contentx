@@ -550,7 +550,7 @@ func TestArticleService_Create_TriggersIndex(t *testing.T) {
 		Title:   "Test Article",
 		Content: "Body",
 		Slug:    "test-article",
-	}, 1)
+	}, models.DefaultTenantID, 1)
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -576,7 +576,7 @@ func TestArticleService_Delete_TriggersUnindex(t *testing.T) {
 	mockIdx := &MockSearchIndexer{}
 	svc.SetSearchIndexer(mockIdx)
 
-	if err := svc.Delete(1, 1, true); err != nil {
+	if err := svc.Delete(1, models.DefaultTenantID, 1, true); err != nil {
 		t.Fatalf("Delete: %v", err)
 	}
 	if mockIdx.DeleteCount() != 1 {
@@ -604,7 +604,7 @@ func TestArticleService_Delete_PageType(t *testing.T) {
 	mockIdx := &MockSearchIndexer{}
 	svc.SetSearchIndexer(mockIdx)
 
-	if err := svc.Delete(1, 1, true); err != nil {
+	if err := svc.Delete(1, models.DefaultTenantID, 1, true); err != nil {
 		t.Fatalf("Delete: %v", err)
 	}
 	if mockIdx.DeleteCount() != 1 {

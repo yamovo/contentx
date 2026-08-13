@@ -14,7 +14,7 @@ func TestSettingsService_List_All(t *testing.T) {
 	svc := NewSettingsService(db)
 
 	// Seed creates site_settings.
-	settings, grouped, err := svc.List("")
+	settings, grouped, err := svc.List("", models.DefaultTenantID)
 	if err != nil {
 		t.Fatalf("list settings: %v", err)
 	}
@@ -30,7 +30,7 @@ func TestSettingsService_List_ByGroup(t *testing.T) {
 	db := setupTestDB(t)
 	svc := NewSettingsService(db)
 
-	settings, _, err := svc.List("general")
+	settings, _, err := svc.List("general", models.DefaultTenantID)
 	if err != nil {
 		t.Fatalf("list by group: %v", err)
 	}
@@ -45,7 +45,7 @@ func TestSettingsService_Get(t *testing.T) {
 	db := setupTestDB(t)
 	svc := NewSettingsService(db)
 
-	setting, err := svc.Get("site_name")
+	setting, err := svc.Get("site_name", models.DefaultTenantID)
 	if err != nil {
 		t.Fatalf("get setting: %v", err)
 	}
@@ -58,7 +58,7 @@ func TestSettingsService_Get_NotFound(t *testing.T) {
 	db := setupTestDB(t)
 	svc := NewSettingsService(db)
 
-	_, err := svc.Get("nonexistent_key")
+	_, err := svc.Get("nonexistent_key", models.DefaultTenantID)
 	if err == nil {
 		t.Fatal("expected error for non-existent key")
 	}
@@ -68,12 +68,12 @@ func TestSettingsService_Update_Existing(t *testing.T) {
 	db := setupTestDB(t)
 	svc := NewSettingsService(db)
 
-	err := svc.Update(map[string]interface{}{"site_name": "Updated Name"})
+	err := svc.Update(map[string]interface{}{"site_name": "Updated Name"}, models.DefaultTenantID)
 	if err != nil {
 		t.Fatalf("update setting: %v", err)
 	}
 
-	setting, _ := svc.Get("site_name")
+	setting, _ := svc.Get("site_name", models.DefaultTenantID)
 	if setting.Value != "Updated Name" {
 		t.Fatalf("expected 'Updated Name', got '%s'", setting.Value)
 	}
@@ -83,12 +83,12 @@ func TestSettingsService_Update_CreateNew(t *testing.T) {
 	db := setupTestDB(t)
 	svc := NewSettingsService(db)
 
-	err := svc.Update(map[string]interface{}{"custom_key": "custom_value"})
+	err := svc.Update(map[string]interface{}{"custom_key": "custom_value"}, models.DefaultTenantID)
 	if err != nil {
 		t.Fatalf("update create new: %v", err)
 	}
 
-	setting, err := svc.Get("custom_key")
+	setting, err := svc.Get("custom_key", models.DefaultTenantID)
 	if err != nil {
 		t.Fatalf("get new setting: %v", err)
 	}
@@ -101,7 +101,7 @@ func TestSettingsService_PublicSettings(t *testing.T) {
 	db := setupTestDB(t)
 	svc := NewSettingsService(db)
 
-	public, err := svc.PublicSettings()
+	public, err := svc.PublicSettings(models.DefaultTenantID)
 	if err != nil {
 		t.Fatalf("public settings: %v", err)
 	}
@@ -119,7 +119,7 @@ func TestSEOService_GetSetting_NotFound(t *testing.T) {
 	db := setupTestDB(t)
 	svc := NewSEOService(db, "http://localhost:8080")
 
-	_, err := svc.GetSetting("article", 999)
+	_, err := svc.GetSetting("article", 999, models.DefaultTenantID)
 	if err == nil {
 		t.Fatal("expected error for non-existent SEO setting")
 	}
@@ -129,7 +129,7 @@ func TestSEOService_UpdateSetting_Create(t *testing.T) {
 	db := setupTestDB(t)
 	svc := NewSEOService(db, "http://localhost:8080")
 
-	err := svc.UpdateSetting("article", 1, SEOSettingRequest{
+	err := svc.UpdateSetting("article", 1, models.DefaultTenantID, SEOSettingRequest{
 		Title:    "Test Title",
 		Desc:     "Test Description",
 		Keywords: "test,go",
@@ -138,7 +138,7 @@ func TestSEOService_UpdateSetting_Create(t *testing.T) {
 		t.Fatalf("update SEO setting: %v", err)
 	}
 
-	setting, err := svc.GetSetting("article", 1)
+	setting, err := svc.GetSetting("article", 1, models.DefaultTenantID)
 	if err != nil {
 		t.Fatalf("get SEO setting: %v", err)
 	}
@@ -151,13 +151,13 @@ func TestSEOService_UpdateSetting_Update(t *testing.T) {
 	db := setupTestDB(t)
 	svc := NewSEOService(db, "http://localhost:8080")
 
-	svc.UpdateSetting("article", 1, SEOSettingRequest{Title: "Original"})
-	err := svc.UpdateSetting("article", 1, SEOSettingRequest{Title: "Updated"})
+	svc.UpdateSetting("article", 1, models.DefaultTenantID, SEOSettingRequest{Title: "Original"})
+	err := svc.UpdateSetting("article", 1, models.DefaultTenantID, SEOSettingRequest{Title: "Updated"})
 	if err != nil {
 		t.Fatalf("update SEO: %v", err)
 	}
 
-	setting, _ := svc.GetSetting("article", 1)
+	setting, _ := svc.GetSetting("article", 1, models.DefaultTenantID)
 	if setting.Title != "Updated" {
 		t.Fatalf("expected 'Updated', got '%s'", setting.Title)
 	}
@@ -171,7 +171,7 @@ func TestSEOService_Sitemap(t *testing.T) {
 	user := createTestUser(t, db, "sitemapuser", "author")
 	createTestArticle(t, db, user.ID, "Sitemap Test")
 
-	sitemap, err := svc.Sitemap()
+	sitemap, err := svc.Sitemap(models.DefaultTenantID)
 	if err != nil {
 		t.Fatalf("sitemap: %v", err)
 	}
@@ -204,7 +204,7 @@ func TestSEOService_Redirects(t *testing.T) {
 	rule, err := svc.CreateRedirect(CreateRedirectRequest{
 		FromPath: "/old-page",
 		ToPath:   "/new-page",
-	})
+	}, models.DefaultTenantID)
 	if err != nil {
 		t.Fatalf("create redirect: %v", err)
 	}
@@ -216,7 +216,7 @@ func TestSEOService_Redirects(t *testing.T) {
 	}
 
 	// List redirects.
-	rules, err := svc.ListRedirects()
+	rules, err := svc.ListRedirects(models.DefaultTenantID)
 	if err != nil {
 		t.Fatalf("list redirects: %v", err)
 	}
@@ -225,11 +225,11 @@ func TestSEOService_Redirects(t *testing.T) {
 	}
 
 	// Delete redirect.
-	if err := svc.DeleteRedirect(rule.ID); err != nil {
+	if err := svc.DeleteRedirect(rule.ID, models.DefaultTenantID); err != nil {
 		t.Fatalf("delete redirect: %v", err)
 	}
 
-	rules, _ = svc.ListRedirects()
+	rules, _ = svc.ListRedirects(models.DefaultTenantID)
 	if len(rules) != 0 {
 		t.Fatal("expected 0 redirects after delete")
 	}
@@ -245,7 +245,7 @@ func TestMenuService_Create_Success(t *testing.T) {
 		Name:      "Main Menu",
 		Slug:      "main",
 		Locations: "header",
-	})
+	}, models.DefaultTenantID)
 	if err != nil {
 		t.Fatalf("create menu: %v", err)
 	}
@@ -258,10 +258,10 @@ func TestMenuService_List(t *testing.T) {
 	db := setupTestDB(t)
 	svc := NewMenuService(db)
 
-	svc.Create(CreateMenuRequest{Name: "Menu1", Slug: "m1"})
-	svc.Create(CreateMenuRequest{Name: "Menu2", Slug: "m2"})
+	svc.Create(CreateMenuRequest{Name: "Menu1", Slug: "m1"}, models.DefaultTenantID)
+	svc.Create(CreateMenuRequest{Name: "Menu2", Slug: "m2"}, models.DefaultTenantID)
 
-	menus, err := svc.List()
+	menus, err := svc.List(models.DefaultTenantID)
 	if err != nil {
 		t.Fatalf("list menus: %v", err)
 	}
@@ -274,9 +274,9 @@ func TestMenuService_Get_Success(t *testing.T) {
 	db := setupTestDB(t)
 	svc := NewMenuService(db)
 
-	created, _ := svc.Create(CreateMenuRequest{Name: "GetMenu", Slug: "get"})
+	created, _ := svc.Create(CreateMenuRequest{Name: "GetMenu", Slug: "get"}, models.DefaultTenantID)
 
-	menu, err := svc.Get(created.ID)
+	menu, err := svc.Get(created.ID, models.DefaultTenantID)
 	if err != nil {
 		t.Fatalf("get menu: %v", err)
 	}
@@ -289,9 +289,9 @@ func TestMenuService_Update(t *testing.T) {
 	db := setupTestDB(t)
 	svc := NewMenuService(db)
 
-	created, _ := svc.Create(CreateMenuRequest{Name: "Original", Slug: "orig"})
+	created, _ := svc.Create(CreateMenuRequest{Name: "Original", Slug: "orig"}, models.DefaultTenantID)
 
-	err := svc.Update(created.ID, UpdateMenuRequest{Name: "Updated", Locations: "footer"})
+	err := svc.Update(created.ID, UpdateMenuRequest{Name: "Updated", Locations: "footer"}, models.DefaultTenantID)
 	if err != nil {
 		t.Fatalf("update menu: %v", err)
 	}
@@ -307,9 +307,9 @@ func TestMenuService_Delete(t *testing.T) {
 	db := setupTestDB(t)
 	svc := NewMenuService(db)
 
-	created, _ := svc.Create(CreateMenuRequest{Name: "ToDelete", Slug: "del"})
+	created, _ := svc.Create(CreateMenuRequest{Name: "ToDelete", Slug: "del"}, models.DefaultTenantID)
 
-	if err := svc.Delete(created.ID); err != nil {
+	if err := svc.Delete(created.ID, models.DefaultTenantID); err != nil {
 		t.Fatalf("delete menu: %v", err)
 	}
 
@@ -324,12 +324,12 @@ func TestMenuService_AddItem(t *testing.T) {
 	db := setupTestDB(t)
 	svc := NewMenuService(db)
 
-	menu, _ := svc.Create(CreateMenuRequest{Name: "Items", Slug: "items"})
+	menu, _ := svc.Create(CreateMenuRequest{Name: "Items", Slug: "items"}, models.DefaultTenantID)
 
 	item, err := svc.AddItem(menu.ID, AddMenuItemRequest{
 		Title: "Home",
 		URL:   "/",
-	})
+	}, models.DefaultTenantID)
 	if err != nil {
 		t.Fatalf("add item: %v", err)
 	}
@@ -344,7 +344,7 @@ func TestMenuService_AddItem(t *testing.T) {
 	}
 
 	// Add second item — should get sort_order 2.
-	item2, _ := svc.AddItem(menu.ID, AddMenuItemRequest{Title: "About", URL: "/about"})
+	item2, _ := svc.AddItem(menu.ID, AddMenuItemRequest{Title: "About", URL: "/about"}, models.DefaultTenantID)
 	if item2.SortOrder != 2 {
 		t.Fatalf("expected sort_order 2, got %d", item2.SortOrder)
 	}
@@ -354,11 +354,11 @@ func TestMenuService_UpdateItem(t *testing.T) {
 	db := setupTestDB(t)
 	svc := NewMenuService(db)
 
-	menu, _ := svc.Create(CreateMenuRequest{Name: "UpdItems", Slug: "upd_items"})
-	item, _ := svc.AddItem(menu.ID, AddMenuItemRequest{Title: "Original", URL: "/"})
+	menu, _ := svc.Create(CreateMenuRequest{Name: "UpdItems", Slug: "upd_items"}, models.DefaultTenantID)
+	item, _ := svc.AddItem(menu.ID, AddMenuItemRequest{Title: "Original", URL: "/"}, models.DefaultTenantID)
 
 	newTitle := "Updated Item"
-	err := svc.UpdateItem(item.ID, UpdateMenuItemRequest{Title: &newTitle})
+	err := svc.UpdateItem(item.ID, UpdateMenuItemRequest{Title: &newTitle}, models.DefaultTenantID)
 	if err != nil {
 		t.Fatalf("update item: %v", err)
 	}
@@ -374,10 +374,10 @@ func TestMenuService_DeleteItem(t *testing.T) {
 	db := setupTestDB(t)
 	svc := NewMenuService(db)
 
-	menu, _ := svc.Create(CreateMenuRequest{Name: "DelItems", Slug: "del_items"})
-	item, _ := svc.AddItem(menu.ID, AddMenuItemRequest{Title: "To Delete", URL: "/"})
+	menu, _ := svc.Create(CreateMenuRequest{Name: "DelItems", Slug: "del_items"}, models.DefaultTenantID)
+	item, _ := svc.AddItem(menu.ID, AddMenuItemRequest{Title: "To Delete", URL: "/"}, models.DefaultTenantID)
 
-	if err := svc.DeleteItem(item.ID); err != nil {
+	if err := svc.DeleteItem(item.ID, models.DefaultTenantID); err != nil {
 		t.Fatalf("delete item: %v", err)
 	}
 
@@ -392,14 +392,14 @@ func TestMenuService_ReorderItems(t *testing.T) {
 	db := setupTestDB(t)
 	svc := NewMenuService(db)
 
-	menu, _ := svc.Create(CreateMenuRequest{Name: "Reorder", Slug: "reorder"})
-	item1, _ := svc.AddItem(menu.ID, AddMenuItemRequest{Title: "A", URL: "/"})
-	item2, _ := svc.AddItem(menu.ID, AddMenuItemRequest{Title: "B", URL: "/"})
+	menu, _ := svc.Create(CreateMenuRequest{Name: "Reorder", Slug: "reorder"}, models.DefaultTenantID)
+	item1, _ := svc.AddItem(menu.ID, AddMenuItemRequest{Title: "A", URL: "/"}, models.DefaultTenantID)
+	item2, _ := svc.AddItem(menu.ID, AddMenuItemRequest{Title: "B", URL: "/"}, models.DefaultTenantID)
 
 	err := svc.ReorderItems([]ReorderItem{
 		{ID: item2.ID, SortOrder: 1},
 		{ID: item1.ID, SortOrder: 2},
-	})
+	}, models.DefaultTenantID)
 	if err != nil {
 		t.Fatalf("reorder: %v", err)
 	}

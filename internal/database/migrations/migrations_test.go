@@ -194,3 +194,206 @@ func TestArticleVersionMigration_UpgradesLegacyTable(t *testing.T) {
 		t.Fatalf("migrated article version = %d, want 1", version)
 	}
 }
+
+func TestTenantMigration_UpCreatesTablesAndSeedsDefaultTenant(t *testing.T) {
+	db := newMigrationTestDB(t)
+	m := database.NewMigrator(db)
+	m.Register(All()...)
+	if err := m.Up(); err != nil {
+		t.Fatalf("Up() error: %v", err)
+	}
+
+	if !db.Migrator().HasTable(&models.Tenant{}) {
+		t.Error("tenants table should exist after Up()")
+	}
+	if !db.Migrator().HasTable(&models.TenantMembership{}) {
+		t.Error("tenant_memberships table should exist after Up()")
+	}
+
+	var count int64
+	if err := db.Model(&models.Tenant{}).Where("slug = ?", "default").Count(&count).Error; err != nil {
+		t.Fatalf("count default tenant: %v", err)
+	}
+	if count != 1 {
+		t.Errorf("default tenant count = %d, want 1", count)
+	}
+}
+
+func TestTenantMigration_BackfillsMembershipsForExistingUsers(t *testing.T) {
+	db := newMigrationTestDB(t)
+
+	// Simulate an upgraded database: apply 001-007, then create a role + user.
+	for v := 1; v <= 7; v++ {
+		if err := findMigration(t, v).Up(db); err != nil {
+			t.Fatalf("migration %d Up() error: %v", v, err)
+		}
+	}
+	role := models.Role{Name: "Reviewer", Slug: "reviewer"}
+	if err := db.Create(&role).Error; err != nil {
+		t.Fatalf("create role: %v", err)
+	}
+	user := models.User{
+		Username: "alice",
+		Email:    "alice@example.com",
+		Password: "x",
+		RoleID:   role.ID,
+	}
+	if err := db.Create(&user).Error; err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+
+	// Now apply 008.
+	if err := findMigration(t, 8).Up(db); err != nil {
+		t.Fatalf("migration 008 Up() error: %v", err)
+	}
+
+	var ms []models.TenantMembership
+	if err := db.Find(&ms).Error; err != nil {
+		t.Fatalf("list memberships: %v", err)
+	}
+	if len(ms) != 1 {
+		t.Fatalf("memberships after backfill = %d, want 1", len(ms))
+	}
+	if ms[0].TenantID != models.DefaultTenantID {
+		t.Errorf("membership tenant_id = %d, want %d", ms[0].TenantID, models.DefaultTenantID)
+	}
+	if ms[0].UserID != user.ID {
+		t.Errorf("membership user_id = %d, want %d", ms[0].UserID, user.ID)
+	}
+	if ms[0].RoleSlug != "reviewer" {
+		t.Errorf("membership role_slug = %q, want %q", ms[0].RoleSlug, "reviewer")
+	}
+}
+
+func TestTenantMigration_DownDropsTables(t *testing.T) {
+	db := newMigrationTestDB(t)
+	m := database.NewMigrator(db)
+	m.Register(All()...)
+	if err := m.Up(); err != nil {
+		t.Fatalf("Up() error: %v", err)
+	}
+	// 008 is not the newest migration anymore (009 sits above it), so roll
+	// back two steps to remove both multi-tenancy migrations.
+	if err := m.Down(2); err != nil {
+		t.Fatalf("Down(2) error: %v", err)
+	}
+
+	if db.Migrator().HasTable(&models.Tenant{}) {
+		t.Error("tenants table should be dropped after Down(2)")
+	}
+	if db.Migrator().HasTable(&models.TenantMembership{}) {
+		t.Error("tenant_memberships table should be dropped after Down(2)")
+	}
+
+	statuses, err := m.Status()
+	if err != nil {
+		t.Fatalf("Status() error: %v", err)
+	}
+	for _, s := range statuses {
+		if (s.Version == 8 || s.Version == 9) && s.Applied {
+			t.Errorf("migration %d should not be applied after Down(2)", s.Version)
+		}
+	}
+}
+
+func TestTenantMigration009_UpAddsColumnsAndIndexes(t *testing.T) {
+	db := newMigrationTestDB(t)
+	m := database.NewMigrator(db)
+	m.Register(All()...)
+	if err := m.Up(); err != nil {
+		t.Fatalf("Up() error: %v", err)
+	}
+
+	// NOT NULL tenant_id column + index on business tables.
+	if !db.Migrator().HasColumn(&models.Article{}, "TenantID") {
+		t.Error("articles.tenant_id should exist after Up()")
+	}
+	if !db.Migrator().HasIndex("articles", "idx_articles_tenant_id") {
+		t.Error("idx_articles_tenant_id should exist after Up()")
+	}
+	// Tenant-scoped composite unique replaces the global one.
+	if !db.Migrator().HasIndex("articles", "idx_articles_tenant_slug") {
+		t.Error("idx_articles_tenant_slug should exist after Up()")
+	}
+	if db.Migrator().HasIndex("articles", "idx_articles_slug") {
+		t.Error("idx_articles_slug should be replaced after Up()")
+	}
+	if !db.Migrator().HasIndex("content_entries", "idx_content_entries_tenant_document_id") {
+		t.Error("idx_content_entries_tenant_document_id should exist after Up()")
+	}
+	if !db.Migrator().HasIndex("seo_settings", "idx_seo_tenant_entity") {
+		t.Error("idx_seo_tenant_entity should exist after Up()")
+	}
+	if !db.Migrator().HasIndex("site_settings", "idx_site_settings_tenant_key") {
+		t.Error("idx_site_settings_tenant_key should exist after Up()")
+	}
+	// Nullable tenant_id on global tables.
+	if !db.Migrator().HasColumn(&models.ActivityLog{}, "TenantID") {
+		t.Error("activity_logs.tenant_id should exist after Up()")
+	}
+	if !db.Migrator().HasColumn(&models.APIToken{}, "TenantID") {
+		t.Error("api_tokens.tenant_id should exist after Up()")
+	}
+}
+
+func TestTenantMigration009_BackfillsAndScopesUnique(t *testing.T) {
+	db := newMigrationTestDB(t)
+
+	// Upgraded database: 001-008, then a legacy article row.
+	for v := 1; v <= 8; v++ {
+		if err := findMigration(t, v).Up(db); err != nil {
+			t.Fatalf("migration %d Up() error: %v", v, err)
+		}
+	}
+	legacy := models.Article{Title: "Legacy", Slug: "legacy", AuthorID: 1}
+	if err := db.Create(&legacy).Error; err != nil {
+		t.Fatalf("create legacy article: %v", err)
+	}
+
+	if err := findMigration(t, 9).Up(db); err != nil {
+		t.Fatalf("migration 009 Up() error: %v", err)
+	}
+
+	// Existing rows backfilled into the default tenant.
+	var backfilled int64
+	if err := db.Model(&models.Article{}).Where("tenant_id = ?", 1).Count(&backfilled).Error; err != nil {
+		t.Fatalf("count backfilled: %v", err)
+	}
+	if backfilled != 1 {
+		t.Errorf("backfilled articles = %d, want 1", backfilled)
+	}
+
+	// Same slug is allowed across tenants...
+	other := models.Article{Title: "Legacy other tenant", Slug: "legacy", AuthorID: 1}
+	other.TenantID = 2
+	if err := db.Create(&other).Error; err != nil {
+		t.Fatalf("cross-tenant duplicate slug should be allowed: %v", err)
+	}
+	// ...but rejected within the same tenant.
+	dup := models.Article{Title: "Duplicate", Slug: "legacy", AuthorID: 1}
+	if err := db.Create(&dup).Error; err == nil {
+		t.Fatal("same-tenant duplicate slug should be rejected by composite unique index")
+	}
+}
+
+func TestTenantMigration009_DownRestoresSchema(t *testing.T) {
+	db := newMigrationTestDB(t)
+	m := database.NewMigrator(db)
+	m.Register(All()...)
+	if err := m.Up(); err != nil {
+		t.Fatalf("Up() error: %v", err)
+	}
+	if err := m.Down(1); err != nil {
+		t.Fatalf("Down(1) error: %v", err)
+	}
+
+	if db.Migrator().HasColumn(&models.Article{}, "TenantID") {
+		t.Error("articles.tenant_id should be dropped after Down(1)")
+	}
+	if db.Migrator().HasIndex("articles", "idx_articles_tenant_slug") {
+		t.Error("idx_articles_tenant_slug should be dropped after Down(1)")
+	}
+	if !db.Migrator().HasIndex("articles", "idx_articles_slug") {
+		t.Error("idx_articles_slug should be restored after Down(1)")
+	}
+}

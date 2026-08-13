@@ -17,6 +17,7 @@ func TestArticleRepository_Create_WithTagsAndRevision(t *testing.T) {
 	cat := createTestCategory(t, db, "Tech", "tech")
 
 	article := &models.Article{
+		TenantID:   models.DefaultTenantID, // repo.Create requires an explicit tenant (RFC-001 §5)
 		Title:      "Test Article",
 		Slug:       "test-article",
 		Content:    "<p>Hello</p>",
@@ -39,7 +40,7 @@ func TestArticleRepository_Create_WithTagsAndRevision(t *testing.T) {
 	}
 
 	// Verify initial revision was created.
-	revisions, err := repo.ListRevisions(article.ID)
+	revisions, err := repo.ListRevisions(article.ID, models.DefaultTenantID)
 	if err != nil {
 		t.Fatalf("ListRevisions: %v", err)
 	}
@@ -80,12 +81,13 @@ func TestArticleRepository_Create_DefaultRevisionNote(t *testing.T) {
 		Slug:     "no-note",
 		Content:  "x",
 		AuthorID: author.ID,
+		TenantID: models.DefaultTenantID, // repo.Create requires an explicit tenant (RFC-001 §5)
 		Status:   models.StatusDraft,
 	}
 	if err := repo.Create(article, nil, "", author.ID); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	revisions, _ := repo.ListRevisions(article.ID)
+	revisions, _ := repo.ListRevisions(article.ID, models.DefaultTenantID)
 	if len(revisions) != 1 || revisions[0].Note != "Initial version" {
 		t.Fatalf("expected default note 'Initial version', got %+v", revisions)
 	}
@@ -101,6 +103,7 @@ func TestArticleRepository_Update_PartialFieldsAndRevision(t *testing.T) {
 		Slug:     "original",
 		Content:  "original content",
 		AuthorID: author.ID,
+		TenantID: models.DefaultTenantID, // repo.Create requires an explicit tenant (RFC-001 §5)
 		Status:   models.StatusDraft,
 	}
 	if err := repo.Create(article, nil, "", author.ID); err != nil {
@@ -111,7 +114,7 @@ func TestArticleRepository_Update_PartialFieldsAndRevision(t *testing.T) {
 		"title":   "Updated Title",
 		"content": "updated content",
 	}
-	if err := repo.Update(article, updates, nil, "edit", author.ID, nil); err != nil {
+	if err := repo.Update(article, updates, nil, "edit", author.ID, nil, models.DefaultTenantID); err != nil {
 		t.Fatalf("Update: %v", err)
 	}
 
@@ -120,7 +123,7 @@ func TestArticleRepository_Update_PartialFieldsAndRevision(t *testing.T) {
 	}
 
 	// Verify a new revision was created (version 2).
-	revisions, _ := repo.ListRevisions(article.ID)
+	revisions, _ := repo.ListRevisions(article.ID, models.DefaultTenantID)
 	if len(revisions) != 2 {
 		t.Fatalf("expected 2 revisions, got %d", len(revisions))
 	}
@@ -139,6 +142,7 @@ func TestArticleRepository_Update_OptimisticLock_Success(t *testing.T) {
 		Slug:     "lock-test",
 		Content:  "v1",
 		AuthorID: author.ID,
+		TenantID: models.DefaultTenantID, // repo.Create requires an explicit tenant (RFC-001 §5)
 		Status:   models.StatusDraft,
 	}
 	if err := repo.Create(article, nil, "", author.ID); err != nil {
@@ -151,12 +155,12 @@ func TestArticleRepository_Update_OptimisticLock_Success(t *testing.T) {
 	// 更新时传入正确的 expectedVersion=1 → 成功，version 自增到 2。
 	v1 := 1
 	updates := map[string]interface{}{"title": "v2"}
-	if err := repo.Update(article, updates, nil, "edit", author.ID, &v1); err != nil {
+	if err := repo.Update(article, updates, nil, "edit", author.ID, &v1, models.DefaultTenantID); err != nil {
 		t.Fatalf("Update with correct version: %v", err)
 	}
 
 	// 重新加载确认 version 已自增。
-	updated, _ := repo.FindByID(article.ID)
+	updated, _ := repo.FindByID(article.ID, models.DefaultTenantID)
 	if updated.Version != 2 {
 		t.Fatalf("expected version 2 after update, got %d", updated.Version)
 	}
@@ -172,6 +176,7 @@ func TestArticleRepository_Update_OptimisticLock_Conflict(t *testing.T) {
 		Slug:     "conflict-test",
 		Content:  "v1",
 		AuthorID: author.ID,
+		TenantID: models.DefaultTenantID, // repo.Create requires an explicit tenant (RFC-001 §5)
 		Status:   models.StatusDraft,
 	}
 	if err := repo.Create(article, nil, "", author.ID); err != nil {
@@ -181,19 +186,19 @@ func TestArticleRepository_Update_OptimisticLock_Conflict(t *testing.T) {
 	// 模拟另一个编辑器已经保存了一次（version 从 1 变为 2）。
 	staleVersion := 1
 	updates := map[string]interface{}{"title": "intermediate"}
-	if err := repo.Update(article, updates, nil, "first edit", author.ID, &staleVersion); err != nil {
+	if err := repo.Update(article, updates, nil, "first edit", author.ID, &staleVersion, models.DefaultTenantID); err != nil {
 		t.Fatalf("first Update: %v", err)
 	}
 
 	// 现在用过期的 version=1 再次更新 → 应返回 ErrConcurrentModification。
 	updates2 := map[string]interface{}{"title": "stale edit"}
-	err := repo.Update(article, updates2, nil, "stale edit", author.ID, &staleVersion)
+	err := repo.Update(article, updates2, nil, "stale edit", author.ID, &staleVersion, models.DefaultTenantID)
 	if err != ErrConcurrentModification {
 		t.Fatalf("expected ErrConcurrentModification, got %v", err)
 	}
 
 	// 确认标题没被覆写为 stale edit。
-	current, _ := repo.FindByID(article.ID)
+	current, _ := repo.FindByID(article.ID, models.DefaultTenantID)
 	if current.Title != "intermediate" {
 		t.Fatalf("title should be 'intermediate', got %q", current.Title)
 	}
@@ -212,6 +217,7 @@ func TestArticleRepository_Update_ReplaceTags(t *testing.T) {
 		Slug:     "tagged",
 		Content:  "x",
 		AuthorID: author.ID,
+		TenantID: models.DefaultTenantID, // repo.Create requires an explicit tenant (RFC-001 §5)
 		Status:   models.StatusDraft,
 	}
 	if err := repo.Create(article, []uint{tag1.ID, tag2.ID}, "", author.ID); err != nil {
@@ -219,7 +225,7 @@ func TestArticleRepository_Update_ReplaceTags(t *testing.T) {
 	}
 
 	// Replace tags: remove tag1, keep tag2, add tag3.
-	if err := repo.Update(article, nil, []uint{tag2.ID, tag3.ID}, "retag", author.ID, nil); err != nil {
+	if err := repo.Update(article, nil, []uint{tag2.ID, tag3.ID}, "retag", author.ID, nil, models.DefaultTenantID); err != nil {
 		t.Fatalf("Update: %v", err)
 	}
 	if len(article.Tags) != 2 {
@@ -257,7 +263,7 @@ func TestArticleRepository_List_Filters(t *testing.T) {
 	// Filter by status=published.
 	articles, total, err := repo.List(ArticleListFilter{
 		Page: 1, PageSize: 10, Status: string(models.StatusPublished),
-	})
+	}, models.DefaultTenantID)
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -280,7 +286,7 @@ func TestArticleRepository_List_OmitsContentByDefault(t *testing.T) {
 	a := createTestArticleDirect(t, db, author.ID, "Has Content", "has-content")
 	_ = a
 
-	articles, _, err := repo.List(ArticleListFilter{Page: 1, PageSize: 10})
+	articles, _, err := repo.List(ArticleListFilter{Page: 1, PageSize: 10}, models.DefaultTenantID)
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -293,7 +299,7 @@ func TestArticleRepository_List_OmitsContentByDefault(t *testing.T) {
 	}
 
 	// With Full=true, content should be present.
-	articles, _, err = repo.List(ArticleListFilter{Page: 1, PageSize: 10, Full: true})
+	articles, _, err = repo.List(ArticleListFilter{Page: 1, PageSize: 10, Full: true}, models.DefaultTenantID)
 	if err != nil {
 		t.Fatalf("List Full: %v", err)
 	}
@@ -313,13 +319,14 @@ func TestArticleRepository_GetByID_Preloads(t *testing.T) {
 		Slug:     "preload-test",
 		Content:  "x",
 		AuthorID: author.ID,
+		TenantID: models.DefaultTenantID, // repo.Create requires an explicit tenant (RFC-001 §5)
 		Status:   models.StatusDraft,
 	}
 	if err := repo.Create(article, []uint{tag.ID}, "", author.ID); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
 
-	got, err := repo.GetByID(article.ID)
+	got, err := repo.GetByID(article.ID, models.DefaultTenantID)
 	if err != nil {
 		t.Fatalf("GetByID: %v", err)
 	}
@@ -334,7 +341,7 @@ func TestArticleRepository_GetByID_Preloads(t *testing.T) {
 func TestArticleRepository_GetByID_NotFound(t *testing.T) {
 	db := setupTestDB(t)
 	repo := NewArticleRepository(db)
-	_, err := repo.GetByID(99999)
+	_, err := repo.GetByID(99999, models.DefaultTenantID)
 	if err != gorm.ErrRecordNotFound {
 		t.Fatalf("expected ErrRecordNotFound, got %v", err)
 	}
@@ -347,7 +354,7 @@ func TestArticleRepository_GetPublishedBySlug(t *testing.T) {
 	createTestArticleDirect(t, db, author.ID, "Published", "published-slug")
 
 	// Should find published article.
-	got, err := repo.GetPublishedBySlug("published-slug")
+	got, err := repo.GetPublishedBySlug("published-slug", models.DefaultTenantID)
 	if err != nil {
 		t.Fatalf("GetPublishedBySlug: %v", err)
 	}
@@ -356,7 +363,7 @@ func TestArticleRepository_GetPublishedBySlug(t *testing.T) {
 	}
 
 	// Non-existent slug should return ErrRecordNotFound.
-	_, err = repo.GetPublishedBySlug("no-such-slug")
+	_, err = repo.GetPublishedBySlug("no-such-slug", models.DefaultTenantID)
 	if err != gorm.ErrRecordNotFound {
 		t.Fatalf("expected ErrRecordNotFound, got %v", err)
 	}
@@ -368,10 +375,10 @@ func TestArticleRepository_IncrementViewAndLikeCount(t *testing.T) {
 	author := createTestUser(t, db, "author9", "author")
 	article := createTestArticleDirect(t, db, author.ID, "Counts", "counts")
 
-	if err := repo.IncrementViewCount(article.ID); err != nil {
+	if err := repo.IncrementViewCount(article.ID, models.DefaultTenantID); err != nil {
 		t.Fatalf("IncrementViewCount: %v", err)
 	}
-	if err := repo.IncrementLikeCount(article.ID); err != nil {
+	if err := repo.IncrementLikeCount(article.ID, models.DefaultTenantID); err != nil {
 		t.Fatalf("IncrementLikeCount: %v", err)
 	}
 
@@ -393,7 +400,7 @@ func TestArticleRepository_EnsureUniqueSlug(t *testing.T) {
 	createTestArticleDirect(t, db, author.ID, "Second", "my-slug-1")
 
 	// "my-slug" and "my-slug-1" are taken; EnsureUniqueSlug should return "my-slug-2".
-	got, err := repo.EnsureUniqueSlug("my-slug", 0)
+	got, err := repo.EnsureUniqueSlug("my-slug", 0, models.DefaultTenantID)
 	if err != nil {
 		t.Fatalf("EnsureUniqueSlug error: %v", err)
 	}
@@ -404,7 +411,7 @@ func TestArticleRepository_EnsureUniqueSlug(t *testing.T) {
 	// With excludeID, the article itself is excluded.
 	first := models.Article{}
 	db.Where("slug = ?", "my-slug").First(&first)
-	got, err = repo.EnsureUniqueSlug("my-slug", first.ID)
+	got, err = repo.EnsureUniqueSlug("my-slug", first.ID, models.DefaultTenantID)
 	if err != nil {
 		t.Fatalf("EnsureUniqueSlug error (excludeID): %v", err)
 	}
@@ -423,6 +430,7 @@ func TestArticleRepository_RestoreRevision(t *testing.T) {
 		Slug:     "restore-test",
 		Content:  "v1 content",
 		AuthorID: author.ID,
+		TenantID: models.DefaultTenantID, // repo.Create requires an explicit tenant (RFC-001 §5)
 		Status:   models.StatusDraft,
 	}
 	if err := repo.Create(article, nil, "", author.ID); err != nil {
@@ -433,12 +441,12 @@ func TestArticleRepository_RestoreRevision(t *testing.T) {
 	if err := repo.Update(article, map[string]interface{}{
 		"title":   "v2",
 		"content": "v2 content",
-	}, nil, "v2 edit", author.ID, nil); err != nil {
+	}, nil, "v2 edit", author.ID, nil, models.DefaultTenantID); err != nil {
 		t.Fatalf("Update: %v", err)
 	}
 
 	// Get the v1 revision.
-	revisions, _ := repo.ListRevisions(article.ID)
+	revisions, _ := repo.ListRevisions(article.ID, models.DefaultTenantID)
 	var v1 *models.Revision
 	for i := range revisions {
 		if revisions[i].Version == 1 {
@@ -451,7 +459,7 @@ func TestArticleRepository_RestoreRevision(t *testing.T) {
 	}
 
 	// Restore to v1.
-	if err := repo.RestoreRevision(article, v1, author.ID); err != nil {
+	if err := repo.RestoreRevision(article, v1, author.ID, models.DefaultTenantID); err != nil {
 		t.Fatalf("RestoreRevision: %v", err)
 	}
 
@@ -466,7 +474,7 @@ func TestArticleRepository_RestoreRevision(t *testing.T) {
 	}
 
 	// Verify a new revision (v3) was created with "Restored from version 1" note.
-	revisions, _ = repo.ListRevisions(article.ID)
+	revisions, _ = repo.ListRevisions(article.ID, models.DefaultTenantID)
 	if len(revisions) != 3 {
 		t.Fatalf("expected 3 revisions, got %d", len(revisions))
 	}
@@ -490,7 +498,7 @@ func TestArticleRepository_BulkOperations(t *testing.T) {
 	ids := []uint{a1.ID, a2.ID}
 
 	// BulkUpdateStatus
-	n, err := repo.BulkUpdateStatus(ids, string(models.StatusArchived))
+	n, err := repo.BulkUpdateStatus(ids, string(models.StatusArchived), models.DefaultTenantID)
 	if err != nil {
 		t.Fatalf("BulkUpdateStatus: %v", err)
 	}
@@ -499,7 +507,7 @@ func TestArticleRepository_BulkOperations(t *testing.T) {
 	}
 
 	// BulkSetPinned
-	n, err = repo.BulkSetPinned(ids, true)
+	n, err = repo.BulkSetPinned(ids, true, models.DefaultTenantID)
 	if err != nil {
 		t.Fatalf("BulkSetPinned: %v", err)
 	}
@@ -508,7 +516,7 @@ func TestArticleRepository_BulkOperations(t *testing.T) {
 	}
 
 	// BulkMoveCategory
-	n, err = repo.BulkMoveCategory(ids, cat.ID)
+	n, err = repo.BulkMoveCategory(ids, cat.ID, models.DefaultTenantID)
 	if err != nil {
 		t.Fatalf("BulkMoveCategory: %v", err)
 	}
@@ -518,7 +526,7 @@ func TestArticleRepository_BulkOperations(t *testing.T) {
 
 	// BulkPublish
 	now := time.Now()
-	n, err = repo.BulkPublish(ids, now)
+	n, err = repo.BulkPublish(ids, now, models.DefaultTenantID)
 	if err != nil {
 		t.Fatalf("BulkPublish: %v", err)
 	}
@@ -527,7 +535,7 @@ func TestArticleRepository_BulkOperations(t *testing.T) {
 	}
 
 	// BulkDelete
-	n, err = repo.BulkDelete(ids)
+	n, err = repo.BulkDelete(ids, models.DefaultTenantID)
 	if err != nil {
 		t.Fatalf("BulkDelete: %v", err)
 	}
@@ -558,7 +566,7 @@ func TestArticleRepository_ListScheduledDue(t *testing.T) {
 		"scheduled_at": future,
 	})
 
-	due, err := repo.ListScheduledDue(time.Now())
+	due, err := repo.ListScheduledDue(time.Now(), models.DefaultTenantID)
 	if err != nil {
 		t.Fatalf("ListScheduledDue: %v", err)
 	}
@@ -576,13 +584,79 @@ func TestArticleRepository_Delete(t *testing.T) {
 	author := createTestUser(t, db, "author14", "author")
 	article := createTestArticleDirect(t, db, author.ID, "ToDelete", "to-delete")
 
-	if err := repo.Delete(article); err != nil {
+	if err := repo.Delete(article, models.DefaultTenantID); err != nil {
 		t.Fatalf("Delete: %v", err)
 	}
 
 	// Verify the article is gone.
-	_, err := repo.FindByID(article.ID)
+	_, err := repo.FindByID(article.ID, models.DefaultTenantID)
 	if err != gorm.ErrRecordNotFound {
 		t.Fatalf("expected ErrRecordNotFound after delete, got %v", err)
+	}
+}
+
+func TestArticleRepository_TenantIsolation(t *testing.T) {
+	db := setupTestDB(t)
+	repo := NewArticleRepository(db)
+	author := createTestUser(t, db, "tenant-author", "author")
+
+	// Article owned by tenant 1.
+	article := &models.Article{
+		TenantID: 1,
+		Title:    "Tenant One Article",
+		Slug:     "tenant-one",
+		Content:  "secret",
+		AuthorID: author.ID,
+		Status:   models.StatusDraft,
+	}
+	if err := repo.Create(article, nil, "initial", author.ID); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	// Cross-tenant reads must not leak.
+	if _, err := repo.GetByID(article.ID, 2); err != gorm.ErrRecordNotFound {
+		t.Fatalf("GetByID cross-tenant = %v, want gorm.ErrRecordNotFound", err)
+	}
+	if _, err := repo.FindByID(article.ID, 2); err != gorm.ErrRecordNotFound {
+		t.Fatalf("FindByID cross-tenant = %v, want gorm.ErrRecordNotFound", err)
+	}
+	got, total, err := repo.List(ArticleListFilter{Page: 1, PageSize: 10}, 2)
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if total != 0 || len(got) != 0 {
+		t.Fatalf("List cross-tenant = %d/%d, want 0/0", len(got), total)
+	}
+	if _, err := repo.GetPublishedBySlug("tenant-one", 2); err != gorm.ErrRecordNotFound {
+		t.Fatalf("GetPublishedBySlug cross-tenant = %v, want gorm.ErrRecordNotFound", err)
+	}
+
+	// Cross-tenant writes must be no-ops (0 rows affected).
+	if n, err := repo.BulkDelete([]uint{article.ID}, 2); err != nil || n != 0 {
+		t.Fatalf("BulkDelete cross-tenant = %d/%v, want 0/nil", n, err)
+	}
+	if n, err := repo.BulkUpdateStatus([]uint{article.ID}, string(models.StatusPublished), 2); err != nil || n != 0 {
+		t.Fatalf("BulkUpdateStatus cross-tenant = %d/%v, want 0/nil", n, err)
+	}
+	if err := repo.Delete(article, 2); err != nil {
+		t.Fatalf("Delete cross-tenant: %v", err)
+	}
+	// Original row untouched.
+	if _, err := repo.GetByID(article.ID, 1); err != nil {
+		t.Fatalf("tenant 1 article vanished after cross-tenant deletes: %v", err)
+	}
+
+	// EnsureUniqueSlug: same slug allowed in another tenant, rejected in the
+	// same tenant (composite unique, RFC-001 §4.4).
+	slug, err := repo.EnsureUniqueSlug("tenant-one", 0, 2)
+	if err != nil || slug != "tenant-one" {
+		t.Fatalf("EnsureUniqueSlug cross-tenant = %q/%v, want tenant-one/nil", slug, err)
+	}
+	slug2, err := repo.EnsureUniqueSlug("tenant-one", 0, 1)
+	if err != nil {
+		t.Fatalf("EnsureUniqueSlug same-tenant: %v", err)
+	}
+	if slug2 == "tenant-one" {
+		t.Fatal("EnsureUniqueSlug same-tenant should suffix the slug")
 	}
 }

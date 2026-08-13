@@ -159,6 +159,9 @@
         </router-view>
       </el-main>
     </el-container>
+
+    <!-- ⌘K 全局命令面板 -->
+    <CommandPalette />
   </el-container>
 </template>
 
@@ -167,6 +170,7 @@ import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useAppStore } from '@/stores/app'
+import CommandPalette from '@/components/CommandPalette.vue'
 import type { PermissionSlug } from '@/shared/auth/permissions'
 
 const route = useRoute()
