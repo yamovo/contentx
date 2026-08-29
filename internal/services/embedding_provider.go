@@ -114,7 +114,7 @@ func (d *dummyProvider) hashToVector(text string) []float32 {
 	for len(buf) < d.dim*4 {
 		h := sha256.New()
 		h.Write(seed)
-		h.Write([]byte(fmt.Sprintf("%d", counter)))
+		_, _ = fmt.Fprintf(h, "%d", counter)
 		buf = append(buf, h.Sum(nil)...)
 		counter++
 	}
@@ -287,7 +287,7 @@ func (o *openaiProvider) Embed(ctx context.Context, texts []string) ([][]float32
 	if err != nil {
 		return nil, fmt.Errorf("embedding API call: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		raw, _ := io.ReadAll(resp.Body)
 		return nil, fmt.Errorf("embedding API returned %d: %s", resp.StatusCode, string(raw))

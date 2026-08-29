@@ -36,7 +36,7 @@ func ensureSiteSettingScopeUniqueness(tx *gorm.DB) error {
 		return err
 	}
 
-	switch tx.Dialector.Name() {
+	switch tx.Name() {
 	case "sqlite", "postgres":
 		if tx.Migrator().HasIndex("site_settings", siteSettingGlobalKeyIndex) {
 			return nil
@@ -62,7 +62,7 @@ func ensureSiteSettingScopeUniqueness(tx *gorm.DB) error {
 				" ON site_settings (" + siteSettingScopeColumn + ", `key`)",
 		).Error
 	default:
-		return fmt.Errorf("unsupported database dialect %q for site setting scope uniqueness", tx.Dialector.Name())
+		return fmt.Errorf("unsupported database dialect %q for site setting scope uniqueness", tx.Name())
 	}
 }
 
@@ -71,7 +71,7 @@ func dropSiteSettingScopeUniqueness(tx *gorm.DB) error {
 		return nil
 	}
 
-	switch tx.Dialector.Name() {
+	switch tx.Name() {
 	case "sqlite", "postgres":
 		if tx.Migrator().HasIndex("site_settings", siteSettingGlobalKeyIndex) {
 			return tx.Migrator().DropIndex("site_settings", siteSettingGlobalKeyIndex)
@@ -88,7 +88,7 @@ func dropSiteSettingScopeUniqueness(tx *gorm.DB) error {
 		}
 		return nil
 	default:
-		return fmt.Errorf("unsupported database dialect %q for site setting scope uniqueness", tx.Dialector.Name())
+		return fmt.Errorf("unsupported database dialect %q for site setting scope uniqueness", tx.Name())
 	}
 }
 

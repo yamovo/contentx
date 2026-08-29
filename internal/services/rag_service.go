@@ -211,12 +211,12 @@ func (s *RAGService) chunkText(text string) []string {
 							currentLen = len(overlap)
 						}
 						current.WriteString(sent)
-						currentLen = len(sent)
+						currentLen += len(sent)
 					}
 				}
 			} else {
 				current.WriteString(para)
-				currentLen = len(para)
+				currentLen += len(para)
 			}
 		}
 	}

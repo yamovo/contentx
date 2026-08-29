@@ -71,7 +71,7 @@ func init() {
 			// make this multi-table rollback atomic. Fail closed and require a
 			// pre-009 backup restore instead of risking a partially downgraded
 			// schema.
-			if tx.Dialector.Name() == "mysql" {
+			if tx.Name() == "mysql" {
 				return fmt.Errorf("migration 009 rollback is disabled on MySQL because DDL is not transactional; restore a verified pre-009 backup instead")
 			}
 
@@ -358,7 +358,7 @@ func quoteMigrationColumns(db *gorm.DB, columns string) string {
 }
 
 func quoteMigrationIdentifier(db *gorm.DB, identifier string) string {
-	if db.Dialector.Name() == "mysql" {
+	if db.Name() == "mysql" {
 		return "`" + strings.ReplaceAll(identifier, "`", "``") + "`"
 	}
 	return `"` + strings.ReplaceAll(identifier, `"`, `""`) + `"`

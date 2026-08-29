@@ -87,7 +87,7 @@ func (o *openaiLLMProvider) Complete(ctx context.Context, systemPrompt, userProm
 	if err != nil {
 		return "", fmt.Errorf("chat API call: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		raw, _ := io.ReadAll(resp.Body)
