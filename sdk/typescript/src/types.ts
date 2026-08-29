@@ -157,6 +157,29 @@ export interface ContentEntry {
   updated_at: string
 }
 
+/** Platform tenant (RFC-001 PR-5). */
+export interface Tenant {
+  id: number
+  name: string
+  slug: string
+  status: 'active' | 'suspended'
+  max_users: number
+  created_at?: string
+  updated_at?: string
+}
+
+/** A user's membership in a tenant. */
+export interface TenantMember {
+  tenant_id: number
+  user_id: number
+  role_slug: 'admin' | 'editor' | 'member'
+  joined_at: string
+  username: string
+  email: string
+  display_name: string
+  user_status: string
+}
+
 /**
  * Public content entry (RFC-002): the published-only DTO exposed by
  * /public/content/* — no tenant, actor, internal type ID, or status fields.

@@ -12,6 +12,8 @@ import type {
   ContentType,
   ContentEntry,
   PublicContentEntry,
+  Tenant,
+  TenantMember,
   Webhook,
   CreateArticleInput,
   UpdateArticleInput,
@@ -219,6 +221,36 @@ export class ContentX {
       import: (json: string) =>
         this.post<{ imported: number }>(`/content/${uid}/import`, { json }),
     }
+  }
+
+  // ─── Tenants (platform, RFC-001 PR-5) ───────────────────────
+
+  /**
+   * Platform tenant administration. These endpoints require the
+   * tenants.read / tenants.manage platform permissions; tenant membership
+   * roles can never reach the identity plane.
+   */
+  tenants = {
+    list: () => this.get<Tenant[]>('/admin/tenants'),
+
+    get: (id: number) => this.get<Tenant>(`/admin/tenants/${id}`),
+
+    create: (data: { name: string; slug: string; max_users?: number }) =>
+      this.post<Tenant>('/admin/tenants', data),
+
+    update: (id: number, data: { name?: string; status?: 'active' | 'suspended'; max_users?: number }) =>
+      this.put<Tenant>(`/admin/tenants/${id}`, data),
+
+    listMembers: (id: number) => this.get<TenantMember[]>(`/admin/tenants/${id}/members`),
+
+    addMember: (id: number, data: { user_id: number; role_slug: 'admin' | 'editor' | 'member' }) =>
+      this.post<TenantMember>(`/admin/tenants/${id}/members`, data),
+
+    updateMemberRole: (id: number, userId: number, role_slug: 'admin' | 'editor' | 'member') =>
+      this.put<{ message: string }>(`/admin/tenants/${id}/members/${userId}`, { role_slug }),
+
+    removeMember: (id: number, userId: number) =>
+      this.del<{ message: string }>(`/admin/tenants/${id}/members/${userId}`),
   }
 
   // ─── Public Content (RFC-002) ───────────────────────────────

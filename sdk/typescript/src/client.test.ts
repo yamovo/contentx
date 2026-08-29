@@ -179,3 +179,51 @@ describe('public content delivery (RFC-002 consumer contract)', () => {
     ).rejects.toMatchObject({ name: 'ContentXError', status: 404, code: 'NOT_FOUND' })
   })
 })
+
+describe('tenant administration (RFC-001 PR-5)', () => {
+  const fetchMock = vi.fn<Parameters<typeof fetch>, ReturnType<typeof fetch>>()
+  let client: ContentX
+
+  beforeEach(() => {
+    fetchMock.mockReset()
+    vi.stubGlobal('fetch', fetchMock)
+    client = new ContentX({ baseURL: 'https://contentx.test/api/v1', token: 'test-token' })
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('lists tenants and adds a member through the platform surface', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({
+      code: 0,
+      message: 'success',
+      data: [{ id: 2, name: 'Acme', slug: 'acme', status: 'active', max_users: 0 }],
+    }))
+    const tenants = await client.tenants.list()
+    expect(tenants[0].slug).toBe('acme')
+
+    fetchMock.mockResolvedValueOnce(jsonResponse({
+      code: 0,
+      message: 'success',
+      data: {
+        tenant_id: 2, user_id: 9, role_slug: 'editor', joined_at: '2026-08-29T00:00:00Z',
+        username: 'new-hire', email: 'new-hire@test.com', display_name: 'New Hire', user_status: 'active',
+      },
+    }))
+    const member = await client.tenants.addMember(2, { user_id: 9, role_slug: 'editor' })
+    expect(member.role_slug).toBe('editor')
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      'https://contentx.test/api/v1/admin/tenants/2/members',
+      expect.objectContaining({ method: 'POST' }),
+    )
+  })
+
+  it('maps forbidden platform access to a ContentXError', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse(
+      { code: -1, message: 'Insufficient permissions', err_code: 'FORBIDDEN' },
+      { status: 403, statusText: 'Forbidden' },
+    ))
+    await expect(client.tenants.list()).rejects.toMatchObject({ status: 403, code: 'FORBIDDEN' })
+  })
+})
