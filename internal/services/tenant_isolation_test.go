@@ -429,3 +429,134 @@ func TestTenantIsolation_Tag(t *testing.T) {
 		t.Fatalf("tenant B should see 0 tags, got %d", len(tagsB))
 	}
 }
+
+// ─── Comments: cross-tenant parent and thread rendering ────────────────────
+
+func TestTenantIsolation_CommentParent(t *testing.T) {
+	db, userA, userB := setupTenantABDB(t)
+
+	articleA := createTenantArticle(t, db, tenantAID, userA.ID, "Article A")
+	articleB := createTenantArticle(t, db, tenantBID, userB.ID, "Article B")
+
+	commentSvc := NewCommentService(db)
+
+	rootA, err := commentSvc.Create(CreateCommentRequest{
+		ArticleID: articleA.ID,
+		Content:   "root comment in tenant A",
+	}, "127.0.0.1", "agent", &userA.ID, true, tenantAID)
+	if err != nil {
+		t.Fatalf("create root comment in tenant A: %v", err)
+	}
+
+	// Tenant B cannot reply to tenant A's comment.
+	_, err = commentSvc.Create(CreateCommentRequest{
+		ArticleID: articleB.ID,
+		ParentID:  &rootA.ID,
+		Content:   "cross-tenant reply from B",
+	}, "127.0.0.1", "agent", nil, false, tenantBID)
+	if err == nil {
+		t.Fatal("tenant B should not reply to tenant A's comment")
+	}
+
+	// The rejected reply must not be persisted.
+	var count int64
+	db.Model(&models.Comment{}).Where("tenant_id = ?", tenantBID).Count(&count)
+	if count != 0 {
+		t.Fatalf("tenant B should have 0 comments, got %d", count)
+	}
+}
+
+func TestTenantIsolation_CommentThread(t *testing.T) {
+	db, userA, userB := setupTenantABDB(t)
+
+	articleA := createTenantArticle(t, db, tenantAID, userA.ID, "Article A")
+	articleB := createTenantArticle(t, db, tenantBID, userB.ID, "Article B")
+
+	commentSvc := NewCommentService(db)
+
+	rootA, err := commentSvc.Create(CreateCommentRequest{
+		ArticleID: articleA.ID,
+		Content:   "root comment in tenant A",
+	}, "127.0.0.1", "agent", &userA.ID, true, tenantAID)
+	if err != nil {
+		t.Fatalf("create root comment in tenant A: %v", err)
+	}
+
+	// Simulate a legacy dangling reply written before the service rejected
+	// cross-tenant parents: an approved tenant B row pointing at tenant A.
+	childB := models.Comment{
+		TenantID:  tenantBID,
+		ArticleID: articleB.ID,
+		ParentID:  &rootA.ID,
+		Content:   "legacy cross-tenant child from B",
+		Status:    "approved",
+	}
+	if err := db.Create(&childB).Error; err != nil {
+		t.Fatalf("seed legacy child: %v", err)
+	}
+
+	// Tenant A's public thread must not render tenant B's child.
+	threadA, err := commentSvc.ArticleComments(articleA.ID, tenantAID)
+	if err != nil {
+		t.Fatalf("article comments A: %v", err)
+	}
+	if len(threadA) != 1 || len(threadA[0].Children) != 0 {
+		t.Fatalf("tenant A thread must show 1 root with 0 children, got %d roots / %d children",
+			len(threadA), len(threadA[0].Children))
+	}
+
+	// Tenant B's thread stays empty as well (its child is not a root).
+	threadB, err := commentSvc.ArticleComments(articleB.ID, tenantBID)
+	if err != nil {
+		t.Fatalf("article comments B: %v", err)
+	}
+	if len(threadB) != 0 {
+		t.Fatalf("tenant B thread should be empty, got %d roots", len(threadB))
+	}
+
+	// Admin GetByID must not preload the cross-tenant child either.
+	gotA, err := commentSvc.Get(rootA.ID, tenantAID)
+	if err != nil {
+		t.Fatalf("get comment A: %v", err)
+	}
+	if len(gotA.Children) != 0 {
+		t.Fatalf("tenant A comment should preload 0 children, got %d", len(gotA.Children))
+	}
+}
+
+func TestTenantIsolation_AuditLogReadBoundary(t *testing.T) {
+	db, userA, _ := setupTenantABDB(t)
+
+	auditRepo := NewAuditLogger(repository.NewActivityLogRepository(db))
+	articleSvc := NewArticleService(db, "http://localhost:8080")
+	articleSvc.SetAuditLogger(auditRepo)
+
+	// Tenant A generates a business audit event.
+	if _, err := articleSvc.Create(CreateArticleRequest{
+		Title:   "Audit Boundary A",
+		Slug:    "audit-boundary-a",
+		Content: "<p>A</p>",
+	}, tenantAID, userA.ID); err != nil {
+		t.Fatalf("create article A: %v", err)
+	}
+
+	systemSvc := NewSystemService(db)
+
+	// A tenant B viewer must not see tenant A's event.
+	_, totalB, err := systemSvc.ActivityLog(ActivityLogParams{Page: 1, PageSize: 50, TenantID: tenantBID})
+	if err != nil {
+		t.Fatalf("tenant B activity log: %v", err)
+	}
+	if totalB != 0 {
+		t.Fatalf("tenant B must see 0 audit logs, got %d", totalB)
+	}
+
+	// The platform-wide surface (platform admin only) still sees the event.
+	_, totalAll, err := systemSvc.ActivityLog(ActivityLogParams{Page: 1, PageSize: 50, TenantID: 0})
+	if err != nil {
+		t.Fatalf("platform activity log: %v", err)
+	}
+	if totalAll < 1 {
+		t.Fatalf("platform view should contain tenant A's event, got %d", totalAll)
+	}
+}

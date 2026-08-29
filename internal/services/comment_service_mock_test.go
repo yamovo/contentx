@@ -179,7 +179,7 @@ func TestMockComment_Create_AuthenticatedNonEditor(t *testing.T) {
 }
 
 func TestMockComment_Create_WithParent(t *testing.T) {
-	parent := &models.Comment{BaseModel: models.BaseModel{ID: 10}, Depth: 2}
+	parent := &models.Comment{BaseModel: models.BaseModel{ID: 10}, ArticleID: 1, Depth: 2}
 	repo := &MockCommentRepository{
 		Article:       &models.Article{BaseModel: models.BaseModel{ID: 1}, AllowComment: true},
 		ParentComment: parent,
@@ -199,7 +199,8 @@ func TestMockComment_Create_WithParent(t *testing.T) {
 }
 
 func TestMockComment_Create_ParentNotFound(t *testing.T) {
-	// Parent lookup fails → depth stays 0 (best-effort).
+	// Parent lookup fails → the reply is rejected instead of silently stored
+	// with a dangling parent_id (A-2 security fix).
 	repo := &MockCommentRepository{
 		Article:            &models.Article{BaseModel: models.BaseModel{ID: 1}, AllowComment: true},
 		FindCommentByIDErr: gorm.ErrRecordNotFound,
@@ -207,14 +208,11 @@ func TestMockComment_Create_ParentNotFound(t *testing.T) {
 	svc := NewCommentServiceWithRepo(repo)
 
 	pid := uint(99)
-	comment, err := svc.Create(CreateCommentRequest{
+	_, err := svc.Create(CreateCommentRequest{
 		ArticleID: 1, Content: "reply", ParentID: &pid,
 	}, "1.2.3.4", "ua", nil, false, models.DefaultTenantID)
-	if err != nil {
-		t.Fatalf("Create failed: %v", err)
-	}
-	if comment.Depth != 0 {
-		t.Errorf("expected depth 0 when parent not found, got %d", comment.Depth)
+	if err == nil {
+		t.Fatal("expected error when parent comment is not found in the tenant")
 	}
 }
 

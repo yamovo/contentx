@@ -15,6 +15,13 @@
 - **AI 配置收口**：`AIConfig` 正式进入 config 与 `.env.example`、`deploy/docker/.env.example`（`AI_ENABLED=false` 默认）；Swagger 重新生成补齐 `/ai/search`、`/ai/rag/ask`、`/ai/reindex`、`/ai/status`，消除 CI drift
 - **测试覆盖**：新增 MCP token 租户绑定、Authorizer 有效主体、HTTP 读权限与 drafts fail closed、RAG 权限、资源租户隔离回归；Go 全量 21 包与前端 type-check/lint/189 单测通过
 
+### Fixed — 评论跨租户归属与多租户边界验证收口
+
+- **评论父子归属 fail closed**：创建回复时父评论必须存在于当前租户且属于同一篇文章；此前父评论查不到时会静默入库外来 `parent_id`，而子评论预加载只按 `parent_id` 关联，租户 B 的评论可以渲染进租户 A 的公开评论树（跨租户数据泄漏）。`FindArticleComments` 与 `GetByID` 的 Children 预加载现均显式追加租户过滤，历史遗留的悬挂引用也不再外泄
+- **GraphQL tenant A/B 攻击矩阵**：新增 5 条端到端 HTTP 测试——匿名伪造 `X-Tenant-ID`、租户 B/A 双向按 slug 与列表读取、非管理员伪造租户切换 fail closed 回落默认租户、平台管理员切换后仍严格限定在被切换租户内
+- **审计日志边界闭环验证**：写入侧（业务事件带租户、HTTP 中间件按已解析租户落库）与读取侧（租户过滤、平台管理员全量、GraphQL/MCP 不暴露）逐层核验通过，并补一条"租户 A 写入 → 租户 B 读不到 → 平台可见"的链路测试
+- **刷新令牌租户保持确认闭环**：代码与 5 项专项测试（显式租户保持、无效租户状态、无效成员角色、平台管理员边界、遗留令牌解析）此前已落地，本轮复核后从阻断项中移除
+
 ### Documentation — 产品路线与语言边界
 
 - 将产品价值从“Go + MCP”的技术组合收敛为自托管内容控制、语言中立契约和受治理的 Agent 变更路径；Go 记录为当前服务端实现，不再单独作为市场壁垒
@@ -36,7 +43,7 @@
 - **已关闭的具体链路**：WebhookDelivery/WebhookLog 已按自身 TenantID 写入和查询，文章初始 Revision 及后续修订查询已带租户范围
 - **GraphQL 租户上下文**：resolver 从 context 解析 tenantID，schema 增加租户感知字段；完整 GraphQL tenant A/B 攻击测试仍待补齐
 - **隔离测试基础**：14 个 `TestTenantIsolation_*` 已覆盖主要 Service/Repository 路径，但尚不代表 REST、GraphQL、MCP 和身份刷新链全部闭环
-- **剩余阻断项**：刷新令牌租户保持、评论父子归属和平台审计日志边界仍待修复；API Token/MCP principal 再验证已在本轮"MCP 主体再验证与 RAG 工具治理"中闭环
+- **剩余阻断项**：完整 tenant A/B 攻击测试覆盖的远程 CI 验证与真实 tenant B 开放前验收；评论父子归属、审计日志边界与刷新令牌租户保持已收口（见"评论跨租户归属与多租户边界验证收口"）
 
 ### Fixed — Settings 租户覆盖与交付链
 

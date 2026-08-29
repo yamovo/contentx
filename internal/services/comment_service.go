@@ -106,11 +106,19 @@ func (s *CommentService) Create(req CreateCommentRequest, clientIP, userAgent st
 		}
 	}
 
-	// Calculate depth from parent (best-effort, mirrors prior behaviour: silently ignore missing parent).
+	// A reply must target an existing comment in the same tenant and on the
+	// same article. Rejecting here keeps a dangling parent_id out of the
+	// database: an earlier version silently stored foreign parent IDs, which
+	// linked tenant A rows into tenant B threads (A-2 security fix).
 	if req.ParentID != nil {
-		if parent, err := s.repo.FindCommentByID(*req.ParentID, tenantID); err == nil {
-			comment.Depth = parent.Depth + 1
+		parent, err := s.repo.FindCommentByID(*req.ParentID, tenantID)
+		if err != nil {
+			return nil, errors.New("parent comment not found")
 		}
+		if parent.ArticleID != req.ArticleID {
+			return nil, errors.New("parent comment belongs to a different article")
+		}
+		comment.Depth = parent.Depth + 1
 	}
 
 	if err := s.repo.Create(&comment); err != nil {

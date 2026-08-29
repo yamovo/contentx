@@ -92,7 +92,10 @@ func (r *gormCommentRepository) List(filter CommentListFilter, tenantID uint) ([
 
 func (r *gormCommentRepository) GetByID(id, tenantID uint) (*models.Comment, error) {
 	var comment models.Comment
-	if err := r.db.Preload("User").Preload("Children").Where("id = ? AND tenant_id = ?", id, tenantID).First(&comment).Error; err != nil {
+	// Children are tenant-scoped explicitly: the association is keyed by
+	// parent_id alone, so a legacy cross-tenant reply would otherwise leak
+	// into this tenant's admin view.
+	if err := r.db.Preload("User").Preload("Children", "tenant_id = ?", tenantID).Where("id = ? AND tenant_id = ?", id, tenantID).First(&comment).Error; err != nil {
 		return nil, err
 	}
 	return &comment, nil
@@ -142,9 +145,9 @@ func (r *gormCommentRepository) FindArticleComments(articleID, tenantID uint) ([
 	var comments []models.Comment
 	err := r.db.Where("article_id = ? AND status = ? AND parent_id IS NULL AND tenant_id = ?", articleID, "approved", tenantID).
 		Preload("User").
-		Preload("Children", func(db *gorm.DB) *gorm.DB {
-			return db.Where("status = ?", "approved").Order("created_at ASC")
-		}).
+			Preload("Children", func(db *gorm.DB) *gorm.DB {
+				return db.Where("status = ? AND tenant_id = ?", "approved", tenantID).Order("created_at ASC")
+			}).
 		Preload("Children.User").
 		Order("is_sticky DESC, created_at DESC").
 		Find(&comments).Error

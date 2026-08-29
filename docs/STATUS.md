@@ -59,10 +59,12 @@
 
 - 核心内容模型、Repository 查询、WebhookLog 和 Revision 已加入租户范围
 - MCP HTTP 已接入统一验证的 TokenPrincipal：认证中间件注入租户绑定 principal，每次工具/资源调用经 Authorizer 按请求头再验证并与会话绑定，HTTP 传输使用 per-request stateless server 且强制关闭 drafts；资源发现与 RAG 工具均已按有效权限门控
-- JWT 与 API Token 均按 TenantMembership 角色、租户状态复核并取有效权限交集；刷新令牌租户保持尚未闭环
+- JWT 与 API Token 均按 TenantMembership 角色、租户状态复核并取有效权限交集；刷新令牌每请求重新校验租户存在性、成员资格与角色（显式租户保持 + 遗留令牌确定性解析，专项测试覆盖）
+- 评论回复 fail closed：父评论必须同租户同文章，Children 预加载显式租户过滤，历史悬挂引用不再跨租户渲染；审计日志写入/读取/暴露面逐层核验并新增链路测试
+- GraphQL tenant A/B 攻击矩阵已补齐：5 条端到端 HTTP 测试覆盖匿名伪造头、双向读取、非管理员切换 fail closed 与管理员切换作用域
 - Settings 更新现已写入租户覆盖行并保留全局默认值；Get/List/Public 会优先采用租户覆盖，且私有覆盖不会回退暴露公开全局值
 - Settings 批量写入已置于单一事务，迁移 012 封堵 NULL 全局键重复，并已在 PostgreSQL 16 与 MySQL 8.4 完成迁移、CRUD、唯一性和故障回滚实测；API Token 生命周期、评论父子归属和平台审计日志边界仍需继续收口
-- 当前 tenant A/B 测试以 Service/Repository 为主，尚未形成覆盖 REST、GraphQL、MCP 和身份刷新链的完整攻击矩阵
+- 攻击矩阵现状：Service/Repository（16+ 条 `TestTenantIsolation_*`）、MCP（token 绑定/主体再验证/资源隔离/RAG 权限）、GraphQL（5 条端到端 HTTP 测试）、刷新链（5 项专项测试）均已本地闭环；剩余为远程 CI 验证与开放真实 tenant B 前的验收
 
 ### AI 与 RAG 原型
 
@@ -81,7 +83,7 @@
 | `go build ./...` | 通过（CGO_ENABLED=1，Go 1.26.5，GCC 8.1.0） |
 | `go vet ./...` | 通过，0 warnings |
 | `go test ./... -count=1` | 2026-08-29 全量通过：21 个包 0 失败，含新增 MCP 主体再验证、RAG 权限与资源租户隔离回归 |
-| `golangci-lint run ./...` | 通过，0 issues（2026-08-07 验证） |
+| `golangci-lint run ./...` | 2026-08-29 通过，0 issues（修复 AI provider/migration 的 7 项告警；v2.12.2 与 CI 同版本） |
 | Go 模块完整性 | `go mod verify` 通过 |
 | 前端类型检查、lint、单测和构建 | 类型检查、ESLint 与 189 项单测 2026-08-29 通过；22 个文件 |
 | OpenAPI 漂移 | 2026-08-29 `swag init` 重新生成，`/ai/search`、`/ai/rag/ask`、`/ai/reindex`、`/ai/status` 已补齐，无 diff |
@@ -92,9 +94,9 @@
 | Release 独立包 | Linux amd64 CI 路径已改为 CGO 原生构建并携带 `web/dist`；手动 dispatch 只验证不发布，Windows amd64 本地等价 smoke 通过，目标 Ubuntu 产物仍待远程 workflow |
 | MinIO 真机集成 | 5 个场景通过 |
 | PostgreSQL 16.14 隔离恢复 | 2026-07-30 通过；见[演练报告](../reports/backup/pg-drill-20260730.md) |
-| 多租户隔离测试 | 14 个 `TestTenantIsolation_*` 全绿；主要覆盖 Service/Repository，MCP token 租户绑定/主体再验证/资源隔离已有回归，JWT 刷新、管理员切租户和 GraphQL 攻击路径仍待补齐 |
+| 多租户隔离测试 | 2026-08-29 本地全绿：16+ 条 `TestTenantIsolation_*`（Service/Repository + 审计链路）、MCP 主体/资源/RAG 回归、5 条 GraphQL 端到端攻击测试、5 项刷新令牌租户专项测试 |
 | RAG/AI 测试 | 现有 RAG Service 与 MCP RAG 测试全绿，MCP `rag_search`/`rag_ask` 权限门控已覆盖；孤儿向量、定时发布、外发关闭和成本边界尚无完整回归测试 |
-| 远程 CI `05de8f3` | `test`、`frontend`、`build`、`docker` 全部成功；`Swagger drift check` 成功 |
+| 远程 CI `da3b408` | `test`（含 golangci-lint v2.12.2 与全量 Go 测试）、`sdk`（npm ci/check/pack）、`frontend`、`build`、`settings-databases` 全部成功；首轮失败的 lint 告警与 SDK lockfile 缺 Linux 原生依赖问题已修复 |
 | `git diff --check` | 通过 |
 
 上述结果证明当前工作区在本机通过，不等同于已提交代码或远程 CI 已通过。
@@ -112,7 +114,7 @@
 | 插件 | 仅支持编译期内置插件，不支持任意外部插件沙箱 |
 | 前端 | 仍有 Sass legacy API 警告；部分页面尚未统一采用设计系统 |
 | 无障碍 | 尚未完成 WCAG 2.2 AA 与 axe 系统审计 |
-| 多租户 | P0 安全收口进行中：数据查询、Settings 租户覆盖与 MCP/API Token 主体再验证已完成当前数据库与传输层闭环，刷新令牌租户保持与完整 tenant A/B 攻击矩阵尚未闭环；不得开放真实 tenant B |
+| 多租户 | P0 安全收口接近完成：数据查询、Settings 租户覆盖、MCP/API Token 主体再验证、刷新令牌租户保持、评论归属与审计边界均已闭环并有本地测试；远程 CI 验证与真实 tenant B 开放前验收待完成；不得开放真实 tenant B |
 | AI/RAG | 当前仅为默认关闭的可运行原型：生命周期、MCP 治理、外发边界、成本控制和 Provider 校验尚未闭环；向量存储仅有内存实现 |
 | 商业化 | 计费、SSO、SLA 和合规能力尚未交付 |
 
@@ -121,8 +123,8 @@
 v1.4.0 的 PostgreSQL 演练、审查修复和 CI 证据已经归档。以下是当前未提交里程碑进入下一正式版本前必须关闭的新阻断项：
 
 1. 动态内容 create/update/import/translation 的发布权限绕过已关闭；公共内容交付上线前仍须通过 draft/publish/unpublish、allowlist、输出 DTO 和 tenant A/B 拒绝测试。
-2. 刷新令牌租户保持与 access/refresh 链路的统一验证尚未完成；MCP 与 API Token 主体再验证已闭环，仍须通过完整 tenant A/B 攻击测试。
-3. 修复评论父子归属、平台审计日志和其他剩余跨租户边界。
+2. access/refresh、TenantMembership 角色、租户状态与 API Token/MCP principal 的统一验证已完成本地闭环（含 GraphQL/MCP/刷新链攻击矩阵）；须在远程 CI 复现通过并在开放真实 tenant B 前完成验收。
+3. ~~修复评论父子归属、平台审计日志和其他剩余跨租户边界~~ 已收口（评论回复 fail closed + 预加载租户过滤 + 审计链路测试）；后续如发现新的跨租户边界按同标准处理。
 4. 完成 RAG 孤儿清理、定时发布同步、失败补偿；REST 与 MCP 的独立权限已就位，外发统一拦截、限流、审计和成本边界仍待收口。
 5. 通过安全的手动 workflow 或正式 tag CI 验证 Ubuntu 22.04 上的 Linux amd64 CGO + SQLite + `web/dist` 独立包；其他平台须有原生 CGO runner 和同等 smoke 后再发布。
 6. 在远程 CI 验证 TypeScript SDK 的锁文件空环境安装、check 与 pack，并补发布前消费者冒烟测试。
@@ -130,7 +132,7 @@ v1.4.0 的 PostgreSQL 演练、审查修复和 CI 证据已经归档。以下是
 ## 7. 下一步
 
 1. 继续验证 ADR-001 的语言中立公共/扩展边界；发布绕过前置修复已完成，下一步按 RFC-002 实现默认关闭的 published-only 公开 REST 切片。
-2. 多租户 P0 安全收口：关闭刷新令牌租户保持和审计边界，补齐 REST、GraphQL、MCP 和身份刷新链的完整 tenant A/B 攻击矩阵。
+2. 多租户 P0 安全收口：剩余工作为远程 CI 复现攻击矩阵结果，并在开放真实 tenant B 前完成上线验收；租户管理 API、成员管理、切换器与 tenant-aware 前端缓存随之推进。
 3. RAG 最小安全闭环：统一 `AI_ALLOW_OUTBOUND` 对外部 Embedding、Reindex 和 MCP 的拦截，补齐 MCP 审计、租户/Token 限流和成本边界，并修复完整索引生命周期。
 4. 交付链验证：在真实 tag CI 运行 Linux amd64 SQLite、前端打包和 Release 产物冒烟测试。
 5. 同步 OpenAPI、SOP、部署文档和状态口径。

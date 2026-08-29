@@ -187,3 +187,73 @@ func TestCommentService_Stats(t *testing.T) {
 		t.Errorf("Pending = %d, want 2", stats.Pending)
 	}
 }
+
+func TestCommentService_Create_ReplyComputesDepth(t *testing.T) {
+	db := setupTestDB(t)
+	svc := NewCommentService(db)
+	author := createTestUser(t, db, "author2", "author")
+	article := createTestArticle(t, db, author.ID, "Reply Article")
+
+	root, err := svc.Create(CreateCommentRequest{
+		ArticleID: article.ID,
+		Content:   "root",
+	}, "127.0.0.1", "test-agent", nil, false, models.DefaultTenantID)
+	if err != nil {
+		t.Fatalf("create root comment: %v", err)
+	}
+
+	reply, err := svc.Create(CreateCommentRequest{
+		ArticleID: article.ID,
+		ParentID:  &root.ID,
+		Content:   "reply",
+	}, "127.0.0.1", "test-agent", nil, false, models.DefaultTenantID)
+	if err != nil {
+		t.Fatalf("create reply: %v", err)
+	}
+
+	if reply.Depth != root.Depth+1 {
+		t.Errorf("Depth = %d, want %d", reply.Depth, root.Depth+1)
+	}
+}
+
+func TestCommentService_Create_RejectsMissingParent(t *testing.T) {
+	db := setupTestDB(t)
+	svc := NewCommentService(db)
+	author := createTestUser(t, db, "author3", "author")
+	article := createTestArticle(t, db, author.ID, "Orphan Reply Article")
+
+	missing := uint(99999)
+	_, err := svc.Create(CreateCommentRequest{
+		ArticleID: article.ID,
+		ParentID:  &missing,
+		Content:   "orphan reply",
+	}, "127.0.0.1", "test-agent", nil, false, models.DefaultTenantID)
+	if err == nil {
+		t.Fatal("expected error when parent comment does not exist")
+	}
+}
+
+func TestCommentService_Create_RejectsCrossArticleParent(t *testing.T) {
+	db := setupTestDB(t)
+	svc := NewCommentService(db)
+	author := createTestUser(t, db, "author4", "author")
+	articleA := createTestArticle(t, db, author.ID, "Article A Comments")
+	articleB := createTestArticle(t, db, author.ID, "Article B Comments")
+
+	parent, err := svc.Create(CreateCommentRequest{
+		ArticleID: articleA.ID,
+		Content:   "parent on article A",
+	}, "127.0.0.1", "test-agent", nil, false, models.DefaultTenantID)
+	if err != nil {
+		t.Fatalf("create parent comment: %v", err)
+	}
+
+	_, err = svc.Create(CreateCommentRequest{
+		ArticleID: articleB.ID,
+		ParentID:  &parent.ID,
+		Content:   "reply targeting another article",
+	}, "127.0.0.1", "test-agent", nil, false, models.DefaultTenantID)
+	if err == nil {
+		t.Fatal("expected error when parent comment belongs to a different article")
+	}
+}
