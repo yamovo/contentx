@@ -8246,6 +8246,10 @@ const docTemplate = `{
                     "description": "create, update, delete, login, etc.",
                     "type": "string"
                 },
+                "actor_type": {
+                    "description": "user | token | anonymous | system",
+                    "type": "string"
+                },
                 "created_at": {
                     "type": "string"
                 },
@@ -8259,10 +8263,31 @@ const docTemplate = `{
                 "entity_id": {
                     "type": "integer"
                 },
+                "event_id": {
+                    "description": "Versioned audit envelope (RESEARCH-001 §4): first-class correlation and\nprovenance so a business event can be traced back to the request, trace,\nand channel that produced it. Empty strings mean legacy rows written\nbefore migration 013.",
+                    "type": "string"
+                },
                 "id": {
                     "type": "integer"
                 },
                 "ip": {
+                    "type": "string"
+                },
+                "outcome": {
+                    "description": "success | failed | denied",
+                    "type": "string"
+                },
+                "request_id": {
+                    "type": "string"
+                },
+                "source": {
+                    "description": "rest | mcp | background | system",
+                    "type": "string"
+                },
+                "span_id": {
+                    "type": "string"
+                },
+                "trace_id": {
                     "type": "string"
                 },
                 "user_agent": {
