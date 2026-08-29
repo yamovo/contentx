@@ -8,6 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/yamovo/contentx/internal/middleware"
 	"github.com/yamovo/contentx/internal/models"
+	"github.com/yamovo/contentx/internal/permissions"
 	"github.com/yamovo/contentx/internal/services"
 )
 
@@ -195,7 +196,8 @@ func (h *ArticleHandler) Update(c *gin.Context) {
 		return
 	}
 
-	article, err := h.svc.Update(uint(id), req, getCurrentTenant(c), user.ID, user.IsEditor())
+	canUpdateAll := middleware.HasTenantPermission(c, user, permissions.ArticlesUpdateAll)
+	article, err := h.svc.Update(uint(id), req, getCurrentTenant(c), user.ID, canUpdateAll)
 	if err != nil {
 		handleServiceError(c, err)
 		return
@@ -231,7 +233,8 @@ func (h *ArticleHandler) Delete(c *gin.Context) {
 		return
 	}
 
-	if err := h.svc.Delete(uint(id), getCurrentTenant(c), user.ID, user.IsEditor()); err != nil {
+	canDeleteAll := middleware.HasTenantPermission(c, user, permissions.ArticlesDeleteAll)
+	if err := h.svc.Delete(uint(id), getCurrentTenant(c), user.ID, canDeleteAll); err != nil {
 		handleServiceError(c, err)
 		return
 	}
@@ -257,7 +260,14 @@ func (h *ArticleHandler) BulkAction(c *gin.Context) {
 	if user == nil {
 		return
 	}
-	if !user.IsEditor() {
+	requiredPermission := permissions.ArticlesUpdateAll
+	switch req.Action {
+	case "publish", "draft", "trash":
+		requiredPermission = permissions.ArticlesPublish
+	case "delete":
+		requiredPermission = permissions.ArticlesDeleteAll
+	}
+	if !middleware.HasTenantPermission(c, user, requiredPermission) {
 		Forbidden(c, "Insufficient permissions")
 		return
 	}
@@ -337,7 +347,8 @@ func (h *ArticleHandler) RestoreRevision(c *gin.Context) {
 		return
 	}
 
-	if err := h.svc.RestoreRevision(uint(id), uint(revisionID), getCurrentTenant(c), user.ID, user.IsEditor()); err != nil {
+	canUpdateAll := middleware.HasTenantPermission(c, user, permissions.ArticlesUpdateAll)
+	if err := h.svc.RestoreRevision(uint(id), uint(revisionID), getCurrentTenant(c), user.ID, canUpdateAll); err != nil {
 		handleServiceError(c, err)
 		return
 	}

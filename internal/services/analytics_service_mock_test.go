@@ -30,7 +30,7 @@ func TestMockAnalytics_Dashboard_Success(t *testing.T) {
 	}
 	svc := NewAnalyticsServiceWithRepo(repo)
 
-	data, err := svc.Dashboard()
+	data, err := svc.Dashboard(models.DefaultTenantID)
 	if err != nil {
 		t.Fatalf("Dashboard failed: %v", err)
 	}
@@ -58,7 +58,7 @@ func TestMockAnalytics_ViewsOverTime_Success(t *testing.T) {
 	}
 	svc := NewAnalyticsServiceWithRepo(repo)
 
-	result, err := svc.ViewsOverTime(7)
+	result, err := svc.ViewsOverTime(7, models.DefaultTenantID)
 	if err != nil {
 		t.Fatalf("ViewsOverTime failed: %v", err)
 	}
@@ -86,7 +86,7 @@ func TestMockAnalytics_ViewsOverTime_DaysLessThan1(t *testing.T) {
 	svc := NewAnalyticsServiceWithRepo(repo)
 
 	// days < 1 → defaults to 30. Empty data → fillDateGaps returns empty.
-	result, err := svc.ViewsOverTime(0)
+	result, err := svc.ViewsOverTime(0, models.DefaultTenantID)
 	if err != nil {
 		t.Fatalf("ViewsOverTime failed: %v", err)
 	}
@@ -100,7 +100,7 @@ func TestMockAnalytics_ViewsOverTime_Error(t *testing.T) {
 	repo := &MockAnalyticsRepository{ViewsOverTimeErr: gorm.ErrInvalidDB}
 	svc := NewAnalyticsServiceWithRepo(repo)
 
-	_, err := svc.ViewsOverTime(7)
+	_, err := svc.ViewsOverTime(7, models.DefaultTenantID)
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -117,7 +117,7 @@ func TestMockAnalytics_TopReferrers_Success(t *testing.T) {
 	}
 	svc := NewAnalyticsServiceWithRepo(repo)
 
-	result, err := svc.TopReferrers()
+	result, err := svc.TopReferrers(models.DefaultTenantID)
 	if err != nil {
 		t.Fatalf("TopReferrers failed: %v", err)
 	}
@@ -133,7 +133,7 @@ func TestMockAnalytics_TopReferrers_Error(t *testing.T) {
 	repo := &MockAnalyticsRepository{TopReferrersErr: gorm.ErrInvalidDB}
 	svc := NewAnalyticsServiceWithRepo(repo)
 
-	_, err := svc.TopReferrers()
+	_, err := svc.TopReferrers(models.DefaultTenantID)
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -151,7 +151,7 @@ func TestMockAnalytics_DeviceBreakdown_Success(t *testing.T) {
 	}
 	svc := NewAnalyticsServiceWithRepo(repo)
 
-	result, err := svc.DeviceBreakdown()
+	result, err := svc.DeviceBreakdown(models.DefaultTenantID)
 	if err != nil {
 		t.Fatalf("DeviceBreakdown failed: %v", err)
 	}
@@ -173,7 +173,7 @@ func TestMockAnalytics_DeviceBreakdown_Error(t *testing.T) {
 	repo := &MockAnalyticsRepository{DeviceBreakdownErr: gorm.ErrInvalidDB}
 	svc := NewAnalyticsServiceWithRepo(repo)
 
-	_, err := svc.DeviceBreakdown()
+	_, err := svc.DeviceBreakdown(models.DefaultTenantID)
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -188,7 +188,7 @@ func TestMockAnalytics_RecordView_Success(t *testing.T) {
 	aid := uint(1)
 	err := svc.RecordView(RecordViewRequest{
 		ArticleID: &aid, Path: "/articles/hello", Duration: 30,
-	}, "1.2.3.4", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0", "https://google.com", "session-123")
+	}, models.DefaultTenantID, "1.2.3.4", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0", "https://google.com", "session-123")
 	if err != nil {
 		t.Fatalf("RecordView failed: %v", err)
 	}
@@ -219,7 +219,7 @@ func TestMockAnalytics_RecordView_MobileUA(t *testing.T) {
 
 	err := svc.RecordView(RecordViewRequest{
 		Path: "/test",
-	}, "1.2.3.4", "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) Safari/604.1", "", "s1")
+	}, models.DefaultTenantID, "1.2.3.4", "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) Safari/604.1", "", "s1")
 	if err != nil {
 		t.Fatalf("RecordView failed: %v", err)
 	}
@@ -236,7 +236,7 @@ func TestMockAnalytics_RecordView_Error(t *testing.T) {
 	repo := &MockAnalyticsRepository{CreatePageViewErr: gorm.ErrInvalidDB}
 	svc := NewAnalyticsServiceWithRepo(repo)
 
-	err := svc.RecordView(RecordViewRequest{Path: "/test"}, "1.2.3.4", "ua", "", "")
+	err := svc.RecordView(RecordViewRequest{Path: "/test"}, models.DefaultTenantID, "1.2.3.4", "ua", "", "")
 	if err == nil {
 		t.Fatal("expected error")
 	}

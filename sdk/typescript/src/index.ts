@@ -1,4 +1,4 @@
-export { ContentX } from './client'
+export { ContentX, ContentXError } from './client.js'
 export type {
   ContentXConfig,
   Article,
@@ -19,4 +19,4 @@ export type {
   CreateEntryInput,
   UpdateEntryInput,
   ListParams,
-} from './types'
+} from './types.js'

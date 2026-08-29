@@ -78,3 +78,80 @@ func TestSettingsRepository_TenantIsolation(t *testing.T) {
 		t.Fatalf("FindMenu cross-tenant = %v, want gorm.ErrRecordNotFound", err)
 	}
 }
+
+func TestAuthRepository_FindSettingPrefersTenantOverride(t *testing.T) {
+	db := setupTestDB(t)
+	repo := NewAuthRepository(db)
+	tenantID := uint(77)
+
+	global := models.SiteSetting{
+		Key: "auth_setting_precedence", Value: "global", Type: "string", Group: "general",
+	}
+	if err := db.Create(&global).Error; err != nil {
+		t.Fatalf("create global setting: %v", err)
+	}
+	override := global
+	override.ID = 0
+	override.TenantID = &tenantID
+	override.Value = "tenant"
+	if err := db.Create(&override).Error; err != nil {
+		t.Fatalf("create tenant override: %v", err)
+	}
+
+	got, err := repo.FindSetting(global.Key, tenantID)
+	if err != nil {
+		t.Fatalf("FindSetting tenant override: %v", err)
+	}
+	if got.TenantID == nil || *got.TenantID != tenantID || got.Value != "tenant" {
+		t.Fatalf("FindSetting returned %+v, want tenant %d override", got, tenantID)
+	}
+
+	fallback, err := repo.FindSetting(global.Key, tenantID+1)
+	if err != nil {
+		t.Fatalf("FindSetting global fallback: %v", err)
+	}
+	if fallback.TenantID != nil || fallback.Value != global.Value {
+		t.Fatalf("FindSetting fallback returned %+v, want global value %q", fallback, global.Value)
+	}
+}
+
+func TestSettingsRepository_EnforcesGlobalAndTenantKeyUniqueness(t *testing.T) {
+	db := setupTestDB(t)
+	repo := NewSettingsRepository(db)
+
+	global := models.SiteSetting{Key: "repository_scope_unique", Value: "global", Type: "string", Group: "general"}
+	if err := repo.Create(&global); err != nil {
+		t.Fatalf("create global setting: %v", err)
+	}
+	duplicateGlobal := models.SiteSetting{Key: global.Key, Value: "duplicate", Type: "string", Group: "general"}
+	if err := repo.Create(&duplicateGlobal); err == nil {
+		t.Fatal("duplicate global setting key should be rejected")
+	}
+
+	tenantID := uint(55)
+	override := models.SiteSetting{Key: global.Key, Value: "tenant", Type: "string", Group: "general", TenantID: &tenantID}
+	if err := repo.UpsertTenantOverride(&override); err != nil {
+		t.Fatalf("create tenant override: %v", err)
+	}
+	second := models.SiteSetting{Key: global.Key, Value: "tenant-updated", Type: "string", Group: "general", TenantID: &tenantID}
+	if err := repo.UpsertTenantOverride(&second); err != nil {
+		t.Fatalf("upsert existing tenant override: %v", err)
+	}
+
+	got, err := repo.Get(global.Key, tenantID)
+	if err != nil {
+		t.Fatalf("get tenant override: %v", err)
+	}
+	if got.Value != "tenant-updated" {
+		t.Fatalf("tenant override value = %q, want tenant-updated", got.Value)
+	}
+	var overrideCount int64
+	if err := db.Model(&models.SiteSetting{}).
+		Where("tenant_id = ? AND key = ?", tenantID, global.Key).
+		Count(&overrideCount).Error; err != nil {
+		t.Fatalf("count tenant overrides: %v", err)
+	}
+	if overrideCount != 1 {
+		t.Fatalf("tenant override count = %d, want 1", overrideCount)
+	}
+}

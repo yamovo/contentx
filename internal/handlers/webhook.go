@@ -31,7 +31,7 @@ func NewWebhookHandler(svc *services.WebhookService) *WebhookHandler {
 //	@Failure      403  {object}  APIResponse
 //	@Router       /webhooks [get]
 func (h *WebhookHandler) List(c *gin.Context) {
-	webhooks, err := h.svc.List()
+	webhooks, err := h.svc.List(getCurrentTenant(c))
 	if err != nil {
 		handleServiceError(c, err)
 		return
@@ -66,7 +66,7 @@ func (h *WebhookHandler) Create(c *gin.Context) {
 		return
 	}
 
-	wh, err := h.svc.Create(req, actor.ID)
+	wh, err := h.svc.Create(req, getCurrentTenant(c), actor.ID)
 	if err != nil {
 		handleServiceError(c, err)
 		return
@@ -101,7 +101,7 @@ func (h *WebhookHandler) Delete(c *gin.Context) {
 		return
 	}
 
-	if err := h.svc.Delete(uint(id), actor.ID); err != nil {
+	if err := h.svc.Delete(uint(id), getCurrentTenant(c), actor.ID); err != nil {
 		handleServiceError(c, err)
 		return
 	}
@@ -131,7 +131,7 @@ func (h *WebhookHandler) Logs(c *gin.Context) {
 	}
 
 	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "50"))
-	logs, err := h.svc.GetLogs(uint(id), limit)
+	logs, err := h.svc.GetLogs(uint(id), limit, getCurrentTenant(c))
 	if err != nil {
 		handleServiceError(c, err)
 		return

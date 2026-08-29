@@ -195,7 +195,7 @@ func TestWebhookCreate_RejectsUnsafeURL(t *testing.T) {
 
 	_, err := svc.Create(CreateWebhookRequest{
 		Name: "evil", URL: "http://169.254.169.254/latest/meta-data/", Events: []string{"article.created"},
-	})
+	}, 1)
 	var appErr *errs.AppError
 	if !errs.Is(err, &appErr) || appErr.Code != errs.ErrBadRequest.Code {
 		t.Fatalf("expected bad-request error, got %v", err)

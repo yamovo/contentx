@@ -78,7 +78,7 @@ describe('LoginView', () => {
 
     expect(wrapper.find('.login-card').exists()).toBe(true)
     expect(wrapper.text()).toContain('ContentX')
-    expect(wrapper.text()).toContain('内容管理系统')
+    expect(wrapper.text()).toContain('面向开发者和 AI Agent 的自托管 Headless CMS')
     // Login button exists.
     const loginBtn = wrapper.findAll('button').find((b) => b.text().includes('登'))
     expect(loginBtn).toBeTruthy()

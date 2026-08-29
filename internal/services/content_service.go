@@ -56,10 +56,16 @@ func (s *ContentTypeService) WithCache(c cache.Driver, ttl time.Duration) *Conte
 }
 
 // invalidateType removes a cached content type definition.
-func (s *ContentTypeService) invalidateType(uid string) {
+func (s *ContentTypeService) invalidateType(uid string, tenantID uint) {
 	if s.cache != nil {
-		_ = s.cache.Delete(context.Background(), "contenttype:"+uid)
+		_ = s.cache.Delete(context.Background(), contentTypeCacheKey(uid, tenantID))
 	}
+}
+
+// contentTypeCacheKey scopes the memoized type definition to its tenant
+// (RFC-001 §6): same UID in different tenants must never share an entry.
+func contentTypeCacheKey(uid string, tenantID uint) string {
+	return fmt.Sprintf("contenttype:t%d:%s", tenantID, uid)
 }
 
 // ─── Content Type CRUD ──────────────────────────────────────────────────────
@@ -91,15 +97,15 @@ type CreateFieldRequest struct {
 	MaxValue     *float64 `json:"max_value"`
 }
 
-// CreateContentType creates a new content type with fields.
-func (s *ContentTypeService) CreateContentType(req CreateContentTypeRequest) (*models.ContentType, error) {
+// CreateContentType creates a new content type with fields within the tenant.
+func (s *ContentTypeService) CreateContentType(req CreateContentTypeRequest, tenantID uint) (*models.ContentType, error) {
 	// Validate UID format (lowercase, underscores only).
 	if !isValidUID(req.UID) {
 		return nil, errs.ErrValidation.WithMessage("uid must be lowercase letters, numbers, and underscores only")
 	}
 
-	// Check uniqueness.
-	count, err := s.typeRepo.CountByUID(req.UID)
+	// Check uniqueness within the tenant.
+	count, err := s.typeRepo.CountByUID(req.UID, tenantID)
 	if err != nil {
 		return nil, errs.New("CREATE_TYPE_FAILED", "failed to create content type", http.StatusInternalServerError)
 	}
@@ -118,6 +124,7 @@ func (s *ContentTypeService) CreateContentType(req CreateContentTypeRequest) (*m
 	}
 
 	ct := models.ContentType{
+		TenantID:     tenantID, // RFC-001 §5
 		UID:          req.UID,
 		Name:         req.Name,
 		Description:  req.Description,
@@ -127,6 +134,7 @@ func (s *ContentTypeService) CreateContentType(req CreateContentTypeRequest) (*m
 
 	for i, f := range req.Fields {
 		ct.Fields = append(ct.Fields, models.ContentField{
+			TenantID:     tenantID, // fields inherit the type's tenant
 			Name:         f.Name,
 			Label:        f.Label,
 			FieldType:    f.FieldType,
@@ -151,16 +159,16 @@ func (s *ContentTypeService) CreateContentType(req CreateContentTypeRequest) (*m
 	return &ct, nil
 }
 
-// ListContentTypes returns all content types with entry counts.
-func (s *ContentTypeService) ListContentTypes() ([]models.ContentType, error) {
-	types, err := s.typeRepo.List()
+// ListContentTypes returns all content types with entry counts within the tenant.
+func (s *ContentTypeService) ListContentTypes(tenantID uint) ([]models.ContentType, error) {
+	types, err := s.typeRepo.List(tenantID)
 	if err != nil {
 		return nil, err
 	}
 
 	// Fill entry counts.
 	for i := range types {
-		count, err := s.typeRepo.CountEntriesByTypeID(types[i].ID)
+		count, err := s.typeRepo.CountEntriesByTypeID(types[i].ID, tenantID)
 		if err != nil {
 			return nil, err
 		}
@@ -170,9 +178,9 @@ func (s *ContentTypeService) ListContentTypes() ([]models.ContentType, error) {
 	return types, nil
 }
 
-// GetContentType returns a single content type by UID.
-func (s *ContentTypeService) GetContentType(uid string) (*models.ContentType, error) {
-	cacheKey := "contenttype:" + uid
+// GetContentType returns a single content type by UID within the tenant.
+func (s *ContentTypeService) GetContentType(uid string, tenantID uint) (*models.ContentType, error) {
+	cacheKey := contentTypeCacheKey(uid, tenantID)
 	if s.cache != nil {
 		if data, err := s.cache.Get(context.Background(), cacheKey); err == nil {
 			var cached models.ContentType
@@ -182,7 +190,7 @@ func (s *ContentTypeService) GetContentType(uid string) (*models.ContentType, er
 		}
 	}
 
-	ct, err := s.typeRepo.FindByUID(uid)
+	ct, err := s.typeRepo.FindByUID(uid, tenantID)
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, errs.ErrNotFound.WithMessage("content type not found")
@@ -198,9 +206,9 @@ func (s *ContentTypeService) GetContentType(uid string) (*models.ContentType, er
 	return ct, nil
 }
 
-// DeleteContentType deletes a content type and all its entries.
-func (s *ContentTypeService) DeleteContentType(uid string) error {
-	ct, err := s.typeRepo.FindByUID(uid)
+// DeleteContentType deletes a content type and all its entries within the tenant.
+func (s *ContentTypeService) DeleteContentType(uid string, tenantID uint) error {
+	ct, err := s.typeRepo.FindByUID(uid, tenantID)
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return errs.ErrNotFound.WithMessage("content type not found")
@@ -208,10 +216,10 @@ func (s *ContentTypeService) DeleteContentType(uid string) error {
 		return err
 	}
 
-	if err := s.typeRepo.Delete(ct.ID); err != nil {
+	if err := s.typeRepo.Delete(ct.ID, tenantID); err != nil {
 		return err
 	}
-	s.invalidateType(uid)
+	s.invalidateType(uid, tenantID)
 	return nil
 }
 
@@ -219,15 +227,19 @@ func (s *ContentTypeService) DeleteContentType(uid string) error {
 
 // CreateEntryRequest is the payload for creating an entry.
 type CreateEntryRequest struct {
-	Data   map[string]interface{} `json:"data" binding:"required"`
-	Status string                 `json:"status"` // draft (default) or published
-	Locale string                 `json:"locale"` // i18n: BCP-47 tag, defaults to "en"
+	Data map[string]interface{} `json:"data" binding:"required"`
+	// Status is retained for request compatibility, but draft/publish-enabled
+	// types may only be created as drafts. Publishing must use PublishEntry so
+	// callers cannot bypass the independent content.publish permission.
+	Status string `json:"status"`
+	Locale string `json:"locale"` // i18n: BCP-47 tag, defaults to "en"
 }
 
 // UpdateEntryRequest is the payload for updating an entry.
 type UpdateEntryRequest struct {
-	Data   map[string]interface{} `json:"data"`
-	Status *string                `json:"status"`
+	Data map[string]interface{} `json:"data"`
+	// Status transitions are rejected; use PublishEntry or UnpublishEntry.
+	Status *string `json:"status"`
 }
 
 // ListEntriesParams holds query parameters for listing entries.
@@ -241,9 +253,9 @@ type ListEntriesParams struct {
 	Locale   string            // i18n: filter by locale (exact match)
 }
 
-// ListEntries returns entries of a content type.
-func (s *ContentTypeService) ListEntries(uid string, params ListEntriesParams) (interface{}, error) {
-	ct, err := s.GetContentType(uid)
+// ListEntries returns entries of a content type within the tenant.
+func (s *ContentTypeService) ListEntries(uid string, params ListEntriesParams, tenantID uint) (interface{}, error) {
+	ct, err := s.GetContentType(uid, tenantID)
 	if err != nil {
 		return nil, err
 	}
@@ -267,7 +279,7 @@ func (s *ContentTypeService) ListEntries(uid string, params ListEntriesParams) (
 		Locale:   params.Locale,
 	}
 
-	entries, total, err := s.entryRepo.List(filter)
+	entries, total, err := s.entryRepo.List(filter, tenantID)
 	if err != nil {
 		return nil, err
 	}
@@ -279,14 +291,14 @@ func (s *ContentTypeService) ListEntries(uid string, params ListEntriesParams) (
 	}), nil
 }
 
-// GetEntry returns a single entry by document_id.
-func (s *ContentTypeService) GetEntry(uid string, documentID string) (*models.ContentEntry, error) {
-	ct, err := s.GetContentType(uid)
+// GetEntry returns a single entry by document_id within the tenant.
+func (s *ContentTypeService) GetEntry(uid string, documentID string, tenantID uint) (*models.ContentEntry, error) {
+	ct, err := s.GetContentType(uid, tenantID)
 	if err != nil {
 		return nil, err
 	}
 
-	entry, err := s.entryRepo.FindByDocumentID(ct.ID, documentID)
+	entry, err := s.entryRepo.FindByDocumentID(ct.ID, documentID, tenantID)
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, errs.ErrNotFound.WithMessage("entry not found")
@@ -297,9 +309,9 @@ func (s *ContentTypeService) GetEntry(uid string, documentID string) (*models.Co
 	return entry, nil
 }
 
-// CreateEntry creates a new entry for a content type.
-func (s *ContentTypeService) CreateEntry(uid string, req CreateEntryRequest, userID uint) (*models.ContentEntry, error) {
-	ct, err := s.GetContentType(uid)
+// CreateEntry creates a new entry for a content type within the tenant.
+func (s *ContentTypeService) CreateEntry(uid string, req CreateEntryRequest, tenantID, userID uint) (*models.ContentEntry, error) {
+	ct, err := s.GetContentType(uid, tenantID)
 	if err != nil {
 		return nil, err
 	}
@@ -309,16 +321,13 @@ func (s *ContentTypeService) CreateEntry(uid string, req CreateEntryRequest, use
 		return nil, err
 	}
 
-	status := req.Status
-	if status == "" {
-		if ct.DraftPublish {
-			status = models.EntryStatusDraft
-		} else {
-			status = models.EntryStatusPublished
-		}
+	status, err := initialEntryStatus(ct, req.Status)
+	if err != nil {
+		return nil, err
 	}
 
 	entry := models.ContentEntry{
+		TenantID:      tenantID, // RFC-001 §5
 		ContentTypeID: ct.ID,
 		DocumentID:    uuid.New().String(),
 		Status:        status,
@@ -344,14 +353,18 @@ func (s *ContentTypeService) CreateEntry(uid string, req CreateEntryRequest, use
 	return &entry, nil
 }
 
-// UpdateEntry updates an existing entry.
-func (s *ContentTypeService) UpdateEntry(uid string, documentID string, req UpdateEntryRequest, userID uint) (*models.ContentEntry, error) {
-	ct, err := s.GetContentType(uid)
+// UpdateEntry updates an existing entry within the tenant.
+func (s *ContentTypeService) UpdateEntry(uid string, documentID string, req UpdateEntryRequest, tenantID, userID uint) (*models.ContentEntry, error) {
+	if req.Status != nil {
+		return nil, errs.ErrValidation.WithMessage("status cannot be changed through update; use the publish or unpublish endpoint")
+	}
+
+	ct, err := s.GetContentType(uid, tenantID)
 	if err != nil {
 		return nil, err
 	}
 
-	entry, err := s.entryRepo.FindByDocumentID(ct.ID, documentID)
+	entry, err := s.entryRepo.FindByDocumentID(ct.ID, documentID, tenantID)
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, errs.ErrNotFound.WithMessage("entry not found")
@@ -359,24 +372,19 @@ func (s *ContentTypeService) UpdateEntry(uid string, documentID string, req Upda
 		return nil, err
 	}
 
-	// Merge data.
+	// Validate the complete post-update document, not just the partial patch.
 	if req.Data != nil {
-		if err := s.validateEntryData(ct, req.Data); err != nil {
+		merged := make(map[string]interface{}, len(entry.Data)+len(req.Data))
+		for k, v := range entry.Data {
+			merged[k] = v
+		}
+		for k, v := range req.Data {
+			merged[k] = v
+		}
+		if err := s.validateEntryData(ct, merged); err != nil {
 			return nil, err
 		}
-		// Merge with existing data.
-		for k, v := range req.Data {
-			entry.Data[k] = v
-		}
-	}
-
-	// Update status.
-	if req.Status != nil {
-		entry.Status = *req.Status
-		if *req.Status == models.EntryStatusPublished && entry.PublishedAt == nil {
-			now := time.Now()
-			entry.PublishedAt = &now
-		}
+		entry.Data = merged
 	}
 
 	entry.UpdatedByID = userID
@@ -388,14 +396,14 @@ func (s *ContentTypeService) UpdateEntry(uid string, documentID string, req Upda
 	return entry, nil
 }
 
-// DeleteEntry deletes an entry by document_id.
-func (s *ContentTypeService) DeleteEntry(uid string, documentID string) error {
-	ct, err := s.GetContentType(uid)
+// DeleteEntry deletes an entry by document_id within the tenant.
+func (s *ContentTypeService) DeleteEntry(uid string, documentID string, tenantID uint) error {
+	ct, err := s.GetContentType(uid, tenantID)
 	if err != nil {
 		return err
 	}
 
-	rowsAffected, err := s.entryRepo.DeleteByDocumentID(ct.ID, documentID)
+	rowsAffected, err := s.entryRepo.DeleteByDocumentID(ct.ID, documentID, tenantID)
 	if err != nil {
 		return err
 	}
@@ -405,19 +413,22 @@ func (s *ContentTypeService) DeleteEntry(uid string, documentID string) error {
 	return nil
 }
 
-// PublishEntry publishes a draft entry.
-func (s *ContentTypeService) PublishEntry(uid string, documentID string, userID uint) (*models.ContentEntry, error) {
-	ct, err := s.GetContentType(uid)
+// PublishEntry publishes a draft entry within the tenant.
+func (s *ContentTypeService) PublishEntry(uid string, documentID string, tenantID, userID uint) (*models.ContentEntry, error) {
+	ct, err := s.GetContentType(uid, tenantID)
 	if err != nil {
 		return nil, err
 	}
 
-	entry, err := s.entryRepo.FindByDocumentID(ct.ID, documentID)
+	entry, err := s.entryRepo.FindByDocumentID(ct.ID, documentID, tenantID)
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, errs.ErrNotFound.WithMessage("entry not found")
 		}
 		return nil, err
+	}
+	if err := s.validateEntryData(ct, entry.Data); err != nil {
+		return nil, errs.ErrValidation.WithMessage("entry does not satisfy the current schema: " + err.Error())
 	}
 
 	now := time.Now()
@@ -432,14 +443,14 @@ func (s *ContentTypeService) PublishEntry(uid string, documentID string, userID 
 	return entry, nil
 }
 
-// UnpublishEntry reverts a published entry to draft.
-func (s *ContentTypeService) UnpublishEntry(uid string, documentID string, userID uint) (*models.ContentEntry, error) {
-	ct, err := s.GetContentType(uid)
+// UnpublishEntry reverts a published entry to draft within the tenant.
+func (s *ContentTypeService) UnpublishEntry(uid string, documentID string, tenantID, userID uint) (*models.ContentEntry, error) {
+	ct, err := s.GetContentType(uid, tenantID)
 	if err != nil {
 		return nil, err
 	}
 
-	entry, err := s.entryRepo.FindByDocumentID(ct.ID, documentID)
+	entry, err := s.entryRepo.FindByDocumentID(ct.ID, documentID, tenantID)
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, errs.ErrNotFound.WithMessage("entry not found")
@@ -448,6 +459,7 @@ func (s *ContentTypeService) UnpublishEntry(uid string, documentID string, userI
 	}
 
 	entry.Status = models.EntryStatusDraft
+	entry.PublishedAt = nil
 	entry.UpdatedByID = userID
 
 	if err := s.entryRepo.Save(entry); err != nil {
@@ -550,35 +562,53 @@ func isValidUID(uid string) bool {
 	return true
 }
 
+// initialEntryStatus enforces the content type's publication mode. A type with
+// draft/publish enabled always starts as draft; only the dedicated publish
+// operation may make it public. Types without a draft workflow publish on
+// creation by design.
+func initialEntryStatus(ct *models.ContentType, requested string) (string, error) {
+	if ct.DraftPublish {
+		if requested != "" && requested != models.EntryStatusDraft {
+			return "", errs.ErrValidation.WithMessage("new entries must start as draft; use the publish endpoint")
+		}
+		return models.EntryStatusDraft, nil
+	}
+
+	if requested != "" && requested != models.EntryStatusPublished {
+		return "", errs.ErrValidation.WithMessage("this content type publishes on creation and does not support draft status")
+	}
+	return models.EntryStatusPublished, nil
+}
+
 // GetEntriesByUID returns entries for a content type by UID (for relation loading).
-func (s *ContentTypeService) GetEntriesByUID(uid string, ids []uint) ([]models.ContentEntry, error) {
-	ct, err := s.GetContentType(uid)
+func (s *ContentTypeService) GetEntriesByUID(uid string, ids []uint, tenantID uint) ([]models.ContentEntry, error) {
+	ct, err := s.GetContentType(uid, tenantID)
 	if err != nil {
 		return nil, err
 	}
-	return s.entryRepo.FindByIDs(ct.ID, ids)
+	return s.entryRepo.FindByIDs(ct.ID, ids, tenantID)
 }
 
-// SearchEntries searches across all text fields of a content type.
-func (s *ContentTypeService) SearchEntries(uid string, query string, limit int) ([]models.ContentEntry, error) {
-	ct, err := s.GetContentType(uid)
+// SearchEntries searches across all text fields of a content type within the tenant.
+func (s *ContentTypeService) SearchEntries(uid string, query string, limit int, tenantID uint) ([]models.ContentEntry, error) {
+	ct, err := s.GetContentType(uid, tenantID)
 	if err != nil {
 		return nil, err
 	}
 	if limit <= 0 {
 		limit = 10
 	}
-	return s.entryRepo.Search(ct.ID, query, limit)
+	return s.entryRepo.Search(ct.ID, query, limit, tenantID)
 }
 
-// ExportEntries exports all entries of a content type as JSON.
-func (s *ContentTypeService) ExportEntries(uid string) (string, error) {
-	ct, err := s.GetContentType(uid)
+// ExportEntries exports all entries of a content type as JSON within the tenant.
+func (s *ContentTypeService) ExportEntries(uid string, tenantID uint) (string, error) {
+	ct, err := s.GetContentType(uid, tenantID)
 	if err != nil {
 		return "", err
 	}
 
-	entries, err := s.entryRepo.ExportAll(ct.ID)
+	entries, err := s.entryRepo.ExportAll(ct.ID, tenantID)
 	if err != nil {
 		return "", err
 	}
@@ -591,9 +621,9 @@ func (s *ContentTypeService) ExportEntries(uid string) (string, error) {
 	return string(b), nil
 }
 
-// ImportEntries imports entries from JSON.
-func (s *ContentTypeService) ImportEntries(uid string, data string, userID uint) (int, error) {
-	ct, err := s.GetContentType(uid)
+// ImportEntries imports entries from JSON into the tenant.
+func (s *ContentTypeService) ImportEntries(uid string, data string, tenantID, userID uint) (int, error) {
+	ct, err := s.GetContentType(uid, tenantID)
 	if err != nil {
 		return 0, err
 	}
@@ -604,11 +634,34 @@ func (s *ContentTypeService) ImportEntries(uid string, data string, userID uint)
 	}
 
 	for i := range entries {
+		if err := s.validateEntryData(ct, entries[i].Data); err != nil {
+			return 0, errs.ErrValidation.WithMessage(fmt.Sprintf("entry %d does not satisfy the current schema: %v", i, err))
+		}
+		status, err := initialEntryStatus(ct, "")
+		if err != nil {
+			return 0, err
+		}
+
 		entries[i].ID = 0 // reset ID
+		entries[i].TenantID = tenantID
 		entries[i].ContentTypeID = ct.ID
+		entries[i].ContentType = nil
 		entries[i].DocumentID = uuid.New().String()
+		entries[i].Status = status
 		entries[i].CreatedByID = userID
 		entries[i].UpdatedByID = userID
+		entries[i].TranslationGroupID = nil
+		entries[i].CreatedAt = time.Time{}
+		entries[i].UpdatedAt = time.Time{}
+		if entries[i].Locale == "" {
+			entries[i].Locale = "en"
+		}
+		if status == models.EntryStatusPublished {
+			now := time.Now()
+			entries[i].PublishedAt = &now
+		} else {
+			entries[i].PublishedAt = nil
+		}
 	}
 
 	return s.entryRepo.CreateMany(entries)
@@ -626,34 +679,34 @@ func effectiveEntryGroupID(e *models.ContentEntry) uint {
 }
 
 // ListEntryTranslations returns sibling translations of the given entry
-// (excluding the entry itself).
-func (s *ContentTypeService) ListEntryTranslations(uid, documentID string) ([]models.ContentEntry, error) {
-	ct, err := s.GetContentType(uid)
+// (excluding the entry itself) within the tenant.
+func (s *ContentTypeService) ListEntryTranslations(uid, documentID string, tenantID uint) ([]models.ContentEntry, error) {
+	ct, err := s.GetContentType(uid, tenantID)
 	if err != nil {
 		return nil, err
 	}
-	entry, err := s.entryRepo.FindByDocumentID(ct.ID, documentID)
+	entry, err := s.entryRepo.FindByDocumentID(ct.ID, documentID, tenantID)
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, errs.ErrNotFound.WithMessage("entry not found")
 		}
 		return nil, err
 	}
-	return s.entryRepo.ListTranslations(ct.ID, effectiveEntryGroupID(entry), entry.ID)
+	return s.entryRepo.ListTranslations(ct.ID, effectiveEntryGroupID(entry), entry.ID, tenantID)
 }
 
 // CreateEntryTranslation creates a new entry as a translation of an existing
 // one. The new entry inherits the source's data (which the caller may override
 // via req.Data) and translation group, with the requested locale.
-func (s *ContentTypeService) CreateEntryTranslation(uid, documentID, locale string, req CreateEntryRequest, userID uint) (*models.ContentEntry, error) {
+func (s *ContentTypeService) CreateEntryTranslation(uid, documentID, locale string, req CreateEntryRequest, tenantID, userID uint) (*models.ContentEntry, error) {
 	if locale == "" {
 		return nil, errs.ErrBadRequest.WithMessage("locale is required for translation")
 	}
-	ct, err := s.GetContentType(uid)
+	ct, err := s.GetContentType(uid, tenantID)
 	if err != nil {
 		return nil, err
 	}
-	source, err := s.entryRepo.FindByDocumentID(ct.ID, documentID)
+	source, err := s.entryRepo.FindByDocumentID(ct.ID, documentID, tenantID)
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, errs.ErrNotFound.WithMessage("entry not found")
@@ -662,14 +715,17 @@ func (s *ContentTypeService) CreateEntryTranslation(uid, documentID, locale stri
 	}
 
 	// Refuse duplicate locale within the same group.
-	if existing, err := s.entryRepo.FindTranslationInLocale(ct.ID, effectiveEntryGroupID(source), locale); err == nil && existing != nil {
+	if existing, err := s.entryRepo.FindTranslationInLocale(ct.ID, effectiveEntryGroupID(source), locale, tenantID); err == nil && existing != nil {
 		return nil, errs.ErrConflict.WithMessage("translation already exists for this locale")
 	} else if err != nil && err != gorm.ErrRecordNotFound {
 		return nil, err
 	}
 
-	// Merge source data with override.
-	data := source.Data
+	// Merge source data with override without mutating the source entry's map.
+	data := make(map[string]interface{}, len(source.Data)+len(req.Data))
+	for k, v := range source.Data {
+		data[k] = v
+	}
 	if req.Data != nil {
 		for k, v := range req.Data {
 			data[k] = v
@@ -679,12 +735,13 @@ func (s *ContentTypeService) CreateEntryTranslation(uid, documentID, locale stri
 		return nil, err
 	}
 
-	status := req.Status
-	if status == "" {
-		status = models.EntryStatusDraft
+	status, err := initialEntryStatus(ct, req.Status)
+	if err != nil {
+		return nil, err
 	}
 
 	entry := models.ContentEntry{
+		TenantID:           tenantID, // RFC-001 §5
 		ContentTypeID:      ct.ID,
 		DocumentID:         uuid.New().String(),
 		Status:             status,

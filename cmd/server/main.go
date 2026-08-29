@@ -206,9 +206,38 @@ func main() {
 		if _, err := mcpArticleSvc.ReindexAll(context.Background()); err != nil {
 			slog.Warn("mcp: search index warmup failed", "error", err)
 		}
+
+		// Build RAG service for semantic search / Q&A tools (when AI is enabled).
+		var mcpRAGSvc *services.RAGService
+		if cfg.AI.Enabled {
+			embedder := services.NewEmbeddingProvider(
+				cfg.AI.EmbeddingProvider,
+				cfg.AI.EmbeddingAPIKey,
+				cfg.AI.EmbeddingBaseURL,
+				cfg.AI.EmbeddingModel,
+				cfg.AI.EmbeddingDimension,
+			)
+			vecStore := services.NewMemoryVectorStore()
+			mcpLLM := services.NewLLMProvider(
+				cfg.AI.LLMProvider,
+				cfg.AI.LLMAPIKey,
+				cfg.AI.LLMBaseURL,
+				cfg.AI.LLMModel,
+			)
+			mcpRAGSvc = services.NewRAGService(db, embedder, vecStore, mcpLLM,
+				cfg.AI.ChunkSize, cfg.AI.ChunkOverlap, cfg.AI.TopK, cfg.AI.MinScore)
+			mcpArticleSvc.SetRAGIndexer(mcpRAGSvc)
+			if n, err := mcpRAGSvc.WarmUp(context.Background()); err != nil {
+				slog.Warn("mcp: rag warmup failed", "error", err)
+			} else {
+				slog.Info("mcp: rag warmed up", "vectors", n)
+			}
+		}
+
 		mcpServer := mcp.NewServer(mcp.Deps{
 			Article:       mcpArticleSvc,
 			ContentType:   services.NewContentTypeService(db),
+			RAG:           mcpRAGSvc,
 			BaseURL:       cfg.Server.BaseURL,
 			IncludeDrafts: cfg.MCP.IncludeDrafts,
 		}, version)

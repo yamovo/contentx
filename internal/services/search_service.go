@@ -13,6 +13,7 @@ import (
 // of backend (in-memory, MeiliSearch, Elasticsearch).
 type SearchDocument struct {
 	ID           uint
+	TenantID     uint   // RFC-001 §4.3: tenant-scoped index partition
 	Type         string // "article" | "page" | "content_entry"
 	Title        string
 	Content      string // raw body, used for indexing; never returned to clients
@@ -32,6 +33,7 @@ type SearchDocument struct {
 // SearchQuery holds filter/pagination for a search request.
 type SearchQuery struct {
 	Query    string
+	TenantID uint   // filter to a single tenant's documents
 	Type     string // empty = any
 	Status   string // empty = any; public surface should pass "published"
 	Locale   string // empty = any
@@ -70,7 +72,7 @@ type SearchResult struct {
 // driver can be wired in when SEARCH_ENGINE=meilisearch.
 type SearchIndexer interface {
 	Index(ctx context.Context, doc SearchDocument) error
-	Delete(ctx context.Context, id uint, docType string) error
+	Delete(ctx context.Context, id uint, docType string, tenantID uint) error
 	Search(ctx context.Context, q SearchQuery) (*SearchResult, error)
 	ReindexAll(ctx context.Context, articles []models.Article) error
 	Ping(ctx context.Context) error
@@ -82,8 +84,8 @@ type SearchIndexer interface {
 // nil checks on every write path.
 type noopIndexer struct{}
 
-func (noopIndexer) Index(context.Context, SearchDocument) error { return nil }
-func (noopIndexer) Delete(context.Context, uint, string) error  { return nil }
+func (noopIndexer) Index(context.Context, SearchDocument) error      { return nil }
+func (noopIndexer) Delete(context.Context, uint, string, uint) error { return nil }
 func (noopIndexer) Search(context.Context, SearchQuery) (*SearchResult, error) {
 	return &SearchResult{Hits: []SearchHit{}}, nil
 }
@@ -100,6 +102,7 @@ func NoopIndexer() SearchIndexer { return noopIndexer{} }
 func ArticleToSearchDoc(a *models.Article) SearchDocument {
 	doc := SearchDocument{
 		ID:          a.ID,
+		TenantID:    a.TenantID,
 		Type:        "article",
 		Title:       a.Title,
 		Content:     a.Content,

@@ -11,6 +11,7 @@
 package graphql
 
 import (
+	"context"
 	"errors"
 	"strconv"
 	"time"
@@ -21,6 +22,22 @@ import (
 	"github.com/yamovo/contentx/internal/services"
 	"gorm.io/gorm"
 )
+
+// tenantCtxKey is the typed context key for the request tenant ID injected by
+// Handler. Resolvers read the tenant via tenantFromContext to scope all queries.
+type tenantCtxKey struct{}
+
+// tenantFromContext returns the tenant ID from the GraphQL context, falling
+// back to DefaultTenantID when unset (unauthenticated public requests).
+func tenantFromContext(ctx context.Context) uint {
+	if ctx == nil {
+		return models.DefaultTenantID
+	}
+	if v, ok := ctx.Value(tenantCtxKey{}).(uint); ok && v > 0 {
+		return v
+	}
+	return models.DefaultTenantID
+}
 
 // Resolver holds the services the GraphQL layer delegates to. All fields are
 // required; nil services will panic on first use.
@@ -40,7 +57,7 @@ func (r *Resolver) article(p graphql.ResolveParams) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	article, err := r.Article.Get(id, models.DefaultTenantID)
+	article, err := r.Article.Get(id, tenantFromContext(p.Context))
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, nil
@@ -58,7 +75,7 @@ func (r *Resolver) article(p graphql.ResolveParams) (interface{}, error) {
 // Returns null (not an error) when the article doesn't exist.
 func (r *Resolver) articleBySlug(p graphql.ResolveParams) (interface{}, error) {
 	slug, _ := p.Args["slug"].(string)
-	article, err := r.Article.GetBySlug(slug, models.DefaultTenantID)
+	article, err := r.Article.GetBySlug(slug, tenantFromContext(p.Context))
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, nil
@@ -87,7 +104,7 @@ func (r *Resolver) articles(p graphql.ResolveParams) (interface{}, error) {
 	if fieldInSelection(p.Info, "items", "content") {
 		filter.Full = true
 	}
-	resp, err := r.Article.List(filter, models.DefaultTenantID)
+	resp, err := r.Article.List(filter, tenantFromContext(p.Context))
 	if err != nil {
 		return nil, err
 	}
@@ -110,12 +127,12 @@ func (r *Resolver) category(p graphql.ResolveParams) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	return r.Category.Get(id, models.DefaultTenantID)
+	return r.Category.Get(id, tenantFromContext(p.Context))
 }
 
 // categories returns all categories (tree form).
-func (r *Resolver) categories(_ graphql.ResolveParams) (interface{}, error) {
-	return r.Category.List(false, models.DefaultTenantID)
+func (r *Resolver) categories(p graphql.ResolveParams) (interface{}, error) {
+	return r.Category.List(false, tenantFromContext(p.Context))
 }
 
 // tag returns a single tag by ID.
@@ -124,12 +141,12 @@ func (r *Resolver) tag(p graphql.ResolveParams) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	return r.Tag.Get(id, models.DefaultTenantID)
+	return r.Tag.Get(id, tenantFromContext(p.Context))
 }
 
 // tags returns all tags.
-func (r *Resolver) tags(_ graphql.ResolveParams) (interface{}, error) {
-	tags, _, err := r.Tag.List(services.TagListParams{}, models.DefaultTenantID)
+func (r *Resolver) tags(p graphql.ResolveParams) (interface{}, error) {
+	tags, _, err := r.Tag.List(services.TagListParams{}, tenantFromContext(p.Context))
 	if err != nil {
 		return nil, err
 	}
@@ -143,7 +160,7 @@ func (r *Resolver) comments(p graphql.ResolveParams) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	return r.Comment.ArticleComments(id, models.DefaultTenantID)
+	return r.Comment.ArticleComments(id, tenantFromContext(p.Context))
 }
 
 // user returns a single user's public profile by ID. Sensitive fields
@@ -157,8 +174,8 @@ func (r *Resolver) user(p graphql.ResolveParams) (interface{}, error) {
 }
 
 // feed returns the site RSS feed as a raw XML string.
-func (r *Resolver) feed(_ graphql.ResolveParams) (interface{}, error) {
-	return r.Article.GenerateFeed(models.DefaultTenantID)
+func (r *Resolver) feed(p graphql.ResolveParams) (interface{}, error) {
+	return r.Article.GenerateFeed(tenantFromContext(p.Context))
 }
 
 // search runs a full-text query against the configured SearchIndexer. The
@@ -167,6 +184,7 @@ func (r *Resolver) feed(_ graphql.ResolveParams) (interface{}, error) {
 func (r *Resolver) search(p graphql.ResolveParams) (interface{}, error) {
 	q := services.SearchQuery{
 		Query:    strArg(p, "q"),
+		TenantID: tenantFromContext(p.Context),
 		Type:     strArg(p, "type"),
 		Status:   "published", // public surface: only published content
 		Locale:   strArg(p, "locale"),
@@ -291,7 +309,7 @@ func (r *Resolver) articleComments(p graphql.ResolveParams) (interface{}, error)
 	if !ok {
 		return nil, nil
 	}
-	return r.Comment.ArticleComments(article.ID, models.DefaultTenantID)
+	return r.Comment.ArticleComments(article.ID, tenantFromContext(p.Context))
 }
 
 // commentUser returns the comment's author user (nullable for guest comments).

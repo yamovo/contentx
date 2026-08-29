@@ -23,7 +23,7 @@ func setupAuthTestDB(t *testing.T) *gorm.DB {
 	if err != nil {
 		t.Fatalf("open test db: %v", err)
 	}
-	if err := db.AutoMigrate(&models.User{}, &models.Role{}, &models.Permission{}); err != nil {
+	if err := db.AutoMigrate(&models.User{}, &models.Role{}, &models.Permission{}, &models.Tenant{}, &models.TenantMembership{}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
 
@@ -34,6 +34,26 @@ func setupAuthTestDB(t *testing.T) *gorm.DB {
 	}
 	db.Create(&adminRole)
 	db.Create(&viewerRole)
+
+	// Create default tenant for membership validation.
+	defaultTenant := models.Tenant{Name: "Default", Slug: "default", Status: models.TenantStatusActive}
+	defaultTenant.ID = models.DefaultTenantID
+	db.Create(&defaultTenant)
+
+	// Create tenant 5 for non-admin tenant-scoped token tests.
+	tenant5 := models.Tenant{Name: "Tenant 5", Slug: "tenant-5", Status: models.TenantStatusActive}
+	tenant5.ID = 5
+	db.Create(&tenant5)
+
+	// Create tenant 9 for admin override tests.
+	tenant9 := models.Tenant{Name: "Tenant 9", Slug: "tenant-9", Status: models.TenantStatusActive}
+	tenant9.ID = 9
+	db.Create(&tenant9)
+
+	// Create tenant 7 for JWT-bound platform-admin tests.
+	tenant7 := models.Tenant{Name: "Tenant 7", Slug: "tenant-7", Status: models.TenantStatusActive}
+	tenant7.ID = 7
+	db.Create(&tenant7)
 
 	db.Create(&models.User{
 		Username: "admin", Email: "a@x.com", Password: "x",
@@ -47,6 +67,17 @@ func setupAuthTestDB(t *testing.T) *gorm.DB {
 		Username: "viewer", Email: "v@x.com", Password: "x",
 		RoleID: viewerRole.ID, Status: models.UserStatusActive,
 	})
+
+	// Create tenant memberships for non-admin users.
+	var viewerUser models.User
+	db.Where("username = ?", "viewer").First(&viewerUser)
+	db.Create(&models.TenantMembership{
+		TenantID: models.DefaultTenantID, UserID: viewerUser.ID, RoleSlug: models.TenantRoleEditor,
+	})
+	db.Create(&models.TenantMembership{
+		TenantID: 5, UserID: viewerUser.ID, RoleSlug: models.TenantRoleEditor,
+	})
+
 	return db
 }
 
@@ -205,11 +236,18 @@ func TestOptionalAuthMiddleware_ValidToken(t *testing.T) {
 // ---------- RequireRole / RequirePermission ----------
 
 func routerWithUser(u *models.User, mw ...gin.HandlerFunc) *gin.Engine {
+	return routerWithUserAndTenantRole(u, models.TenantRoleAdmin, mw...)
+}
+
+func routerWithUserAndTenantRole(u *models.User, tenantRole string, mw ...gin.HandlerFunc) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
 		if u != nil {
 			c.Set(ContextKeyUser, u)
+			if tenantRole != "" {
+				c.Set(ContextKeyTenantRole, tenantRole)
+			}
 		}
 		c.Next()
 	})
@@ -261,9 +299,12 @@ func TestRequirePermission(t *testing.T) {
 	if w := doRequest(routerWithUser(nil, RequirePermission("articles.read")), http.MethodGet, "/test", nil); w.Code != http.StatusUnauthorized {
 		t.Fatal("expected 401")
 	}
-	// Admin has all permissions.
-	if w := doRequest(routerWithUser(admin, RequirePermission("anything.at.all")), http.MethodGet, "/test", nil); w.Code != http.StatusOK {
-		t.Fatal("admin should have all permissions")
+	// Admin has all registered tenant permissions, but route typos fail closed.
+	if w := doRequest(routerWithUser(admin, RequirePermission("articles.read")), http.MethodGet, "/test", nil); w.Code != http.StatusOK {
+		t.Fatal("admin should have registered tenant permissions")
+	}
+	if w := doRequest(routerWithUser(admin, RequirePermission("anything.at.all")), http.MethodGet, "/test", nil); w.Code != http.StatusForbidden {
+		t.Fatal("unknown permission slugs must fail closed")
 	}
 	// User with the permission passes.
 	if w := doRequest(routerWithUser(withPerm, RequirePermission("articles.read")), http.MethodGet, "/test", nil); w.Code != http.StatusOK {
@@ -272,6 +313,40 @@ func TestRequirePermission(t *testing.T) {
 	// User without → 403.
 	if w := doRequest(routerWithUser(withoutPerm, RequirePermission("articles.read")), http.MethodGet, "/test", nil); w.Code != http.StatusForbidden {
 		t.Fatal("expected 403 for missing permission")
+	}
+}
+
+func TestRequireTenantPermission_UsesMembershipRoleAsCeiling(t *testing.T) {
+	editor := &models.User{Role: models.Role{
+		Slug: "editor",
+		Permissions: []models.Permission{
+			{Slug: "articles.read"},
+			{Slug: "articles.publish"},
+		},
+	}}
+
+	if w := doRequest(routerWithUserAndTenantRole(editor, models.TenantRoleMember, RequirePermission("articles.read")), http.MethodGet, "/test", nil); w.Code != http.StatusOK {
+		t.Fatalf("member should retain author-level read access, got %d", w.Code)
+	}
+	if w := doRequest(routerWithUserAndTenantRole(editor, models.TenantRoleMember, RequirePermission("articles.publish")), http.MethodGet, "/test", nil); w.Code != http.StatusForbidden {
+		t.Fatalf("member role must cap a global editor's publish permission, got %d", w.Code)
+	}
+	if w := doRequest(routerWithUserAndTenantRole(editor, models.TenantRoleEditor, RequirePermission("articles.publish")), http.MethodGet, "/test", nil); w.Code != http.StatusOK {
+		t.Fatalf("tenant editor should retain globally granted publish permission, got %d", w.Code)
+	}
+}
+
+func TestRequirePlatformPermission_IgnoresTenantAdminRole(t *testing.T) {
+	tenantAdmin := &models.User{Role: models.Role{Slug: "editor", Permissions: []models.Permission{{Slug: "users.read"}}}}
+	if w := doRequest(routerWithUserAndTenantRole(tenantAdmin, models.TenantRoleAdmin, RequirePlatformPermission("users.read")), http.MethodGet, "/test", nil); w.Code != http.StatusOK {
+		t.Fatalf("an explicit global platform grant should pass, got %d", w.Code)
+	}
+	withoutGlobalGrant := &models.User{Role: models.Role{Slug: "editor"}}
+	if w := doRequest(routerWithUserAndTenantRole(withoutGlobalGrant, models.TenantRoleAdmin, RequirePlatformPermission("users.read")), http.MethodGet, "/test", nil); w.Code != http.StatusForbidden {
+		t.Fatalf("tenant admin must not create a platform grant, got %d", w.Code)
+	}
+	if w := doRequest(routerWithUserAndTenantRole(tenantAdmin, models.TenantRoleAdmin, RequirePlatformPermission("articles.read")), http.MethodGet, "/test", nil); w.Code != http.StatusForbidden {
+		t.Fatalf("tenant permissions must not be accepted by platform middleware, got %d", w.Code)
 	}
 }
 
@@ -348,45 +423,105 @@ func TestUserCache_LRUEviction(t *testing.T) {
 	}
 }
 
-func TestAuthMiddleware_CacheHitServesUser(t *testing.T) {
+func TestAuthMiddleware_RepeatedRequestReloadsUser(t *testing.T) {
 	db := setupAuthTestDB(t)
 	m := testJWT()
 	tok := tokenFor(t, m, 1)
 
 	r := setupTestRouter(AuthMiddleware(m, db, nil))
-	// First request populates the cache via DB lookup.
+	// Both requests load the current authorization state and remain valid.
 	if w := doRequest(r, http.MethodGet, "/test", map[string]string{"Authorization": "Bearer " + tok}); w.Code != http.StatusOK {
 		t.Fatalf("first request should pass, got %d", w.Code)
 	}
-	// Second request should be served from cache (still 200).
 	if w := doRequest(r, http.MethodGet, "/test", map[string]string{"Authorization": "Bearer " + tok}); w.Code != http.StatusOK {
-		t.Fatalf("cached request should pass, got %d", w.Code)
+		t.Fatalf("repeated request should pass, got %d", w.Code)
 	}
 }
 
-func TestAuthMiddleware_RestoreInvalidationReloadsUser(t *testing.T) {
+func TestAuthMiddleware_DisabledUserRejectedImmediately(t *testing.T) {
 	db := setupAuthTestDB(t)
 	m := testJWT()
 	tok := tokenFor(t, m, 1)
-	invalidator := NewAuthUserCacheInvalidator()
-	r := setupTestRouter(AuthMiddleware(m, db, nil, invalidator))
+	r := setupTestRouter(AuthMiddleware(m, db, nil))
 	headers := map[string]string{"Authorization": "Bearer " + tok}
 
 	if w := doRequest(r, http.MethodGet, "/test", headers); w.Code != http.StatusOK {
-		t.Fatalf("first request should populate cache, got %d", w.Code)
+		t.Fatalf("first request should pass, got %d", w.Code)
 	}
 	if err := db.Model(&models.User{}).Where("id = ?", 1).
 		Update("status", "banned").Error; err != nil {
 		t.Fatalf("disable cached user: %v", err)
 	}
-	// The old record is still cached before restore invalidation.
-	if w := doRequest(r, http.MethodGet, "/test", headers); w.Code != http.StatusOK {
-		t.Fatalf("request before invalidation should use cached user, got %d", w.Code)
+	if w := doRequest(r, http.MethodGet, "/test", headers); w.Code != http.StatusForbidden {
+		t.Fatalf("disabled user should be rejected on the next request, got %d", w.Code)
+	}
+}
+
+func TestAuthMiddleware_PermissionRevocationTakesEffectImmediately(t *testing.T) {
+	db := setupAuthTestDB(t)
+	m := testJWT()
+	pair, err := m.GenerateTokenPairWithTenant(3, 5, "v", "v@x.com", "viewer", "Viewer")
+	if err != nil {
+		t.Fatalf("generate token: %v", err)
 	}
 
-	invalidator.Invalidate()
+	r := setupTestRouter(
+		AuthMiddleware(m, db, nil),
+		TenantGuard(db),
+		RequireTenantPermission("articles.read"),
+	)
+	headers := map[string]string{"Authorization": "Bearer " + pair.AccessToken}
+	if w := doRequest(r, http.MethodGet, "/test", headers); w.Code != http.StatusOK {
+		t.Fatalf("initial permission check = %d, want 200", w.Code)
+	}
+
+	var viewerRole models.Role
+	if err := db.Where("slug = ?", "viewer").First(&viewerRole).Error; err != nil {
+		t.Fatalf("load viewer role: %v", err)
+	}
+	if err := db.Model(&viewerRole).Association("Permissions").Clear(); err != nil {
+		t.Fatalf("revoke viewer permissions: %v", err)
+	}
 	if w := doRequest(r, http.MethodGet, "/test", headers); w.Code != http.StatusForbidden {
-		t.Fatalf("request after invalidation should reload disabled user, got %d", w.Code)
+		t.Fatalf("revoked permission should be rejected on the next request, got %d", w.Code)
+	}
+}
+
+func TestTenantGuard_MembershipRequiredOnlyForTenantRoutes(t *testing.T) {
+	db := setupAuthTestDB(t)
+	var viewerRole models.Role
+	if err := db.Where("slug = ?", "viewer").First(&viewerRole).Error; err != nil {
+		t.Fatalf("load viewer role: %v", err)
+	}
+	user := models.User{
+		Username: "platform-only", Email: "platform-only@example.com", Password: "x",
+		RoleID: viewerRole.ID, Status: models.UserStatusActive,
+	}
+	if err := db.Create(&user).Error; err != nil {
+		t.Fatalf("create membership-less user: %v", err)
+	}
+
+	m := testJWT()
+	pair, err := m.GenerateTokenPairWithTenant(
+		user.ID, models.DefaultTenantID, user.Username, user.Email, viewerRole.Slug, user.DisplayName,
+	)
+	if err != nil {
+		t.Fatalf("generate token: %v", err)
+	}
+	headers := map[string]string{"Authorization": "Bearer " + pair.AccessToken}
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	self := r.Group("/self", AuthMiddleware(m, db, nil))
+	self.GET("", func(c *gin.Context) { c.Status(http.StatusOK) })
+	tenant := r.Group("/tenant", AuthMiddleware(m, db, nil), TenantGuard(db))
+	tenant.GET("", func(c *gin.Context) { c.Status(http.StatusOK) })
+
+	if w := doRequest(r, http.MethodGet, "/self", headers); w.Code != http.StatusOK {
+		t.Fatalf("self-service route without membership = %d, want 200", w.Code)
+	}
+	if w := doRequest(r, http.MethodGet, "/tenant", headers); w.Code != http.StatusForbidden {
+		t.Fatalf("tenant route without membership = %d, want 403", w.Code)
 	}
 }
 
@@ -409,7 +544,7 @@ func TestAuthMiddleware_TenantFromClaims(t *testing.T) {
 	var gotTenant uint
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	r.Use(AuthMiddleware(m, db, nil))
+	r.Use(AuthMiddleware(m, db, nil), TenantGuard(db))
 	r.GET("/test", func(c *gin.Context) {
 		gotTenant = GetCurrentTenant(c)
 		c.Status(http.StatusOK)
@@ -435,7 +570,7 @@ func TestAuthMiddleware_TenantOverrideHeaderForAdmin(t *testing.T) {
 	var gotTenant uint
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	r.Use(AuthMiddleware(m, db, nil))
+	r.Use(AuthMiddleware(m, db, nil), TenantGuard(db))
 	r.GET("/test", func(c *gin.Context) {
 		gotTenant = GetCurrentTenant(c)
 		c.Status(http.StatusOK)
@@ -453,7 +588,37 @@ func TestAuthMiddleware_TenantOverrideHeaderForAdmin(t *testing.T) {
 	}
 }
 
-func TestAuthMiddleware_TenantOverrideIgnoredForNonAdmin(t *testing.T) {
+func TestAuthMiddleware_AdminOverrideRequiresExistingActiveTenant(t *testing.T) {
+	db := setupAuthTestDB(t)
+	m := testJWT()
+	pair, _ := m.GenerateTokenPairWithTenant(1, 7, "u", "e@x.com", "admin", "Admin")
+	r := setupTestRouter(AuthMiddleware(m, db, nil), TenantGuard(db))
+
+	for name, override := range map[string]string{
+		"invalid":   "not-a-number",
+		"missing":   "40404",
+		"suspended": "12",
+	} {
+		t.Run(name, func(t *testing.T) {
+			if name == "suspended" {
+				tenant := models.Tenant{Name: "Override Suspended", Slug: "override-suspended", Status: models.TenantStatusSuspended}
+				tenant.ID = 12
+				if err := db.Create(&tenant).Error; err != nil {
+					t.Fatalf("create suspended tenant: %v", err)
+				}
+			}
+			w := doRequest(r, http.MethodGet, "/test", map[string]string{
+				"Authorization": "Bearer " + pair.AccessToken,
+				"X-Tenant-ID":   override,
+			})
+			if w.Code != http.StatusForbidden {
+				t.Fatalf("override %q = %d, want 403", override, w.Code)
+			}
+		})
+	}
+}
+
+func TestAuthMiddleware_TenantOverrideRejectedForNonAdmin(t *testing.T) {
 	db := setupAuthTestDB(t)
 	m := testJWT()
 	// Viewer (ID 3) with a tenant-bound token; header must be ignored.
@@ -465,7 +630,7 @@ func TestAuthMiddleware_TenantOverrideIgnoredForNonAdmin(t *testing.T) {
 	var gotTenant uint
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	r.Use(AuthMiddleware(m, db, nil))
+	r.Use(AuthMiddleware(m, db, nil), TenantGuard(db))
 	r.GET("/test", func(c *gin.Context) {
 		gotTenant = GetCurrentTenant(c)
 		c.Status(http.StatusOK)
@@ -475,10 +640,128 @@ func TestAuthMiddleware_TenantOverrideIgnoredForNonAdmin(t *testing.T) {
 		"Authorization": "Bearer " + pair.AccessToken,
 		"X-Tenant-ID":   "9",
 	})
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", w.Code)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("non-admin override must be rejected, got %d", w.Code)
 	}
-	if gotTenant != 5 {
-		t.Fatalf("non-admin override must be ignored: GetCurrentTenant() = %d, want 5", gotTenant)
+	if gotTenant != 0 {
+		t.Fatalf("request should not reach the handler, got tenant %d", gotTenant)
+	}
+}
+
+func TestAuthMiddleware_RefreshTokenCannotBeBearerAccessToken(t *testing.T) {
+	db := setupAuthTestDB(t)
+	m := testJWT()
+	pair, err := m.GenerateTokenPairWithTenant(1, 7, "u", "e@x.com", "admin", "Admin")
+	if err != nil {
+		t.Fatalf("generate token: %v", err)
+	}
+	r := setupTestRouter(AuthMiddleware(m, db, nil))
+	w := doRequest(r, http.MethodGet, "/test", map[string]string{"Authorization": "Bearer " + pair.RefreshToken})
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("refresh token used as Bearer access token: got %d, want 401", w.Code)
+	}
+}
+
+func TestAuthMiddleware_RejectsSuspendedClaimTenant(t *testing.T) {
+	db := setupAuthTestDB(t)
+	suspended := models.Tenant{Name: "Suspended", Slug: "suspended", Status: models.TenantStatusSuspended}
+	suspended.ID = 11
+	if err := db.Create(&suspended).Error; err != nil {
+		t.Fatalf("create suspended tenant: %v", err)
+	}
+	m := testJWT()
+	pair, _ := m.GenerateTokenPairWithTenant(1, suspended.ID, "u", "e@x.com", "admin", "Admin")
+	w := doRequest(setupTestRouter(AuthMiddleware(m, db, nil), TenantGuard(db)), http.MethodGet, "/test", map[string]string{"Authorization": "Bearer " + pair.AccessToken})
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("suspended JWT-bound tenant should be rejected, got %d", w.Code)
+	}
+}
+
+func TestAuthMiddleware_RejectsMissingOrInvalidMembership(t *testing.T) {
+	db := setupAuthTestDB(t)
+	m := testJWT()
+
+	missing, _ := m.GenerateTokenPairWithTenant(3, 9, "v", "v@x.com", "viewer", "Viewer")
+	w := doRequest(setupTestRouter(AuthMiddleware(m, db, nil), TenantGuard(db)), http.MethodGet, "/test", map[string]string{"Authorization": "Bearer " + missing.AccessToken})
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("missing tenant membership should be rejected, got %d", w.Code)
+	}
+
+	if err := db.Model(&models.TenantMembership{}).
+		Where("tenant_id = ? AND user_id = ?", 5, 3).
+		Update("role_slug", "reviewer").Error; err != nil {
+		t.Fatalf("corrupt membership role: %v", err)
+	}
+	invalidRole, _ := m.GenerateTokenPairWithTenant(3, 5, "v", "v@x.com", "viewer", "Viewer")
+	w = doRequest(setupTestRouter(AuthMiddleware(m, db, nil), TenantGuard(db)), http.MethodGet, "/test", map[string]string{"Authorization": "Bearer " + invalidRole.AccessToken})
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("unknown membership role should fail closed, got %d", w.Code)
+	}
+}
+
+func TestAuthMiddleware_RevalidatesTenantStateOnCachedUser(t *testing.T) {
+	t.Run("membership removed", func(t *testing.T) {
+		db := setupAuthTestDB(t)
+		m := testJWT()
+		pair, _ := m.GenerateTokenPairWithTenant(3, 5, "v", "v@x.com", "viewer", "Viewer")
+		r := setupTestRouter(AuthMiddleware(m, db, nil), TenantGuard(db))
+		headers := map[string]string{"Authorization": "Bearer " + pair.AccessToken}
+
+		if w := doRequest(r, http.MethodGet, "/test", headers); w.Code != http.StatusOK {
+			t.Fatalf("initial request = %d, want 200", w.Code)
+		}
+		if err := db.Where("tenant_id = ? AND user_id = ?", 5, 3).
+			Delete(&models.TenantMembership{}).Error; err != nil {
+			t.Fatalf("remove membership: %v", err)
+		}
+		if w := doRequest(r, http.MethodGet, "/test", headers); w.Code != http.StatusForbidden {
+			t.Fatalf("cached user retained removed membership: got %d, want 403", w.Code)
+		}
+	})
+
+	t.Run("tenant suspended", func(t *testing.T) {
+		db := setupAuthTestDB(t)
+		m := testJWT()
+		pair, _ := m.GenerateTokenPairWithTenant(3, 5, "v", "v@x.com", "viewer", "Viewer")
+		r := setupTestRouter(AuthMiddleware(m, db, nil), TenantGuard(db))
+		headers := map[string]string{"Authorization": "Bearer " + pair.AccessToken}
+
+		if w := doRequest(r, http.MethodGet, "/test", headers); w.Code != http.StatusOK {
+			t.Fatalf("initial request = %d, want 200", w.Code)
+		}
+		if err := db.Model(&models.Tenant{}).Where("id = ?", 5).
+			Update("status", models.TenantStatusSuspended).Error; err != nil {
+			t.Fatalf("suspend tenant: %v", err)
+		}
+		if w := doRequest(r, http.MethodGet, "/test", headers); w.Code != http.StatusForbidden {
+			t.Fatalf("cached user retained suspended tenant: got %d, want 403", w.Code)
+		}
+	})
+}
+
+func TestAuthMiddleware_TenantDenialAuditRetainsAuthenticatedActor(t *testing.T) {
+	db := setupAuthTestDB(t)
+	if err := db.AutoMigrate(&models.ActivityLog{}); err != nil {
+		t.Fatalf("migrate activity log: %v", err)
+	}
+	m := testJWT()
+	pair, _ := m.GenerateTokenPairWithTenant(3, 9, "v", "v@x.com", "viewer", "Viewer")
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(ActivityLogger(db))
+	r.Use(AuthMiddleware(m, db, nil), TenantGuard(db))
+	r.GET("/test", func(c *gin.Context) { c.Status(http.StatusOK) })
+	w := doRequest(r, http.MethodGet, "/test", map[string]string{"Authorization": "Bearer " + pair.AccessToken})
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("tenant denial = %d, want 403", w.Code)
+	}
+
+	var log models.ActivityLog
+	if err := db.First(&log).Error; err != nil {
+		t.Fatalf("read denial audit: %v", err)
+	}
+	if log.Action != "request.denied" || log.UserID == nil || *log.UserID != 3 {
+		t.Fatalf("tenant denial was not attributed to authenticated actor: %+v", log)
 	}
 }

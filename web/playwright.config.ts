@@ -18,7 +18,7 @@ export default defineConfig({
   workers: process.env.CI ? 1 : undefined,
   reporter: process.env.CI ? [['github'], ['list']] : 'list',
   use: {
-    baseURL: 'http://localhost:3000',
+    baseURL: 'http://127.0.0.1:3000',
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
   },
@@ -38,7 +38,7 @@ export default defineConfig({
     // Launch Vite directly. On Windows, launching it through npm leaves the
     // child process attached after the suite and Playwright never exits.
     command: 'node ./node_modules/vite/bin/vite.js --host 127.0.0.1',
-    url: 'http://localhost:3000',
+    url: 'http://127.0.0.1:3000',
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,
     gracefulShutdown: {

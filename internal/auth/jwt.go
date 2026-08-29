@@ -32,8 +32,8 @@ type Claims struct {
 	DisplayName string `json:"display_name"`
 	TokenUse    string `json:"token_use"`
 	// TenantID is the tenant bound at token issuance (RFC-001 §4.2).
-	// 0 means "unspecified" — resolvers fall back to the default tenant,
-	// which keeps pre-multi-tenancy tokens fully compatible.
+	// 0 means "unspecified" for legacy tokens; authenticated refresh flows
+	// must resolve and revalidate an active tenant before issuing a new pair.
 	TenantID uint `json:"tenant_id"`
 	jwt.RegisteredClaims
 }
@@ -57,16 +57,16 @@ func NewJWTManager(cfg config.JWTConfig) *JWTManager {
 	return &JWTManager{cfg: cfg}
 }
 
-// GenerateTokenPair creates both access and refresh tokens bound to the
-// default tenant (TenantID=0, resolved at request time). Use
-// GenerateTokenPairWithTenant to bind an explicit tenant.
+// GenerateTokenPair creates a legacy-compatible token pair with TenantID=0.
+// New authenticated flows should use GenerateTokenPairWithTenant so both
+// tokens are explicitly bound to a tenant.
 func (m *JWTManager) GenerateTokenPair(userID uint, username, email, roleSlug, displayName string) (*TokenPair, error) {
 	return m.GenerateTokenPairWithTenant(userID, 0, username, email, roleSlug, displayName)
 }
 
 // GenerateTokenPairWithTenant creates both access and refresh tokens. The
-// tenantID is embedded in the access token so downstream middleware can
-// resolve the request tenant without extra lookups (RFC-001 §4.2).
+// tenantID is embedded in both tokens so access middleware can resolve the
+// request tenant and refresh can preserve and revalidate it (RFC-001 §4.2).
 func (m *JWTManager) GenerateTokenPairWithTenant(userID, tenantID uint, username, email, roleSlug, displayName string) (*TokenPair, error) {
 	now := time.Now()
 
@@ -97,8 +97,13 @@ func (m *JWTManager) GenerateTokenPairWithTenant(userID, tenantID uint, username
 
 	// Refresh token.
 	refreshClaims := &Claims{
-		UserID:   userID,
-		TokenUse: TokenUseRefresh,
+		UserID:      userID,
+		TenantID:    tenantID,
+		Username:    username,
+		Email:       email,
+		RoleSlug:    roleSlug,
+		DisplayName: displayName,
+		TokenUse:    TokenUseRefresh,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(now.Add(m.cfg.RefreshTokenTTL)),
 			IssuedAt:  jwt.NewNumericDate(now),
@@ -183,9 +188,14 @@ func (m *JWTManager) RefreshAccessToken(refreshTokenStr string) (*TokenPair, err
 		return nil, fmt.Errorf("invalid refresh token: %w", err)
 	}
 
-	// For refresh, we only have UserID; the new access token needs more info.
-	// In practice, you'd look up the user here. For now we'll use what's in the token.
-	return m.GenerateTokenPair(claims.UserID, claims.Username, claims.Email, claims.RoleSlug, claims.DisplayName)
+	return m.GenerateTokenPairWithTenant(
+		claims.UserID,
+		claims.TenantID,
+		claims.Username,
+		claims.Email,
+		claims.RoleSlug,
+		claims.DisplayName,
+	)
 }
 
 // Blacklist is an in-memory token blacklist. It is safe for concurrent use.

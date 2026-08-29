@@ -62,8 +62,10 @@ func (b *BuiltinIndexer) Name() string { return "builtin" }
 
 func (b *BuiltinIndexer) Ping(ctx context.Context) error { return nil }
 
-// docKey returns the composite key for a document.
-func docKey(id uint, docType string) string { return docType + ":" + itoa(id) }
+// docKey returns the composite key for a document, scoped by tenant.
+func docKey(id uint, docType string, tenantID uint) string {
+	return itoa(tenantID) + ":" + docType + ":" + itoa(id)
+}
 
 func itoa(n uint) string {
 	if n == 0 {
@@ -86,7 +88,7 @@ func (b *BuiltinIndexer) Index(ctx context.Context, doc SearchDocument) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	key := docKey(doc.ID, doc.Type)
+	key := docKey(doc.ID, doc.Type, doc.TenantID)
 	// Remove previous version if present.
 	b.removeLocked(key)
 
@@ -117,10 +119,10 @@ func (b *BuiltinIndexer) Index(ctx context.Context, doc SearchDocument) error {
 }
 
 // Delete removes a document from the index.
-func (b *BuiltinIndexer) Delete(ctx context.Context, id uint, docType string) error {
+func (b *BuiltinIndexer) Delete(ctx context.Context, id uint, docType string, tenantID uint) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	b.removeLocked(docKey(id, docType))
+	b.removeLocked(docKey(id, docType, tenantID))
 	b.recomputeAvgDLLocked()
 	return nil
 }
@@ -216,6 +218,9 @@ func (b *BuiltinIndexer) Search(ctx context.Context, q SearchQuery) (*SearchResu
 	results := make([]scored, 0, len(candidates))
 	for key := range candidates {
 		doc := b.docs[key]
+		if q.TenantID != 0 && doc.TenantID != q.TenantID {
+			continue
+		}
 		if q.Status != "" && doc.Status != q.Status {
 			continue
 		}

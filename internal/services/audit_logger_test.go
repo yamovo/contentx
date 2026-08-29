@@ -244,12 +244,13 @@ func TestAuditLogger_WebhookURLStripsCredentialsAndQuerySecrets(t *testing.T) {
 	capture := &captureAuditLogger{}
 	svc.SetAuditLogger(capture)
 
+	tenantID := uint(1)
 	actorID := uint(99)
 	_, err := svc.Create(CreateWebhookRequest{
 		Name:   "audit webhook",
 		URL:    "https://hook-user:hook-password@hooks.example.com/events?token=query-secret#fragment",
 		Events: []string{"article.published"},
-	}, actorID)
+	}, tenantID, actorID)
 	if err != nil {
 		t.Fatalf("Create() error: %v", err)
 	}

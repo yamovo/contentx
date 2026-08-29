@@ -18,8 +18,9 @@ import (
 
 // WebhookDispatcher is the contract other services use to trigger webhooks.
 // WebhookService implements it; a nil dispatcher means webhooks are disabled.
+// The tenantID scopes which webhooks receive the event (RFC-001 §6).
 type WebhookDispatcher interface {
-	Dispatch(event string, data interface{})
+	Dispatch(event string, data interface{}, tenantID uint)
 }
 
 // WebhookService manages webhooks and enqueues delivery jobs. Actual HTTP
@@ -66,8 +67,8 @@ type CreateWebhookRequest struct {
 	Secret  string   `json:"secret"`
 }
 
-// Create creates a new webhook.
-func (s *WebhookService) Create(req CreateWebhookRequest, actorIDs ...uint) (*models.Webhook, error) {
+// Create creates a new webhook scoped to the given tenant.
+func (s *WebhookService) Create(req CreateWebhookRequest, tenantID uint, actorIDs ...uint) (*models.Webhook, error) {
 	// SEC-1: reject unsafe target URLs early (scheme + literal internal IPs).
 	if err := validateWebhookURL(req.URL); err != nil {
 		return nil, errs.ErrBadRequest.WithMessage(err.Error())
@@ -79,35 +80,37 @@ func (s *WebhookService) Create(req CreateWebhookRequest, actorIDs ...uint) (*mo
 		Headers:  req.Headers,
 		Secret:   req.Secret,
 		IsActive: true,
+		TenantID: tenantID,
 	}
 	if err := s.repo.Create(&wh); err != nil {
 		return nil, errors.New("failed to create webhook")
 	}
+	tid := tenantID
 	s.audit.Log(AuditEvent{
-		UserID: auditActor(actorIDs), Action: "webhook.create", Entity: "webhook", EntityID: wh.ID,
+		UserID: auditActor(actorIDs), TenantID: &tid, Action: "webhook.create", Entity: "webhook", EntityID: wh.ID,
 		Details: map[string]any{"name": wh.Name, "url": auditWebhookURL(wh.URL), "events": wh.Events},
 	})
 	return &wh, nil
 }
 
-// List returns all webhooks.
-func (s *WebhookService) List() ([]models.Webhook, error) {
-	return s.repo.List()
+// List returns all webhooks for a tenant.
+func (s *WebhookService) List(tenantID uint) ([]models.Webhook, error) {
+	return s.repo.List(tenantID)
 }
 
-// Get returns a webhook by ID.
-func (s *WebhookService) Get(id uint) (*models.Webhook, error) {
-	wh, err := s.repo.GetByID(id)
+// Get returns a webhook by ID within the tenant.
+func (s *WebhookService) Get(id, tenantID uint) (*models.Webhook, error) {
+	wh, err := s.repo.GetByID(id, tenantID)
 	if err != nil {
 		return nil, errors.New("webhook not found")
 	}
 	return wh, nil
 }
 
-// Delete deletes a webhook.
-func (s *WebhookService) Delete(id uint, actorIDs ...uint) error {
-	wh, _ := s.repo.GetByID(id) // best-effort for audit details
-	rowsAffected, err := s.repo.Delete(id)
+// Delete deletes a webhook within the tenant.
+func (s *WebhookService) Delete(id, tenantID uint, actorIDs ...uint) error {
+	wh, _ := s.repo.GetByID(id, tenantID) // best-effort for audit details
+	rowsAffected, err := s.repo.Delete(id, tenantID)
 	if err != nil {
 		return err
 	}
@@ -119,8 +122,9 @@ func (s *WebhookService) Delete(id uint, actorIDs ...uint) error {
 		details["name"] = wh.Name
 		details["url"] = auditWebhookURL(wh.URL)
 	}
+	tid := tenantID
 	s.audit.Log(AuditEvent{
-		UserID: auditActor(actorIDs), Action: "webhook.delete", Entity: "webhook", EntityID: id, Details: details,
+		UserID: auditActor(actorIDs), TenantID: &tid, Action: "webhook.delete", Entity: "webhook", EntityID: id, Details: details,
 	})
 	return nil
 }
@@ -137,9 +141,9 @@ func auditWebhookURL(raw string) string {
 	return parsed.String()
 }
 
-// GetLogs returns delivery logs for a webhook.
-func (s *WebhookService) GetLogs(webhookID uint, limit int) ([]models.WebhookLog, error) {
-	return s.repo.ListLogs(webhookID, limit)
+// GetLogs returns delivery logs for a webhook within the tenant.
+func (s *WebhookService) GetLogs(webhookID uint, limit int, tenantID uint) ([]models.WebhookLog, error) {
+	return s.repo.ListLogs(webhookID, limit, tenantID)
 }
 
 // ─── Dispatch ───────────────────────────────────────────────────────────────
@@ -151,13 +155,15 @@ type WebhookPayload struct {
 	Data      interface{} `json:"data"`
 }
 
-// Dispatch enqueues an event for all matching webhooks. Deliveries are
-// persisted as pending webhook_deliveries rows and drained asynchronously by
-// WebhookWorker, so dispatch is fast, bounded, and survives restarts.
-func (s *WebhookService) Dispatch(event string, data interface{}) {
-	webhooks, err := s.repo.ListActive()
+// Dispatch enqueues an event for all matching webhooks in the given tenant.
+// Deliveries are persisted as pending webhook_deliveries rows and drained
+// asynchronously by WebhookWorker, so dispatch is fast, bounded, and survives
+// restarts. Only webhooks belonging to tenantID are considered, preventing
+// cross-tenant event leakage (RFC-001 §6).
+func (s *WebhookService) Dispatch(event string, data interface{}, tenantID uint) {
+	webhooks, err := s.repo.ListActive(tenantID)
 	if err != nil {
-		slog.Error("webhook list active failed", "event", event, "error", err)
+		slog.Error("webhook list active failed", "event", event, "tenant_id", tenantID, "error", err)
 		return
 	}
 
@@ -178,6 +184,7 @@ func (s *WebhookService) Dispatch(event string, data interface{}) {
 		}
 		d := models.WebhookDelivery{
 			WebhookID:   wh.ID,
+			TenantID:    tenantID,
 			Event:       event,
 			Payload:     string(body),
 			Status:      models.WebhookDeliveryPending,

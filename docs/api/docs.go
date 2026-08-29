@@ -188,6 +188,116 @@ const docTemplate = `{
                 }
             }
         },
+        "/ai/rag/ask": {
+            "post": {
+                "description": "Retrieve relevant content and optionally generate an answer",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "AI"
+                ],
+                "summary": "RAG query",
+                "parameters": [
+                    {
+                        "description": "RAG query",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "object"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.APIResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/ai/reindex": {
+            "post": {
+                "description": "Rebuild all vector embeddings from published articles for the current tenant",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "AI"
+                ],
+                "summary": "Reindex vector embeddings",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.APIResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/ai/search": {
+            "get": {
+                "description": "Vector similarity search across published content chunks",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "AI"
+                ],
+                "summary": "Semantic search",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Search query",
+                        "name": "q",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "default": 5,
+                        "description": "Max results",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.APIResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/ai/status": {
+            "get": {
+                "description": "Returns embedding provider, vector store, and index statistics",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "AI"
+                ],
+                "summary": "AI service status",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.APIResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/analytics/dashboard": {
             "get": {
                 "security": [
@@ -3406,7 +3516,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Create a new entry for a content type",
+                "description": "Create a new entry. Draft/publish-enabled types always start as draft; use the publish endpoint for publication.",
                 "consumes": [
                     "application/json"
                 ],
@@ -3468,6 +3578,12 @@ const docTemplate = `{
                     },
                     "404": {
                         "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.APIResponse"
+                        }
+                    },
+                    "422": {
+                        "description": "Unprocessable Entity",
                         "schema": {
                             "$ref": "#/definitions/internal_handlers.APIResponse"
                         }
@@ -3534,7 +3650,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Import entries from JSON data",
+                "description": "Import entries from JSON data. Draft/publish-enabled types import as drafts.",
                 "consumes": [
                     "application/json"
                 ],
@@ -3595,6 +3711,12 @@ const docTemplate = `{
                     },
                     "404": {
                         "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.APIResponse"
+                        }
+                    },
+                    "422": {
+                        "description": "Unprocessable Entity",
                         "schema": {
                             "$ref": "#/definitions/internal_handlers.APIResponse"
                         }
@@ -3666,7 +3788,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Update an existing entry",
+                "description": "Update entry data. Publication status cannot be changed here; use the publish or unpublish endpoint.",
                 "consumes": [
                     "application/json"
                 ],
@@ -3729,6 +3851,12 @@ const docTemplate = `{
                     },
                     "404": {
                         "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.APIResponse"
+                        }
+                    },
+                    "422": {
+                        "description": "Unprocessable Entity",
                         "schema": {
                             "$ref": "#/definitions/internal_handlers.APIResponse"
                         }
@@ -6581,7 +6709,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Returns all API tokens (admin only)",
+                "description": "Returns API tokens scoped to the current tenant",
                 "produces": [
                     "application/json"
                 ],
@@ -9067,6 +9195,33 @@ const docTemplate = `{
                 }
             }
         },
+        "github_com_yamovo_contentx_internal_models.TenantMembership": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "deleted_at": {
+                    "$ref": "#/definitions/gorm.DeletedAt"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "role_slug": {
+                    "description": "member | editor | admin",
+                    "type": "string"
+                },
+                "tenant_id": {
+                    "type": "integer"
+                },
+                "updated_at": {
+                    "type": "string"
+                },
+                "user_id": {
+                    "type": "integer"
+                }
+            }
+        },
         "github_com_yamovo_contentx_internal_models.ThemeConfig": {
             "type": "object",
             "properties": {
@@ -9172,6 +9327,12 @@ const docTemplate = `{
                 },
                 "status": {
                     "$ref": "#/definitions/github_com_yamovo_contentx_internal_models.UserStatus"
+                },
+                "tenant_memberships": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_yamovo_contentx_internal_models.TenantMembership"
+                    }
                 },
                 "updated_at": {
                     "type": "string"
@@ -9628,7 +9789,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "status": {
-                    "description": "draft (default) or published",
+                    "description": "Status is retained for request compatibility, but draft/publish-enabled\ntypes may only be created as drafts. Publishing must use PublishEntry so\ncallers cannot bypass the independent content.publish permission.",
                     "type": "string"
                 }
             }
@@ -10140,6 +10301,7 @@ const docTemplate = `{
                     "additionalProperties": true
                 },
                 "status": {
+                    "description": "Status transitions are rejected; use PublishEntry or UnpublishEntry.",
                     "type": "string"
                 }
             }

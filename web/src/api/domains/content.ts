@@ -65,9 +65,9 @@ export const contentApi = {
     getList<ContentEntry>(`/content/${uid}`, params),
   getEntry: (uid: string, documentId: string) =>
     get<{ data: ContentEntry }>(`/content/${uid}/${documentId}`),
-  createEntry: (uid: string, data: { data: Record<string, unknown>; status?: string; locale?: string }) =>
+  createEntry: (uid: string, data: { data: Record<string, unknown>; locale?: string }) =>
     post<{ data: ContentEntry }>(`/content/${uid}`, data),
-  updateEntry: (uid: string, documentId: string, data: { data?: Record<string, unknown>; status?: string }) =>
+  updateEntry: (uid: string, documentId: string, data: { data?: Record<string, unknown> }) =>
     put<{ data: ContentEntry }>(`/content/${uid}/${documentId}`, data),
   deleteEntry: (uid: string, documentId: string) => del(`/content/${uid}/${documentId}`),
   publishEntry: (uid: string, documentId: string) =>
@@ -81,6 +81,6 @@ export const contentApi = {
   // i18n: sibling translations of an entry (same translation group).
   listTranslations: (uid: string, documentId: string) =>
     get<{ data: ContentEntry[] }>(`/content/${uid}/${documentId}/translations`),
-  createTranslation: (uid: string, documentId: string, locale: string, data: { data: Record<string, unknown>; status?: string }) =>
+  createTranslation: (uid: string, documentId: string, locale: string, data: { data: Record<string, unknown> }) =>
     post<{ data: ContentEntry }>(`/content/${uid}/${documentId}/translations?locale=${encodeURIComponent(locale)}`, data),
 }

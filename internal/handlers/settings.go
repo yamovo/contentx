@@ -640,7 +640,7 @@ func NewAnalyticsHandler(svc *services.AnalyticsService) *AnalyticsHandler {
 //	@Failure      403  {object}  APIResponse
 //	@Router       /analytics/dashboard [get]
 func (h *AnalyticsHandler) Dashboard(c *gin.Context) {
-	data, err := h.svc.Dashboard()
+	data, err := h.svc.Dashboard(getCurrentTenant(c))
 	if err != nil {
 		handleServiceError(c, err)
 		return
@@ -673,7 +673,7 @@ func (h *AnalyticsHandler) ViewsOverTime(c *gin.Context) {
 		days = 30
 	}
 
-	data, err := h.svc.ViewsOverTime(days)
+	data, err := h.svc.ViewsOverTime(days, getCurrentTenant(c))
 	if err != nil {
 		handleServiceError(c, err)
 		return
@@ -695,7 +695,7 @@ func (h *AnalyticsHandler) ViewsOverTime(c *gin.Context) {
 //	@Failure      403  {object}  APIResponse
 //	@Router       /analytics/referrers [get]
 func (h *AnalyticsHandler) TopReferrers(c *gin.Context) {
-	data, err := h.svc.TopReferrers()
+	data, err := h.svc.TopReferrers(getCurrentTenant(c))
 	if err != nil {
 		handleServiceError(c, err)
 		return
@@ -717,7 +717,7 @@ func (h *AnalyticsHandler) TopReferrers(c *gin.Context) {
 //	@Failure      403  {object}  APIResponse
 //	@Router       /analytics/devices [get]
 func (h *AnalyticsHandler) DeviceBreakdown(c *gin.Context) {
-	data, err := h.svc.DeviceBreakdown()
+	data, err := h.svc.DeviceBreakdown(getCurrentTenant(c))
 	if err != nil {
 		handleServiceError(c, err)
 		return
@@ -749,7 +749,7 @@ func (h *AnalyticsHandler) RecordView(c *gin.Context) {
 		return
 	}
 
-	if err := h.svc.RecordView(req, c.ClientIP(), c.Request.UserAgent(),
+	if err := h.svc.RecordView(req, getCurrentTenant(c), c.ClientIP(), c.Request.UserAgent(),
 		c.GetHeader("Referer"), c.GetHeader("X-Session-ID")); err != nil {
 		handleServiceError(c, err)
 		return

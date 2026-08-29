@@ -129,6 +129,42 @@ func RegisterRoutes(
 		}()
 	}
 
+	// ─── RAG / Vector Search: build embedding provider + vector store +
+	// RAG service. When AI is disabled (default) a noop RAG indexer is
+	// injected so ArticleService never calls a real embedding API.
+	var ragSvc *services.RAGService
+	if cfg.AI.Enabled {
+		embedder := services.NewEmbeddingProvider(
+			cfg.AI.EmbeddingProvider,
+			cfg.AI.EmbeddingAPIKey,
+			cfg.AI.EmbeddingBaseURL,
+			cfg.AI.EmbeddingModel,
+			cfg.AI.EmbeddingDimension,
+		)
+		vecStore := services.NewMemoryVectorStore()
+		llm := services.NewLLMProvider(
+			cfg.AI.LLMProvider,
+			cfg.AI.LLMAPIKey,
+			cfg.AI.LLMBaseURL,
+			cfg.AI.LLMModel,
+		)
+		ragSvc = services.NewRAGService(db, embedder, vecStore, llm,
+			cfg.AI.ChunkSize, cfg.AI.ChunkOverlap, cfg.AI.TopK, cfg.AI.MinScore)
+		articleSvc.SetRAGIndexer(ragSvc)
+
+		// Warm up the vector index from the database on startup.
+		go func() {
+			n, err := ragSvc.WarmUp(context.Background())
+			if err != nil {
+				slog.Warn("rag warmup failed", "error", err)
+				return
+			}
+			slog.Info("rag vector store warmed up", "vectors", n, "embedder", embedder.Name())
+		}()
+	} else {
+		articleSvc.SetRAGIndexer(nil) // noop
+	}
+
 	// Build and inject the storage driver based on configuration. When the
 	// driver is "local" (or unset) we keep the legacy inline disk logic in
 	// MediaService (store == nil). When it is "s3" we construct an S3Driver
@@ -160,6 +196,8 @@ func RegisterRoutes(
 	contentTypeH := NewContentTypeHandler(contentTypeSvc)
 	webhookH := NewWebhookHandler(webhookSvc)
 	searchH := NewSearchHandler(articleSvc)
+	aiH := NewAIHandler(ragSvc, cfg.AI.Enabled, cfg.AI.AllowOutbound)
+	aiH.SetAuditLogger(auditLogger)
 	backupH := NewBackupHandler(backupMgr, articleSvc, auditLogger).
 		WithCache(cacheDriver).
 		WithAuthCacheInvalidator(authUserCacheInvalidator.Invalidate)
@@ -171,10 +209,15 @@ func RegisterRoutes(
 		rateLimitComment  = 30
 		rateLimitRegister = 3 // per email+IP — prevents targeted registration spam
 	)
+	rateLimitAI := cfg.AI.RateLimit
+	if rateLimitAI <= 0 {
+		rateLimitAI = 30
+	}
 	rl := middleware.NewIPRateLimit()
 	rl.Add("auth", rateLimitAuth)
 	rl.Add("upload", rateLimitUpload)
 	rl.Add("comment", rateLimitComment)
+	rl.Add("ai", rateLimitAI)
 
 	// Account-dimension rate limiter for sensitive endpoints (P1-5).
 	// Keyed by email+IP on the registration endpoint to complement the
@@ -220,8 +263,12 @@ func RegisterRoutes(
 		if gqlErr != nil {
 			slog.Error("failed to build graphql schema", "error", gqlErr)
 		} else {
-			api.GET("/graphql", graphql.Handler(gqlSchema))
-			api.POST("/graphql", graphql.Handler(gqlSchema))
+			// OptionalAuthMiddleware resolves the tenant from JWT when an
+			// authenticated user accesses GraphQL; unauthenticated requests
+			// fall back to DefaultTenantID (public content only).
+			gqlGroup := api.Group("", middleware.OptionalAuthMiddleware(jwtMgr, db, blacklist, authUserCacheInvalidator))
+			gqlGroup.GET("/graphql", graphql.Handler(gqlSchema))
+			gqlGroup.POST("/graphql", graphql.Handler(gqlSchema))
 		}
 	}
 
@@ -232,6 +279,7 @@ func RegisterRoutes(
 		mountMCPHTTP(api, mcp.Deps{
 			Article:       articleSvc,
 			ContentType:   contentTypeSvc,
+			RAG:           ragSvc,
 			BaseURL:       cfg.Server.BaseURL,
 			IncludeDrafts: cfg.MCP.IncludeDrafts,
 		}, tokenSvc)
@@ -241,6 +289,8 @@ func RegisterRoutes(
 	// ─── Protected API ─────────────────────────────────
 	protected := api.Group("")
 	protected.Use(middleware.AuthMiddleware(jwtMgr, db, blacklist, authUserCacheInvalidator))
+	tenantProtected := protected.Group("")
+	tenantProtected.Use(middleware.TenantGuard(db))
 	{
 		// Auth (user operations).
 		authP := protected.Group("/auth")
@@ -258,7 +308,7 @@ func RegisterRoutes(
 		}
 
 		// Articles.
-		articles := protected.Group("/articles")
+		articles := tenantProtected.Group("/articles")
 		{
 			articles.GET("", middleware.RequirePermission(permissions.ArticlesRead), articleH.List)
 			articles.GET("/:id", middleware.RequirePermission(permissions.ArticlesRead), articleH.Get)
@@ -285,7 +335,7 @@ func RegisterRoutes(
 		}
 
 		// Categories.
-		categories := protected.Group("/categories")
+		categories := tenantProtected.Group("/categories")
 		{
 			categories.GET("", middleware.RequirePermission(permissions.CategoriesRead), categoryH.List)
 			categories.GET("/:id", middleware.RequirePermission(permissions.CategoriesRead), categoryH.Get)
@@ -296,7 +346,7 @@ func RegisterRoutes(
 		}
 
 		// Tags.
-		tags := protected.Group("/tags")
+		tags := tenantProtected.Group("/tags")
 		{
 			tags.GET("", middleware.RequirePermission(permissions.TagsRead), tagH.List)
 			tags.GET("/:id", middleware.RequirePermission(permissions.TagsRead), tagH.Get)
@@ -307,7 +357,7 @@ func RegisterRoutes(
 		}
 
 		// Comments.
-		comments := protected.Group("/comments")
+		comments := tenantProtected.Group("/comments")
 		{
 			comments.GET("", middleware.RequirePermission(permissions.CommentsRead), commentH.List)
 			comments.GET("/:id", middleware.RequirePermission(permissions.CommentsRead), commentH.Get)
@@ -321,7 +371,7 @@ func RegisterRoutes(
 		}
 
 		// Media.
-		media := protected.Group("/media")
+		media := tenantProtected.Group("/media")
 		media.Use(middleware.GroupRateLimit(rl, "upload"))
 		{
 			media.GET("", middleware.RequirePermission(permissions.MediaRead), mediaH.List)
@@ -337,26 +387,26 @@ func RegisterRoutes(
 		// Users.
 		users := protected.Group("/users")
 		{
-			users.GET("", middleware.RequirePermission(permissions.UsersRead), userH.List)
-			users.GET("/:id", middleware.RequirePermission(permissions.UsersRead), userH.Get)
-			users.POST("", middleware.RequirePermission(permissions.UsersCreate), userH.Create)
-			users.PUT("/:id", middleware.RequirePermission(permissions.UsersUpdate), userH.Update)
-			users.DELETE("/:id", middleware.RequirePermission(permissions.UsersDelete), userH.Delete)
-			users.POST("/:id/reset-password", middleware.RequirePermission(permissions.UsersUpdate), userH.ResetPassword)
+			users.GET("", middleware.RequirePlatformPermission(permissions.UsersRead), userH.List)
+			users.GET("/:id", middleware.RequirePlatformPermission(permissions.UsersRead), userH.Get)
+			users.POST("", middleware.RequirePlatformPermission(permissions.UsersCreate), userH.Create)
+			users.PUT("/:id", middleware.RequirePlatformPermission(permissions.UsersUpdate), userH.Update)
+			users.DELETE("/:id", middleware.RequirePlatformPermission(permissions.UsersDelete), userH.Delete)
+			users.POST("/:id/reset-password", middleware.RequirePlatformPermission(permissions.UsersUpdate), userH.ResetPassword)
 		}
 
 		// Roles.
 		roles := protected.Group("/roles")
 		{
-			roles.GET("", middleware.RequirePermission(permissions.RolesRead), roleH.List)
-			roles.POST("", middleware.RequirePermission(permissions.RolesCreate), roleH.Create)
-			roles.PUT("/:id", middleware.RequirePermission(permissions.RolesUpdate), roleH.Update)
-			roles.DELETE("/:id", middleware.RequirePermission(permissions.RolesDelete), roleH.Delete)
-			roles.GET("/permissions", middleware.RequirePermission(permissions.RolesRead), roleH.Permissions)
+			roles.GET("", middleware.RequirePlatformPermission(permissions.RolesRead), roleH.List)
+			roles.POST("", middleware.RequirePlatformPermission(permissions.RolesCreate), roleH.Create)
+			roles.PUT("/:id", middleware.RequirePlatformPermission(permissions.RolesUpdate), roleH.Update)
+			roles.DELETE("/:id", middleware.RequirePlatformPermission(permissions.RolesDelete), roleH.Delete)
+			roles.GET("/permissions", middleware.RequirePlatformPermission(permissions.RolesRead), roleH.Permissions)
 		}
 
 		// Settings.
-		settings := protected.Group("/settings")
+		settings := tenantProtected.Group("/settings")
 		{
 			settings.GET("", middleware.RequirePermission(permissions.SettingsRead), settingsH.List)
 			settings.GET("/:key", middleware.RequirePermission(permissions.SettingsRead), settingsH.Get)
@@ -364,7 +414,7 @@ func RegisterRoutes(
 		}
 
 		// SEO.
-		seo := protected.Group("/seo")
+		seo := tenantProtected.Group("/seo")
 		{
 			seo.GET("/:type/:id", middleware.RequirePermission(permissions.SEORead), seoH.GetSEOSetting)
 			seo.PUT("/:type/:id", middleware.RequirePermission(permissions.SEOUpdate), seoH.UpdateSEOSetting)
@@ -374,7 +424,7 @@ func RegisterRoutes(
 		}
 
 		// Menus.
-		menus := protected.Group("/menus")
+		menus := tenantProtected.Group("/menus")
 		{
 			menus.GET("", middleware.RequirePermission(permissions.MenusRead), menuH.List)
 			menus.GET("/:id", middleware.RequirePermission(permissions.MenusRead), menuH.Get)
@@ -388,7 +438,7 @@ func RegisterRoutes(
 		}
 
 		// Analytics.
-		analytics := protected.Group("/analytics")
+		analytics := tenantProtected.Group("/analytics")
 		{
 			analytics.GET("/dashboard", middleware.RequirePermission(permissions.AnalyticsRead), analyticsH.Dashboard)
 			analytics.GET("/views", middleware.RequirePermission(permissions.AnalyticsRead), analyticsH.ViewsOverTime)
@@ -399,32 +449,36 @@ func RegisterRoutes(
 		// Plugins.
 		plugins := protected.Group("/plugins")
 		{
-			plugins.GET("", middleware.RequirePermission(permissions.PluginsRead), pluginH.List)
-			plugins.POST("/:id/enable", middleware.RequirePermission(permissions.PluginsUpdate), pluginH.Enable)
-			plugins.POST("/:id/disable", middleware.RequirePermission(permissions.PluginsUpdate), pluginH.Disable)
-			plugins.PUT("/:id/config", middleware.RequirePermission(permissions.PluginsUpdate), pluginH.UpdateConfig)
+			plugins.GET("", middleware.RequirePlatformPermission(permissions.PluginsRead), pluginH.List)
+			plugins.POST("/:id/enable", middleware.RequirePlatformPermission(permissions.PluginsUpdate), pluginH.Enable)
+			plugins.POST("/:id/disable", middleware.RequirePlatformPermission(permissions.PluginsUpdate), pluginH.Disable)
+			plugins.PUT("/:id/config", middleware.RequirePlatformPermission(permissions.PluginsUpdate), pluginH.UpdateConfig)
 		}
 
 		// Themes.
 		themes := protected.Group("/themes")
 		{
-			themes.GET("", middleware.RequirePermission(permissions.ThemesRead), themeH.List)
-			themes.POST("/:id/activate", middleware.RequirePermission(permissions.ThemesUpdate), themeH.Activate)
-			themes.PUT("/:id/config", middleware.RequirePermission(permissions.ThemesUpdate), themeH.UpdateConfig)
+			themes.GET("", middleware.RequirePlatformPermission(permissions.ThemesRead), themeH.List)
+			themes.POST("/:id/activate", middleware.RequirePlatformPermission(permissions.ThemesUpdate), themeH.Activate)
+			themes.PUT("/:id/config", middleware.RequirePlatformPermission(permissions.ThemesUpdate), themeH.UpdateConfig)
 		}
 
-		// System.
-		system := protected.Group("/system")
+		// Platform-level system information.
+		systemPlatform := protected.Group("/system")
 		{
-			system.GET("/info", middleware.RequirePermission(permissions.SystemRead), systemH.Info)
-			system.GET("/activity", middleware.RequirePermission(permissions.SystemActivityLog), systemH.ActivityLog)
-
-			system.GET("/tokens", middleware.RequirePermission(permissions.APITokensRead), tokenH.List)
-			system.POST("/tokens", middleware.RequirePermission(permissions.APITokensCreate), tokenH.Create)
-			system.DELETE("/tokens/:id", middleware.RequirePermission(permissions.APITokensDelete), tokenH.Delete)
+			systemPlatform.GET("/info", middleware.RequirePlatformPermission(permissions.SystemRead), systemH.Info)
 		}
 
-		contentTypes := protected.Group("/content-types")
+		// Tenant-scoped activity and API tokens.
+		systemTenant := tenantProtected.Group("/system")
+		{
+			systemTenant.GET("/activity", middleware.RequirePermission(permissions.SystemActivityLog), systemH.ActivityLog)
+			systemTenant.GET("/tokens", middleware.RequirePermission(permissions.APITokensRead), tokenH.List)
+			systemTenant.POST("/tokens", middleware.RequirePermission(permissions.APITokensCreate), tokenH.Create)
+			systemTenant.DELETE("/tokens/:id", middleware.RequirePermission(permissions.APITokensDelete), tokenH.Delete)
+		}
+
+		contentTypes := tenantProtected.Group("/content-types")
 		{
 			contentTypes.GET("", middleware.RequirePermission(permissions.ContentTypesRead), contentTypeH.ListTypes)
 			contentTypes.GET("/:uid", middleware.RequirePermission(permissions.ContentTypesRead), contentTypeH.GetType)
@@ -433,7 +487,7 @@ func RegisterRoutes(
 		}
 
 		// Content Entries (dynamic).
-		content := protected.Group("/content")
+		content := tenantProtected.Group("/content")
 		{
 			content.GET("/:uid", middleware.RequirePermission(permissions.ContentRead), contentTypeH.ListEntries)
 			content.GET("/:uid/export", middleware.RequirePermission(permissions.ContentRead), contentTypeH.ExportEntries)
@@ -450,7 +504,7 @@ func RegisterRoutes(
 			content.POST("/:uid/:documentId/translations", middleware.RequirePermission(permissions.ContentCreate), contentTypeH.CreateEntryTranslation)
 		}
 
-		webhooks := protected.Group("/webhooks")
+		webhooks := tenantProtected.Group("/webhooks")
 		{
 			webhooks.GET("", middleware.RequirePermission(permissions.WebhooksRead), webhookH.List)
 			webhooks.POST("", middleware.RequirePermission(permissions.WebhooksCreate), webhookH.Create)
@@ -458,20 +512,34 @@ func RegisterRoutes(
 			webhooks.GET("/:id/logs", middleware.RequirePermission(permissions.WebhooksRead), webhookH.Logs)
 		}
 
-		// Search (admin: cross-status search + manual reindex).
-		searchAdmin := protected.Group("/search")
+		// Tenant-scoped cross-status search.
+		searchTenant := tenantProtected.Group("/search")
 		{
-			searchAdmin.GET("/admin", searchH.AdminSearch)
-			searchAdmin.POST("/reindex", middleware.RequireAdmin(), searchH.Reindex)
+			searchTenant.GET("/admin", middleware.RequirePermission(permissions.ArticlesUpdateAll), searchH.AdminSearch)
+		}
+		// Reindex currently rebuilds the platform-wide in-memory index.
+		searchPlatform := protected.Group("/search")
+		{
+			searchPlatform.POST("/reindex", middleware.RequirePlatformAdmin(), searchH.Reindex)
+		}
+
+		// AI / RAG (semantic search + Q&A + vector index management).
+		aiGroup := tenantProtected.Group("/ai")
+		aiGroup.Use(middleware.GroupRateLimit(rl, "ai"))
+		{
+			aiGroup.GET("/search", middleware.RequirePermission(permissions.AIRead), aiH.Search)
+			aiGroup.GET("/status", middleware.RequirePermission(permissions.AIRead), aiH.Status)
+			aiGroup.POST("/rag/ask", middleware.RequirePermission(permissions.AIAsk), aiH.Ask)
+			aiGroup.POST("/reindex", middleware.RequirePermission(permissions.AIAdmin), aiH.Reindex)
 		}
 
 		backupGroup := protected.Group("/admin/backup")
 		{
-			backupGroup.GET("", middleware.RequirePermission(permissions.BackupsRead), backupH.List)
-			backupGroup.POST("", middleware.RequirePermission(permissions.BackupsCreate), backupH.Create)
-			backupGroup.GET("/:file/download", middleware.RequirePermission(permissions.BackupsRead), backupH.Download)
-			backupGroup.POST("/:file/restore", middleware.RequirePermission(permissions.BackupsRestore), backupH.Restore)
-			backupGroup.DELETE("/:file", middleware.RequirePermission(permissions.BackupsDelete), backupH.Delete)
+			backupGroup.GET("", middleware.RequirePlatformPermission(permissions.BackupsRead), backupH.List)
+			backupGroup.POST("", middleware.RequirePlatformPermission(permissions.BackupsCreate), backupH.Create)
+			backupGroup.GET("/:file/download", middleware.RequirePlatformPermission(permissions.BackupsRead), backupH.Download)
+			backupGroup.POST("/:file/restore", middleware.RequirePlatformPermission(permissions.BackupsRestore), backupH.Restore)
+			backupGroup.DELETE("/:file", middleware.RequirePlatformPermission(permissions.BackupsDelete), backupH.Delete)
 		}
 	}
 

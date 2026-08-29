@@ -187,7 +187,9 @@ func ActivityLogger(db *gorm.DB) gin.HandlerFunc {
 		status := c.Writer.Status()
 		isMutation := method != http.MethodGet && method != http.MethodHead && method != http.MethodOptions
 		isDenied := status == http.StatusUnauthorized || status == http.StatusForbidden
-		if !isMutation && !isDenied {
+		isTenantOverride, _ := c.Get(ContextKeyTenantOverride)
+		overrideUsed, _ := isTenantOverride.(bool)
+		if !isMutation && !isDenied && !overrideUsed {
 			return
 		}
 
@@ -215,6 +217,10 @@ func ActivityLogger(db *gorm.DB) gin.HandlerFunc {
 				outcome = "denied"
 			}
 		}
+		if overrideUsed && status < 400 {
+			action = "tenant.override"
+			outcome = "success"
+		}
 
 		entityID := uint(0)
 		for _, key := range []string{"id", "article_id", "user_id", "role_id", "webhook_id"} {
@@ -236,6 +242,13 @@ func ActivityLogger(db *gorm.DB) gin.HandlerFunc {
 			Details:   string(details),
 			IP:        c.ClientIP(),
 			UserAgent: c.Request.UserAgent(),
+		}
+		// Scope the audit log to the resolved tenant when available.
+		if tenantID, ok := c.Get(ContextKeyTenant); ok {
+			if id, ok := tenantID.(uint); ok && id > 0 {
+				tid := id
+				log.TenantID = &tid
+			}
 		}
 		if err := db.Create(&log).Error; err != nil {
 			slog.Warn("request audit log write failed", "error", err, "action", action, "entity", log.Entity)

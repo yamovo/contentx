@@ -15,6 +15,7 @@ import (
 // middleware still records the same request with IP/UA for correlation.
 type AuditEvent struct {
 	UserID    *uint  // nil for anonymous events (e.g. failed login for unknown user)
+	TenantID  *uint  // nil for platform-level events (e.g. login, user management)
 	Action    string // e.g. "article.publish", "user.disable", "login.failed"
 	Entity    string // e.g. "article", "user", "role"
 	EntityID  uint   // 0 when not applicable
@@ -71,6 +72,7 @@ func (a *auditLogger) Log(event AuditEvent) {
 	}
 	log := &models.ActivityLog{
 		UserID:    event.UserID,
+		TenantID:  event.TenantID,
 		Action:    event.Action,
 		Entity:    event.Entity,
 		EntityID:  event.EntityID,

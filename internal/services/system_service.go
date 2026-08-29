@@ -17,6 +17,7 @@ type ActivityLogParams struct {
 	Entity   string
 	Action   string
 	UserID   string
+	TenantID uint
 }
 
 // ---------- PluginService ----------
@@ -206,6 +207,7 @@ func (s *SystemService) ActivityLog(params ActivityLogParams) ([]models.Activity
 		Entity:   params.Entity,
 		Action:   params.Action,
 		UserID:   params.UserID,
+		TenantID: params.TenantID,
 	})
 }
 

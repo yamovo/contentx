@@ -115,6 +115,9 @@ func AllModels() []interface{} {
 		&models.Webhook{},
 		&models.WebhookLog{},
 		&models.WebhookDelivery{},
+
+		// AI / RAG
+		&models.DocumentEmbedding{},
 	}
 }
 

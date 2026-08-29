@@ -39,9 +39,7 @@ func setupCoverageRouter(t *testing.T) (*gin.Engine, *gorm.DB, string) {
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
-	if err := database.AutoMigrate(db); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
+	prepareHandlerTestDB(t, db)
 	database.Seed(db)
 
 	cfg := &config.Config{}
@@ -1031,9 +1029,7 @@ func TestCoverage_RegisterRoutes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
-	if err := database.AutoMigrate(db); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
+	prepareHandlerTestDB(t, db)
 	database.Seed(db)
 
 	cfg := &config.Config{}
@@ -1059,6 +1055,7 @@ func TestCoverage_RegisterRoutes(t *testing.T) {
 	if rl == nil {
 		t.Fatal("RegisterRoutes returned nil rate limiter")
 	}
+	defer rl.Shutdown()
 
 	// 验证关键公开路由确实注册了：health 不需要鉴权
 	w := httptest.NewRecorder()
@@ -1082,5 +1079,53 @@ func TestCoverage_RegisterRoutes(t *testing.T) {
 	r.ServeHTTP(w, req)
 	if w.Code != http.StatusOK && w.Code != http.StatusInternalServerError {
 		t.Errorf("public settings: expected 200/500, got %d", w.Code)
+	}
+
+	// A tenant-admin membership must not turn the built-in global editor into a
+	// platform administrator. The same principal can access tenant content but
+	// is denied on deployment-wide user administration.
+	defaultTenant := models.Tenant{
+		BaseModel: models.BaseModel{ID: models.DefaultTenantID},
+		Name:      "Default",
+		Slug:      "default",
+		Status:    models.TenantStatusActive,
+	}
+	if err := db.FirstOrCreate(&defaultTenant, models.DefaultTenantID).Error; err != nil {
+		t.Fatalf("ensure default tenant: %v", err)
+	}
+	tenantAdmin := createTestUserDB(t, db, "route-tenant-admin", "editor")
+	if err := db.Create(&models.TenantMembership{
+		TenantID: models.DefaultTenantID,
+		UserID:   tenantAdmin.ID,
+		RoleSlug: models.TenantRoleAdmin,
+	}).Error; err != nil {
+		t.Fatalf("create tenant-admin membership: %v", err)
+	}
+	tenantPair, err := jwtMgr.GenerateTokenPairWithTenant(
+		tenantAdmin.ID,
+		models.DefaultTenantID,
+		tenantAdmin.Username,
+		tenantAdmin.Email,
+		"editor",
+		tenantAdmin.DisplayName,
+	)
+	if err != nil {
+		t.Fatalf("generate tenant-admin token: %v", err)
+	}
+
+	w = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/articles", nil)
+	req.Header.Set("Authorization", "Bearer "+tenantPair.AccessToken)
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("tenant admin should access tenant content, got %d: %s", w.Code, w.Body.String())
+	}
+
+	w = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/users", nil)
+	req.Header.Set("Authorization", "Bearer "+tenantPair.AccessToken)
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("tenant admin must not access platform users, got %d: %s", w.Code, w.Body.String())
 	}
 }

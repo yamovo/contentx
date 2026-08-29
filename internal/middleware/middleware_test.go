@@ -445,6 +445,32 @@ func TestActivityLogger_LogsPermissionDenialWithEntityID(t *testing.T) {
 	}
 }
 
+func TestActivityLogger_LogsSuccessfulTenantOverrideGET(t *testing.T) {
+	db := setupActivityTestDB(t)
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(ActivityLogger(db))
+	r.GET("/api/v1/articles", func(c *gin.Context) {
+		c.Set(ContextKeyUser, &models.User{BaseModel: models.BaseModel{ID: 7}})
+		c.Set(ContextKeyTenant, uint(42))
+		c.Set(ContextKeyTenantOverride, true)
+		c.Status(http.StatusOK)
+	})
+
+	doRequest(r, http.MethodGet, "/api/v1/articles", nil)
+
+	var log models.ActivityLog
+	if err := db.First(&log).Error; err != nil {
+		t.Fatalf("read tenant-override audit: %v", err)
+	}
+	if log.Action != "tenant.override" || log.UserID == nil || *log.UserID != 7 {
+		t.Fatalf("unexpected tenant-override audit: %+v", log)
+	}
+	if log.TenantID == nil || *log.TenantID != 42 {
+		t.Fatalf("tenant override audit tenant = %v, want 42", log.TenantID)
+	}
+}
+
 // ---------- Helpers ----------
 
 func TestJoinStrings(t *testing.T) {

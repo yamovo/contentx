@@ -34,9 +34,7 @@ func setupBackupRouter(t *testing.T) (*gin.Engine, *gorm.DB, string, string, *ba
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
-	if err := database.AutoMigrate(db); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
+	prepareHandlerTestDB(t, db)
 	database.Seed(db)
 
 	cfg := &config.Config{}

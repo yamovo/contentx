@@ -20,22 +20,23 @@ type BaseModel struct {
 // User represents a system user.
 type User struct {
 	BaseModel
-	Username    string          `gorm:"uniqueIndex;size:64;not null" json:"username" validate:"required,min=3,max=64"`
-	Email       string          `gorm:"uniqueIndex;size:255;not null" json:"email" validate:"required,email"`
-	Password    string          `gorm:"size:255;not null" json:"-"`
-	DisplayName string          `gorm:"size:128" json:"display_name"`
-	Avatar      string          `gorm:"size:512" json:"avatar"`
-	Bio         string          `gorm:"size:1000" json:"bio"`
-	Website     string          `gorm:"size:512" json:"website"`
-	Role        Role            `gorm:"foreignKey:RoleID" json:"role,omitempty"`
-	RoleID      uint            `gorm:"index;not null;default:1" json:"role_id"`
-	Status      UserStatus      `gorm:"size:20;not null;default:'active'" json:"status"`
-	LastLoginAt *time.Time      `json:"last_login_at"`
-	LastLoginIP string          `gorm:"size:45" json:"last_login_ip"`
-	LoginCount  int             `gorm:"default:0" json:"login_count"`
-	Preferences UserPreferences `gorm:"type:json" json:"preferences"`
-	Articles    []Article       `gorm:"foreignKey:AuthorID" json:"articles,omitempty"`
-	Comments    []Comment       `gorm:"foreignKey:UserID" json:"comments,omitempty"`
+	Username          string             `gorm:"uniqueIndex;size:64;not null" json:"username" validate:"required,min=3,max=64"`
+	Email             string             `gorm:"uniqueIndex;size:255;not null" json:"email" validate:"required,email"`
+	Password          string             `gorm:"size:255;not null" json:"-"`
+	DisplayName       string             `gorm:"size:128" json:"display_name"`
+	Avatar            string             `gorm:"size:512" json:"avatar"`
+	Bio               string             `gorm:"size:1000" json:"bio"`
+	Website           string             `gorm:"size:512" json:"website"`
+	Role              Role               `gorm:"foreignKey:RoleID" json:"role,omitempty"`
+	RoleID            uint               `gorm:"index;not null;default:1" json:"role_id"`
+	Status            UserStatus         `gorm:"size:20;not null;default:'active'" json:"status"`
+	LastLoginAt       *time.Time         `json:"last_login_at"`
+	LastLoginIP       string             `gorm:"size:45" json:"last_login_ip"`
+	LoginCount        int                `gorm:"default:0" json:"login_count"`
+	Preferences       UserPreferences    `gorm:"type:json" json:"preferences"`
+	Articles          []Article          `gorm:"foreignKey:AuthorID" json:"articles,omitempty"`
+	Comments          []Comment          `gorm:"foreignKey:UserID" json:"comments,omitempty"`
+	TenantMemberships []TenantMembership `gorm:"foreignKey:UserID" json:"tenant_memberships,omitempty"`
 }
 
 // UserStatus represents the status of a user account.
@@ -495,7 +496,7 @@ func (s *StringSlice) Scan(value interface{}) error {
 // APIToken represents a long-lived API token for external access.
 type APIToken struct {
 	ID          uint        `gorm:"primarykey" json:"id"`
-	TenantID    *uint       `gorm:"index" json:"-"` // NULL = creator's default tenant, RFC-001 §4.3
+	TenantID    *uint       `gorm:"index" json:"-"` // NULL is invalid at runtime; migration 011 binds legacy rows to default
 	Name        string      `gorm:"size:128;not null" json:"name"`
 	Token       string      `gorm:"size:255;uniqueIndex;not null" json:"-"`
 	Permissions StringSlice `gorm:"type:text" json:"permissions"`

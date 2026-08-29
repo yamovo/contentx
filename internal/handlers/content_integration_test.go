@@ -32,9 +32,7 @@ func setupContentTestRouter(t *testing.T) (*gin.Engine, *gorm.DB, *auth.JWTManag
 		t.Fatalf("open db: %v", err)
 	}
 	// db = db.Debug() // uncomment for debugging
-	if err := database.AutoMigrate(db); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
+	prepareHandlerTestDB(t, db)
 	database.Seed(db)
 
 	cfg := &config.Config{}
@@ -337,6 +335,57 @@ func TestContentEntry_CRUD_FullCycle(t *testing.T) {
 		t.Fatal("content type should be deleted")
 	}
 	t.Logf("full CRUD cycle passed for content type 'book'")
+}
+
+func TestContentEntry_CreatePublishedStatusRejected(t *testing.T) {
+	r, db, jwtMgr := setupContentTestRouter(t)
+	user := createTestUserDB(t, db, "content-publish-bypass-create", "admin")
+	token := generateTestJWT(t, jwtMgr, *user)
+
+	createCT(t, r, token, `{"uid":"release_note","name":"Release Note","draft_publish":true,"fields":[{"name":"title","label":"Title","field_type":"text","required":true}]}`)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/content/release_note", strings.NewReader(`{"data":{"title":"Hidden"},"status":"published"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422 for direct published creation, got %d: %s", w.Code, w.Body.String())
+	}
+	var count int64
+	if err := db.Model(&models.ContentEntry{}).Count(&count).Error; err != nil {
+		t.Fatalf("count entries: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("rejected published creation persisted %d entries", count)
+	}
+}
+
+func TestContentEntry_UpdateStatusRejected(t *testing.T) {
+	r, db, jwtMgr := setupContentTestRouter(t)
+	user := createTestUserDB(t, db, "content-publish-bypass-update", "admin")
+	token := generateTestJWT(t, jwtMgr, *user)
+
+	createCT(t, r, token, `{"uid":"case_study","name":"Case Study","draft_publish":true,"fields":[{"name":"title","label":"Title","field_type":"text","required":true}]}`)
+	documentID := createEntry(t, r, token, "case_study", `{"data":{"title":"Draft"}}`)
+
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/content/case_study/"+documentID, strings.NewReader(`{"status":"published"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422 for status transition through update, got %d: %s", w.Code, w.Body.String())
+	}
+	var entry models.ContentEntry
+	if err := db.Where("document_id = ?", documentID).First(&entry).Error; err != nil {
+		t.Fatalf("load entry: %v", err)
+	}
+	if entry.Status != models.EntryStatusDraft || entry.PublishedAt != nil {
+		t.Fatalf("rejected update changed publication state: status=%q published_at=%v", entry.Status, entry.PublishedAt)
+	}
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────

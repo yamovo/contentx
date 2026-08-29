@@ -18,11 +18,11 @@ func NewTokenHandler(svc *services.TokenService) *TokenHandler {
 	return &TokenHandler{svc: svc}
 }
 
-// List returns all API tokens.
+// List returns API tokens for the current tenant.
 // GET /api/v1/system/tokens
 //
 //	@Summary      List API tokens
-//	@Description  Returns all API tokens (admin only)
+//	@Description  Returns API tokens scoped to the current tenant
 //	@Tags         System
 //	@Produce      json
 //	@Security     BearerAuth
@@ -31,7 +31,7 @@ func NewTokenHandler(svc *services.TokenService) *TokenHandler {
 //	@Failure      403  {object}  APIResponse
 //	@Router       /system/tokens [get]
 func (h *TokenHandler) List(c *gin.Context) {
-	tokens, err := h.svc.List()
+	tokens, err := h.svc.List(getCurrentTenant(c))
 	if err != nil {
 		handleServiceError(c, err)
 		return
@@ -66,7 +66,7 @@ func (h *TokenHandler) Create(c *gin.Context) {
 		return
 	}
 
-	result, err := h.svc.Create(req, user.ID)
+	result, err := h.svc.Create(req, user.ID, getCurrentTenant(c))
 	if err != nil {
 		handleServiceError(c, err)
 		return
@@ -97,7 +97,7 @@ func (h *TokenHandler) Delete(c *gin.Context) {
 		return
 	}
 
-	if err := h.svc.Delete(uint(id)); err != nil {
+	if err := h.svc.Delete(uint(id), getCurrentTenant(c)); err != nil {
 		handleServiceError(c, err)
 		return
 	}

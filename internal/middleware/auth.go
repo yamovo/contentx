@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"container/list"
+	"errors"
 	"net/http"
 	"strconv"
 	"strings"
@@ -12,7 +13,16 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/yamovo/contentx/internal/auth"
 	"github.com/yamovo/contentx/internal/models"
+	"github.com/yamovo/contentx/internal/permissions"
 	"gorm.io/gorm"
+)
+
+var (
+	errTenantAccessDenied = errors.New("access denied to this tenant")
+	errTenantNotFound     = errors.New("tenant not found")
+	errTenantSuspended    = errors.New("tenant is suspended")
+	errTenantRoleInvalid  = errors.New("tenant membership role is invalid")
+	errTenantOverride     = errors.New("invalid tenant override")
 )
 
 const (
@@ -24,6 +34,14 @@ const (
 	// (RFC-001 §4.2). Always set by auth middlewares; falls back to the
 	// default tenant for anonymous/public requests via GetCurrentTenant.
 	ContextKeyTenant = "tenantId"
+	// ContextKeyTenantRole is the canonical role of the current tenant
+	// membership. It is empty only for a platform administrator accessing a
+	// tenant without a membership.
+	ContextKeyTenantRole = "tenantRole"
+	// ContextKeyTenantOverride records that a platform administrator selected
+	// the request tenant explicitly. ActivityLogger turns this into an audit
+	// event, including for otherwise read-only requests.
+	ContextKeyTenantOverride = "tenantOverride"
 	// TenantOverrideHeader lets platform admins switch tenants per request.
 	TenantOverrideHeader = "X-Tenant-ID"
 
@@ -163,9 +181,11 @@ func (c *userCache) putAtGeneration(user *models.User, generation uint64) {
 	}
 }
 
-// AuthMiddleware validates JWT tokens, checks revocation, and injects user into context.
+// AuthMiddleware validates access JWTs, checks revocation, reloads the current
+// user authorization state, and injects the authenticated principal. Tenant
+// access is deliberately handled by TenantGuard so self-service and
+// platform-scoped routes do not require a tenant membership.
 func AuthMiddleware(jwtMgr *auth.JWTManager, db *gorm.DB, store auth.TokenStore, invalidators ...*AuthUserCacheInvalidator) gin.HandlerFunc {
-	cache := newUserCache(authCacheSize, authCacheTTL, invalidators...)
 	return func(c *gin.Context) {
 		token := extractToken(c)
 		if token == "" {
@@ -181,33 +201,18 @@ func AuthMiddleware(jwtMgr *auth.JWTManager, db *gorm.DB, store auth.TokenStore,
 			return
 		}
 
-		claims, err := jwtMgr.ValidateToken(token)
+		claims, err := jwtMgr.ValidateAccessToken(token)
 		if err != nil {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid or expired token"})
 			c.Abort()
 			return
 		}
 
-		// Try the LRU cache first to avoid the DB round-trip on hot paths.
-		// Revocation is still enforced above on every request, and cached
-		// entries expire after authCacheTTL so status/role changes propagate.
-		cacheGeneration := cache.invalidator.current()
-		if user, ok := cache.getAtGeneration(claims.UserID, cacheGeneration); ok {
-			if !user.IsActive() {
-				c.JSON(http.StatusForbidden, gin.H{"error": "Account is disabled"})
-				c.Abort()
-				return
-			}
-			c.Set(ContextKeyUser, user)
-			c.Set(ContextKeyClaims, claims)
-			setTenantContext(c, user, claims)
-			c.Next()
-			return
-		}
-
-		// Cache miss: load user from database.
+		// Authorization state is security-sensitive. Reload it for every request
+		// so user disablement, role changes, and permission revocation take effect
+		// immediately rather than after the former 30-second cache window.
 		var user models.User
-		if err := db.Preload("Role").Preload("Role.Permissions").
+		if err := db.Preload("Role").Preload("Role.Permissions").Preload("TenantMemberships").
 			Where("id = ?", claims.UserID).First(&user).Error; err != nil {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "User not found"})
 			c.Abort()
@@ -220,18 +225,38 @@ func AuthMiddleware(jwtMgr *auth.JWTManager, db *gorm.DB, store auth.TokenStore,
 			return
 		}
 
-		cache.putAtGeneration(&user, cacheGeneration)
-
 		c.Set(ContextKeyUser, &user)
 		c.Set(ContextKeyClaims, claims)
-		setTenantContext(c, &user, claims)
+		c.Next()
+	}
+}
+
+// TenantGuard resolves and validates the current request tenant after
+// AuthMiddleware has established the user principal. It performs live tenant
+// and membership checks on every tenant-scoped request.
+func TenantGuard(db *gorm.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		userValue, userOK := c.Get(ContextKeyUser)
+		claimsValue, claimsOK := c.Get(ContextKeyClaims)
+		user, validUser := userValue.(*models.User)
+		claims, validClaims := claimsValue.(*auth.Claims)
+		if !userOK || !claimsOK || !validUser || !validClaims || user == nil || claims == nil {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Authentication required"})
+			c.Abort()
+			return
+		}
+
+		if err := setTenantContext(c, db, user, claims); err != nil {
+			c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+			c.Abort()
+			return
+		}
 		c.Next()
 	}
 }
 
 // OptionalAuthMiddleware tries to authenticate but doesn't block.
 func OptionalAuthMiddleware(jwtMgr *auth.JWTManager, db *gorm.DB, store auth.TokenStore, invalidators ...*AuthUserCacheInvalidator) gin.HandlerFunc {
-	cache := newUserCache(authCacheSize, authCacheTTL, invalidators...)
 	return func(c *gin.Context) {
 		token := extractToken(c)
 		if token == "" {
@@ -245,43 +270,41 @@ func OptionalAuthMiddleware(jwtMgr *auth.JWTManager, db *gorm.DB, store auth.Tok
 			return
 		}
 
-		claims, err := jwtMgr.ValidateToken(token)
+		claims, err := jwtMgr.ValidateAccessToken(token)
 		if err != nil {
 			c.Next()
 			return
 		}
 
-		// LRU cache fast path.
-		cacheGeneration := cache.invalidator.current()
-		if user, ok := cache.getAtGeneration(claims.UserID, cacheGeneration); ok {
-			if user.IsActive() {
-				c.Set(ContextKeyUser, user)
-				c.Set(ContextKeyClaims, claims)
-				setTenantContext(c, user, claims)
-			}
-			c.Next()
-			return
-		}
-
 		var user models.User
-		if err := db.Preload("Role").Preload("Role.Permissions").
+		if err := db.Preload("Role").Preload("Role.Permissions").Preload("TenantMemberships").
 			Where("id = ?", claims.UserID).First(&user).Error; err != nil {
 			c.Next()
 			return
 		}
 
 		if user.IsActive() {
-			cache.putAtGeneration(&user, cacheGeneration)
-			c.Set(ContextKeyUser, &user)
-			c.Set(ContextKeyClaims, claims)
-			setTenantContext(c, &user, claims)
+			if err := setTenantContext(c, db, &user, claims); err == nil {
+				c.Set(ContextKeyUser, &user)
+				c.Set(ContextKeyClaims, claims)
+			}
 		}
 		c.Next()
 	}
 }
 
-// RequirePermission checks if the authenticated user has a specific permission.
+// RequirePermission checks a tenant-scoped permission. It remains as a
+// compatibility alias while routes migrate to the explicit
+// RequireTenantPermission name.
 func RequirePermission(permissionSlug string) gin.HandlerFunc {
+	return RequireTenantPermission(permissionSlug)
+}
+
+// RequireTenantPermission requires both the user's current global role grant
+// and the current tenant membership role ceiling. Platform administrators may
+// act within any active tenant but never derive platform authority from a
+// tenant membership.
+func RequireTenantPermission(permissionSlug string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		user, ok := c.Get(ContextKeyUser)
 		if !ok {
@@ -296,9 +319,38 @@ func RequirePermission(permissionSlug string) gin.HandlerFunc {
 			c.Abort()
 			return
 		}
-		if !hasPermission(u, permissionSlug) {
+		if !HasTenantPermission(c, u, permissionSlug) {
 			c.JSON(http.StatusForbidden, gin.H{
 				"error":    "Insufficient permissions",
+				"required": permissionSlug,
+			})
+			c.Abort()
+			return
+		}
+		c.Next()
+	}
+}
+
+// RequirePlatformPermission protects deployment-wide resources. Tenant roles
+// are deliberately ignored and can never grant or amplify these permissions.
+func RequirePlatformPermission(permissionSlug string) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		user, ok := c.Get(ContextKeyUser)
+		if !ok {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Authentication required"})
+			c.Abort()
+			return
+		}
+
+		u, ok := user.(*models.User)
+		if !ok {
+			c.JSON(http.StatusForbidden, gin.H{"error": "Invalid user type"})
+			c.Abort()
+			return
+		}
+		if !permissions.IsPlatformPermission(permissionSlug) || !permissions.Has(u, permissionSlug) {
+			c.JSON(http.StatusForbidden, gin.H{
+				"error":    "Insufficient platform permissions",
 				"required": permissionSlug,
 			})
 			c.Abort()
@@ -341,6 +393,12 @@ func RequireAdmin() gin.HandlerFunc {
 	return RequireRole("admin")
 }
 
+// RequirePlatformAdmin is the explicit name for deployment-wide admin-only
+// routes. A tenant membership with role=admin never satisfies it.
+func RequirePlatformAdmin() gin.HandlerFunc {
+	return RequireRole("admin")
+}
+
 // RequireEditor checks for editor or admin role.
 func RequireEditor() gin.HandlerFunc {
 	return RequireRole("admin", "editor")
@@ -348,16 +406,20 @@ func RequireEditor() gin.HandlerFunc {
 
 // hasPermission checks if a user has a specific permission.
 func hasPermission(user *models.User, slug string) bool {
-	// Admins have all permissions.
-	if user.Role.Slug == "admin" {
+	return permissions.Has(user, slug)
+}
+
+// HasTenantPermission is the non-middleware form used by handlers that choose
+// a permission after parsing the request (for example, article bulk actions).
+func HasTenantPermission(c *gin.Context, user *models.User, permissionSlug string) bool {
+	if user == nil || !permissions.IsTenantPermission(permissionSlug) || !hasPermission(user, permissionSlug) {
+		return false
+	}
+	if user.IsAdmin() {
 		return true
 	}
-	for _, perm := range user.Role.Permissions {
-		if perm.Slug == slug {
-			return true
-		}
-	}
-	return false
+	role, ok := GetCurrentTenantRole(c)
+	return ok && permissions.TenantRoleGrants(role, permissionSlug)
 }
 
 // extractToken gets the JWT token from the Authorization header.
@@ -397,22 +459,85 @@ func GetCurrentTenant(c *gin.Context) uint {
 	return models.DefaultTenantID
 }
 
+// GetCurrentTenantRole returns the canonical role for the membership selected
+// by TenantGuard logic in AuthMiddleware. Platform administrators without a
+// membership intentionally have no tenant role.
+func GetCurrentTenantRole(c *gin.Context) (string, bool) {
+	role, ok := c.Get(ContextKeyTenantRole)
+	if !ok {
+		return "", false
+	}
+	slug, ok := role.(string)
+	return slug, ok && slug != ""
+}
+
 // setTenantContext resolves and stores the request tenant in the gin
-// context. Resolution order: X-Tenant-ID header (platform admins only) →
-// JWT claim TenantID → default tenant.
-func setTenantContext(c *gin.Context, user *models.User, claims *auth.Claims) {
+// context, validating membership and tenant status. Resolution order:
+// X-Tenant-ID header (platform admins only) → JWT claim TenantID → default
+// tenant. Returns an error if the user lacks membership or the tenant is
+// suspended.
+func setTenantContext(c *gin.Context, db *gorm.DB, user *models.User, claims *auth.Claims) error {
 	tenantID := models.DefaultTenantID
 	if claims != nil && claims.TenantID > 0 {
 		tenantID = claims.TenantID
 	}
-	if user != nil && user.Role.Slug == "admin" {
-		if v := c.GetHeader(TenantOverrideHeader); v != "" {
-			if id, err := strconv.ParseUint(v, 10, 64); err == nil && id > 0 {
-				tenantID = uint(id)
+	if override := strings.TrimSpace(c.GetHeader(TenantOverrideHeader)); override != "" {
+		if user == nil || !user.IsAdmin() {
+			return errTenantAccessDenied
+		}
+		id, err := strconv.ParseUint(override, 10, 64)
+		if err != nil || id == 0 {
+			return errTenantOverride
+		}
+		tenantID = uint(id)
+		c.Set(ContextKeyTenantOverride, true)
+	}
+
+	// Tenant existence and status are live authorization state, so validate on
+	// every request rather than trusting JWT claims or the short-lived user
+	// cache.
+	if db == nil {
+		return errTenantNotFound
+	}
+	var tenant models.Tenant
+	if err := db.Select("id", "status").Where("id = ?", tenantID).First(&tenant).Error; err != nil {
+		return errTenantNotFound
+	}
+	if tenant.Status != models.TenantStatusActive {
+		return errTenantSuspended
+	}
+
+	if user == nil {
+		return errTenantAccessDenied
+	}
+	if !user.IsAdmin() {
+		var membership models.TenantMembership
+		if err := db.Select("id", "role_slug").
+			Where("tenant_id = ? AND user_id = ?", tenantID, user.ID).
+			First(&membership).Error; err != nil {
+			return errTenantAccessDenied
+		}
+		role, ok := permissions.NormalizeTenantRole(membership.RoleSlug)
+		if !ok {
+			return errTenantRoleInvalid
+		}
+		c.Set(ContextKeyTenantRole, role)
+	} else {
+		// A platform admin may switch to any active tenant without a membership.
+		// When a membership exists, expose its normalized role for auditing only;
+		// tenant permission checks still use the explicit platform-admin branch.
+		var membership models.TenantMembership
+		if err := db.Select("role_slug").
+			Where("tenant_id = ? AND user_id = ?", tenantID, user.ID).
+			First(&membership).Error; err == nil {
+			if role, ok := permissions.NormalizeTenantRole(membership.RoleSlug); ok {
+				c.Set(ContextKeyTenantRole, role)
 			}
 		}
 	}
+
 	c.Set(ContextKeyTenant, tenantID)
+	return nil
 }
 
 // GetClaims retrieves the JWT claims from context.

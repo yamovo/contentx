@@ -34,7 +34,7 @@ func (m *MockSearchIndexer) Index(_ context.Context, doc SearchDocument) error {
 	return m.IndexErr
 }
 
-func (m *MockSearchIndexer) Delete(_ context.Context, id uint, docType string) error {
+func (m *MockSearchIndexer) Delete(_ context.Context, id uint, docType string, _ uint) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.DeletedIDs = append(m.DeletedIDs, id)
@@ -171,7 +171,7 @@ func TestBuiltinIndexer_Delete(t *testing.T) {
 		t.Fatalf("before delete: expected 1 hit, got %d", res.Total)
 	}
 
-	_ = idx.Delete(ctx, 1, "article")
+	_ = idx.Delete(ctx, 1, "article", 0)
 	res, _ = idx.Search(ctx, SearchQuery{Query: "temp", Status: "published"})
 	if res.Total != 0 {
 		t.Fatalf("after delete: expected 0 hits, got %d", res.Total)
@@ -517,7 +517,7 @@ func TestNoopIndexer(t *testing.T) {
 	if err := idx.Index(ctx, SearchDocument{}); err != nil {
 		t.Fatalf("Index: %v", err)
 	}
-	if err := idx.Delete(ctx, 1, "article"); err != nil {
+	if err := idx.Delete(ctx, 1, "article", 0); err != nil {
 		t.Fatalf("Delete: %v", err)
 	}
 	res, err := idx.Search(ctx, SearchQuery{Query: "test"})
@@ -726,5 +726,72 @@ func TestBuiltinIndexer_ConcurrentAccess(t *testing.T) {
 	res, _ := idx.Search(ctx, SearchQuery{Query: "concurrent", Status: "published"})
 	if res.Total != 20 {
 		t.Fatalf("after concurrent writes: expected 20 hits, got %d", res.Total)
+	}
+}
+
+// ---------- Tenant isolation tests ----------
+
+func TestBuiltinIndexer_TenantIsolation(t *testing.T) {
+	idx := NewBuiltinIndexer()
+	ctx := context.Background()
+
+	// Index the same article ID in two different tenants.
+	_ = idx.Index(ctx, SearchDocument{
+		ID: 1, TenantID: 1, Type: "article",
+		Title: "tenant one secret", Content: "confidential data for tenant 1",
+		Status: "published", Slug: "t1-secret",
+	})
+	_ = idx.Index(ctx, SearchDocument{
+		ID: 1, TenantID: 2, Type: "article",
+		Title: "tenant two public", Content: "public info for tenant 2",
+		Status: "published", Slug: "t2-public",
+	})
+
+	// Tenant 1 search should only see its own doc.
+	res, _ := idx.Search(ctx, SearchQuery{Query: "tenant", TenantID: 1, Status: "published"})
+	if res.Total != 1 {
+		t.Fatalf("tenant 1: expected 1 hit, got %d", res.Total)
+	}
+	if res.Hits[0].Slug != "t1-secret" {
+		t.Fatalf("tenant 1: expected slug 't1-secret', got '%s'", res.Hits[0].Slug)
+	}
+
+	// Tenant 2 search should only see its own doc.
+	res, _ = idx.Search(ctx, SearchQuery{Query: "tenant", TenantID: 2, Status: "published"})
+	if res.Total != 1 {
+		t.Fatalf("tenant 2: expected 1 hit, got %d", res.Total)
+	}
+	if res.Hits[0].Slug != "t2-public" {
+		t.Fatalf("tenant 2: expected slug 't2-public', got '%s'", res.Hits[0].Slug)
+	}
+
+	// No tenant filter (TenantID=0) should see both.
+	res, _ = idx.Search(ctx, SearchQuery{Query: "tenant", Status: "published"})
+	if res.Total != 2 {
+		t.Fatalf("no tenant filter: expected 2 hits, got %d", res.Total)
+	}
+}
+
+func TestBuiltinIndexer_DeleteTenantScoped(t *testing.T) {
+	idx := NewBuiltinIndexer()
+	ctx := context.Background()
+
+	// Same article ID in two tenants.
+	_ = idx.Index(ctx, SearchDocument{ID: 5, TenantID: 1, Type: "article", Title: "shared id tenant 1", Content: "data", Status: "published"})
+	_ = idx.Index(ctx, SearchDocument{ID: 5, TenantID: 2, Type: "article", Title: "shared id tenant 2", Content: "data", Status: "published"})
+
+	// Delete from tenant 1 only.
+	_ = idx.Delete(ctx, 5, "article", 1)
+
+	// Tenant 1 should have 0 hits.
+	res, _ := idx.Search(ctx, SearchQuery{Query: "data", TenantID: 1, Status: "published"})
+	if res.Total != 0 {
+		t.Fatalf("tenant 1 after delete: expected 0 hits, got %d", res.Total)
+	}
+
+	// Tenant 2 should still have 1 hit.
+	res, _ = idx.Search(ctx, SearchQuery{Query: "data", TenantID: 2, Status: "published"})
+	if res.Total != 1 {
+		t.Fatalf("tenant 2 after delete: expected 1 hit, got %d", res.Total)
 	}
 }

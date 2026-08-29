@@ -30,6 +30,17 @@ type TokenCreatedResponse struct {
 	CreatedAt   time.Time  `json:"created_at"`
 }
 
+// TokenPrincipal is the fully revalidated identity carried by a long-lived API
+// token. Permissions are the effective intersection of the stored token grants,
+// the creator's current global role, and the current tenant membership role.
+type TokenPrincipal struct {
+	TokenID         uint
+	UserID          uint
+	TenantID        uint
+	Permissions     []string
+	IsPlatformAdmin bool
+}
+
 // TokenService manages API tokens.
 type TokenService struct {
 	repo repository.TokenRepository
@@ -48,9 +59,12 @@ func NewTokenServiceWithRepo(repo repository.TokenRepository) *TokenService {
 	return &TokenService{repo: repo}
 }
 
-// List returns all API tokens (without the secret).
-func (s *TokenService) List() ([]models.APIToken, error) {
-	tokens, err := s.repo.List()
+// List returns API tokens for one tenant (without the secret).
+func (s *TokenService) List(tenantID uint) ([]models.APIToken, error) {
+	if tenantID == 0 {
+		return nil, errs.ErrBadRequest.WithMessage("tenant is required")
+	}
+	tokens, err := s.repo.List(tenantID)
 	if err != nil {
 		return nil, err
 	}
@@ -61,8 +75,11 @@ func (s *TokenService) List() ([]models.APIToken, error) {
 	return tokens, nil
 }
 
-// Create generates a new API token.
-func (s *TokenService) Create(req CreateTokenRequest, createdBy uint) (*TokenCreatedResponse, error) {
+// Create generates a new API token bound to the given tenant.
+func (s *TokenService) Create(req CreateTokenRequest, createdBy, tenantID uint) (*TokenCreatedResponse, error) {
+	if tenantID == 0 {
+		return nil, errs.ErrBadRequest.WithMessage("tenant is required")
+	}
 	canonicalPermissions, valid := permissions.CanonicalizeList(req.Permissions)
 	if !valid {
 		return nil, errs.ErrBadRequest.WithMessage("permissions contain an unknown slug")
@@ -91,6 +108,7 @@ func (s *TokenService) Create(req CreateTokenRequest, createdBy uint) (*TokenCre
 		Permissions: models.StringSlice(canonicalPermissions),
 		ExpiresAt:   expiresAt,
 		CreatedByID: createdBy,
+		TenantID:    &tenantID,
 		IsActive:    true,
 	}
 
@@ -108,9 +126,12 @@ func (s *TokenService) Create(req CreateTokenRequest, createdBy uint) (*TokenCre
 	}, nil
 }
 
-// Delete removes an API token by ID.
-func (s *TokenService) Delete(id uint) error {
-	rowsAffected, err := s.repo.Delete(id)
+// Delete removes an API token by ID within one tenant.
+func (s *TokenService) Delete(id, tenantID uint) error {
+	if tenantID == 0 {
+		return errs.ErrBadRequest.WithMessage("tenant is required")
+	}
+	rowsAffected, err := s.repo.Delete(id, tenantID)
 	if err != nil {
 		return err
 	}
@@ -120,41 +141,61 @@ func (s *TokenService) Delete(id uint) error {
 	return nil
 }
 
-// Resolve returns the active, non-expired API token for the given raw token
-// string, updating its last-used timestamp. Callers that need the token's full
-// permission set and owner (e.g. the MCP HTTP write tools) use this directly.
-func (s *TokenService) Resolve(tokenStr string) (*models.APIToken, error) {
-	token, err := s.repo.FindActiveByToken(tokenStr)
+// Resolve returns a fully revalidated principal for an active, non-expired API
+// token. Every call reloads the creator, global role permissions, tenant, and
+// tenant membership so disabling any of them immediately revokes access.
+func (s *TokenService) Resolve(tokenStr string) (*TokenPrincipal, error) {
+	record, err := s.repo.FindPrincipalByToken(tokenStr)
 	if err != nil {
 		return nil, errors.New("invalid token")
 	}
+	if record == nil || record.Token.TenantID == nil || *record.Token.TenantID == 0 {
+		return nil, errors.New("invalid token principal")
+	}
 
 	// Check expiry.
-	if token.ExpiresAt != nil && token.ExpiresAt.Before(time.Now()) {
+	if record.Token.ExpiresAt != nil && record.Token.ExpiresAt.Before(time.Now()) {
 		return nil, errors.New("token expired")
+	}
+	if !record.User.IsActive() || record.Tenant.Status != models.TenantStatusActive || record.Membership == nil {
+		return nil, errors.New("invalid token principal")
+	}
+
+	effective, valid := permissions.EffectiveForTenant(
+		&record.User,
+		[]string(record.Token.Permissions),
+		record.Membership.RoleSlug,
+	)
+	if !valid {
+		return nil, errors.New("invalid token permissions")
 	}
 
 	// Update last used (best-effort; ignore error).
-	_ = s.repo.UpdateUsage(token.ID, time.Now())
-	canonical, _ := permissions.CanonicalizeList([]string(token.Permissions))
-	token.Permissions = models.StringSlice(canonical)
-	return token, nil
+	_ = s.repo.UpdateUsage(record.Token.ID, time.Now())
+	return &TokenPrincipal{
+		TokenID:         record.Token.ID,
+		UserID:          record.User.ID,
+		TenantID:        *record.Token.TenantID,
+		Permissions:     effective,
+		IsPlatformAdmin: record.User.Role.Slug == "admin",
+	}, nil
 }
 
 // Validate checks if a token string is valid and has the required permission.
 func (s *TokenService) Validate(tokenStr string, requiredPerm string) (bool, uint, error) {
-	token, err := s.Resolve(tokenStr)
+	principal, err := s.Resolve(tokenStr)
 	if err != nil {
 		return false, 0, err
 	}
 
-	// Check permission (empty = full access).
+	// An empty requirement checks authentication only; an empty token grant set
+	// still carries no action permissions.
 	if requiredPerm == "" {
-		return true, token.CreatedByID, nil
+		return true, principal.UserID, nil
 	}
-	if permissions.Grants([]string(token.Permissions), requiredPerm) {
-		return true, token.CreatedByID, nil
+	if permissions.Grants(principal.Permissions, requiredPerm) {
+		return true, principal.UserID, nil
 	}
 
-	return false, token.CreatedByID, errors.New("insufficient token permissions")
+	return false, principal.UserID, errors.New("insufficient token permissions")
 }

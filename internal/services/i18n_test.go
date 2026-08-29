@@ -259,7 +259,7 @@ func TestContentTypeService_CreateEntry_DefaultLocale(t *testing.T) {
 
 	entry, err := svc.CreateEntry("products", CreateEntryRequest{
 		Data: map[string]interface{}{"name": "Widget"},
-	}, user.ID)
+	}, 1, user.ID)
 	if err != nil {
 		t.Fatalf("CreateEntry: %v", err)
 	}
@@ -278,7 +278,7 @@ func TestContentTypeService_CreateEntry_ExplicitLocale(t *testing.T) {
 	entry, err := svc.CreateEntry("products", CreateEntryRequest{
 		Data:   map[string]interface{}{"name": "商品"},
 		Locale: "zh",
-	}, user.ID)
+	}, 1, user.ID)
 	if err != nil {
 		t.Fatalf("CreateEntry: %v", err)
 	}
@@ -294,12 +294,12 @@ func TestContentTypeService_ListEntries_FilterByLocale(t *testing.T) {
 
 	seedContentType(t, svc, "products", "Product")
 
-	svc.CreateEntry("products", CreateEntryRequest{Data: map[string]interface{}{"name": "A"}, Locale: "en"}, user.ID)
-	svc.CreateEntry("products", CreateEntryRequest{Data: map[string]interface{}{"name": "甲"}, Locale: "zh"}, user.ID)
-	svc.CreateEntry("products", CreateEntryRequest{Data: map[string]interface{}{"name": "乙"}, Locale: "zh"}, user.ID)
+	svc.CreateEntry("products", CreateEntryRequest{Data: map[string]interface{}{"name": "A"}, Locale: "en"}, 1, user.ID)
+	svc.CreateEntry("products", CreateEntryRequest{Data: map[string]interface{}{"name": "甲"}, Locale: "zh"}, 1, user.ID)
+	svc.CreateEntry("products", CreateEntryRequest{Data: map[string]interface{}{"name": "乙"}, Locale: "zh"}, 1, user.ID)
 
 	// All — 3.
-	respAny, err := svc.ListEntries("products", ListEntriesParams{Page: 1, PageSize: 50})
+	respAny, err := svc.ListEntries("products", ListEntriesParams{Page: 1, PageSize: 50}, 1)
 	if err != nil {
 		t.Fatalf("ListEntries all: %v", err)
 	}
@@ -309,7 +309,7 @@ func TestContentTypeService_ListEntries_FilterByLocale(t *testing.T) {
 	}
 
 	// zh — 2.
-	respAny, err = svc.ListEntries("products", ListEntriesParams{Page: 1, PageSize: 50, Locale: "zh"})
+	respAny, err = svc.ListEntries("products", ListEntriesParams{Page: 1, PageSize: 50, Locale: "zh"}, 1)
 	if err != nil {
 		t.Fatalf("ListEntries zh: %v", err)
 	}
@@ -329,14 +329,14 @@ func TestContentTypeService_CreateEntryTranslation_Success(t *testing.T) {
 	source, err := svc.CreateEntry("products", CreateEntryRequest{
 		Data:   map[string]interface{}{"name": "Widget", "price": float64(10)},
 		Locale: "en",
-	}, user.ID)
+	}, 1, user.ID)
 	if err != nil {
 		t.Fatalf("CreateEntry source: %v", err)
 	}
 
 	translated, err := svc.CreateEntryTranslation("products", source.DocumentID, "zh", CreateEntryRequest{
 		Data: map[string]interface{}{"name": "小工具"}, // override name, inherit price
-	}, user.ID)
+	}, 1, user.ID)
 	if err != nil {
 		t.Fatalf("CreateEntryTranslation: %v", err)
 	}
@@ -359,6 +359,41 @@ func TestContentTypeService_CreateEntryTranslation_Success(t *testing.T) {
 	}
 }
 
+func TestContentTypeService_CreateEntryTranslation_CannotPublishDirectly(t *testing.T) {
+	db := setupTestDB(t)
+	svc := NewContentTypeService(db)
+	user := createTestUser(t, db, "translationpublisher", "author")
+
+	if _, err := svc.CreateContentType(CreateContentTypeRequest{
+		UID: "translated_drafts", Name: "Translated Drafts", DraftPublish: true,
+		Fields: []CreateFieldRequest{{Name: "name", Label: "Name", FieldType: "text", Required: true}},
+	}, 1); err != nil {
+		t.Fatalf("create content type: %v", err)
+	}
+
+	source, err := svc.CreateEntry("translated_drafts", CreateEntryRequest{
+		Data: map[string]interface{}{"name": "Source"}, Locale: "en",
+	}, 1, user.ID)
+	if err != nil {
+		t.Fatalf("create source: %v", err)
+	}
+
+	_, err = svc.CreateEntryTranslation("translated_drafts", source.DocumentID, "zh", CreateEntryRequest{
+		Data: map[string]interface{}{"name": "翻译"}, Status: models.EntryStatusPublished,
+	}, 1, user.ID)
+	if err == nil {
+		t.Fatal("expected direct published translation to be rejected")
+	}
+
+	translations, listErr := svc.ListEntryTranslations("translated_drafts", source.DocumentID, 1)
+	if listErr != nil {
+		t.Fatalf("list translations: %v", listErr)
+	}
+	if len(translations) != 0 {
+		t.Fatalf("rejected translation was persisted: %#v", translations)
+	}
+}
+
 func TestContentTypeService_CreateEntryTranslation_DuplicateLocale(t *testing.T) {
 	db := setupTestDB(t)
 	svc := NewContentTypeService(db)
@@ -368,20 +403,20 @@ func TestContentTypeService_CreateEntryTranslation_DuplicateLocale(t *testing.T)
 
 	source, err := svc.CreateEntry("products", CreateEntryRequest{
 		Data: map[string]interface{}{"name": "X"},
-	}, user.ID)
+	}, 1, user.ID)
 	if err != nil {
 		t.Fatalf("CreateEntry source: %v", err)
 	}
 
 	if _, err := svc.CreateEntryTranslation("products", source.DocumentID, "zh", CreateEntryRequest{
 		Data: map[string]interface{}{"name": "甲"},
-	}, user.ID); err != nil {
+	}, 1, user.ID); err != nil {
 		t.Fatalf("first zh translation: %v", err)
 	}
 
 	_, err = svc.CreateEntryTranslation("products", source.DocumentID, "zh", CreateEntryRequest{
 		Data: map[string]interface{}{"name": "乙"},
-	}, user.ID)
+	}, 1, user.ID)
 	if err == nil {
 		t.Fatal("expected error for duplicate locale")
 	}
@@ -396,18 +431,18 @@ func TestContentTypeService_ListEntryTranslations(t *testing.T) {
 
 	source, err := svc.CreateEntry("products", CreateEntryRequest{
 		Data: map[string]interface{}{"name": "X"},
-	}, user.ID)
+	}, 1, user.ID)
 	if err != nil {
 		t.Fatalf("CreateEntry source: %v", err)
 	}
 	svc.CreateEntryTranslation("products", source.DocumentID, "zh", CreateEntryRequest{
 		Data: map[string]interface{}{"name": "甲"},
-	}, user.ID)
+	}, 1, user.ID)
 	svc.CreateEntryTranslation("products", source.DocumentID, "ja", CreateEntryRequest{
 		Data: map[string]interface{}{"name": "X-ja"},
-	}, user.ID)
+	}, 1, user.ID)
 
-	translations, err := svc.ListEntryTranslations("products", source.DocumentID)
+	translations, err := svc.ListEntryTranslations("products", source.DocumentID, 1)
 	if err != nil {
 		t.Fatalf("ListEntryTranslations: %v", err)
 	}
@@ -422,7 +457,7 @@ func TestContentTypeService_ListEntryTranslations_NotFound(t *testing.T) {
 
 	seedContentType(t, svc, "products", "Product")
 
-	_, err := svc.ListEntryTranslations("products", "nonexistent-doc-id")
+	_, err := svc.ListEntryTranslations("products", "nonexistent-doc-id", 1)
 	if err == nil {
 		t.Fatal("expected error for missing entry")
 	}
@@ -439,7 +474,7 @@ func seedContentType(t *testing.T, svc *ContentTypeService, uid, name string) {
 			{Name: "name", Label: "Name", FieldType: "text", Required: true},
 			{Name: "price", Label: "Price", FieldType: "float"},
 		},
-	}); err != nil {
+	}, 1); err != nil {
 		t.Fatalf("seedContentType %s: %v", uid, err)
 	}
 }

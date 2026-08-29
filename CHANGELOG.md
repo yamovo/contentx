@@ -5,6 +5,76 @@
 
 ## [Unreleased]
 
+### Changed — MCP 主体再验证与 RAG 工具治理
+
+- **HTTP 主体实时再验证**：MCP 每次工具/资源调用都通过 Authorizer 按请求头重新解析当前 API Token，并与会话建立时的主体比对；UserID 或 TenantID 不一致、权限撤销、用户或租户停用都会即时拒绝
+- **按请求构建服务器**：Streamable HTTP 传输改为 per-request stateless server，有状态会话不再保留过期主体上下文；`MCP_INCLUDE_DRAFTS` 仅限本地 stdio，强制不会泄漏到网络传输
+- **完整 principal 注入**：`mcpTokenAuth` 改用 `TokenService.Resolve` 返回的 TokenPrincipal（含租户绑定与 token 授权/全局角色/租户成员资格的有效权限交集），UserID 或 TenantID 为零一律 401 fail closed
+- **资源发现权限门控**：`resources/list` 与 `resources/templates/list` 通过 SDK 中间件分别要求 `content-types:read` / `articles:read`，资源内容按租户过滤
+- **RAG 工具门控**：`rag_search` 与 `rag_ask` 分别要求 `ai.read` / `ai.ask`，检索按调用时租户上下文分区；`SearchDocument`/`SearchQuery` 增加 TenantID，索引删除签名带租户
+- **AI 配置收口**：`AIConfig` 正式进入 config 与 `.env.example`、`deploy/docker/.env.example`（`AI_ENABLED=false` 默认）；Swagger 重新生成补齐 `/ai/search`、`/ai/rag/ask`、`/ai/reindex`、`/ai/status`，消除 CI drift
+- **测试覆盖**：新增 MCP token 租户绑定、Authorizer 有效主体、HTTP 读权限与 drafts fail closed、RAG 权限、资源租户隔离回归；Go 全量 21 包与前端 type-check/lint/189 单测通过
+
+### Documentation — 产品路线与语言边界
+
+- 将产品价值从“Go + MCP”的技术组合收敛为自托管内容控制、语言中立契约和受治理的 Agent 变更路径；Go 记录为当前服务端实现，不再单独作为市场壁垒
+- 新增 ADR-001，对保留 Go、Go 核心加语言中立扩展、混合架构和重写进行可逆决策；在取得用户和维护成本证据前不启动整库重写
+- 新增 RFC-002，定义默认关闭、显式 allowlist、published-only 的动态内容公开 REST 契约及安全测试矩阵
+- 新增 RESEARCH-001，以 Strapi、Payload、Directus 和 OpenTelemetry 官方资料核对 MCP、审计与日志方向；将审计关联和高风险可靠写入前移到 Agent 黄金路径之前
+- 路线顺序调整为语言/扩展边界 → Headless CMS 本体 → 生产信任 → Agent 黄金路径 → 日志审计 → 开发者采用 → 市场验证；既有多租户、RAG、Release 和 SDK 阻断项继续并行收口
+
+### Fixed — 动态内容发布授权边界
+
+- 启用草稿发布的 ContentType 创建和导入条目时强制保持 draft；直接提交 published 或非法状态会被拒绝，关闭草稿发布的类型仍按类型策略自动发布
+- ContentEntry 更新不再接受 status 迁移；发布只允许通过独立 PublishEntry 流程，且发布前按当前 schema 重新校验完整数据，取消发布会清空 `published_at`
+- 导入数据不再信任外部 ID、tenant、actor、状态和时间字段；翻译创建复制数据而不修改源条目，并遵循相同初始状态策略
+- 前端创建/更新请求类型移除 status，Swagger 同步更新；Service 与 Handler 新增直接发布拒绝、导入强制草稿、翻译拒绝与取消发布回归
+
+### Changed — 多租户 P0 安全收口（进行中）
+
+- **租户上下文基础**：JWT、API Token 和 MCP 已能传递 tenantID；非管理员 JWT 请求会检查 TenantMembership，管理员可通过 `X-Tenant-ID` 切换租户
+- **已关闭的具体链路**：WebhookDelivery/WebhookLog 已按自身 TenantID 写入和查询，文章初始 Revision 及后续修订查询已带租户范围
+- **GraphQL 租户上下文**：resolver 从 context 解析 tenantID，schema 增加租户感知字段；完整 GraphQL tenant A/B 攻击测试仍待补齐
+- **隔离测试基础**：14 个 `TestTenantIsolation_*` 已覆盖主要 Service/Repository 路径，但尚不代表 REST、GraphQL、MCP 和身份刷新链全部闭环
+- **剩余阻断项**：刷新令牌租户保持、评论父子归属和平台审计日志边界仍待修复；API Token/MCP principal 再验证已在本轮"MCP 主体再验证与 RAG 工具治理"中闭环
+
+### Fixed — Settings 租户覆盖与交付链
+
+- **Settings 覆盖语义**：租户更新不再写穿全局默认值；Get/List/Public 合并全局与租户配置时优先租户覆盖，并阻止私有覆盖回退暴露公开全局值
+- **Settings 原子性与唯一性**：批量更新在单一事务中提交且仅在 commit 后审计；迁移 012 通过 PostgreSQL/SQLite partial unique index 与 MySQL generated scope 封堵 NULL 全局键重复，009 Down 在丢失租户范围或 MySQL 非事务 DDL 下 fail closed
+- **Settings 真实数据库验证**：PostgreSQL 16 与 MySQL 8.4 完成 001–012 迁移、全局/租户唯一性、Get/List/Update 和故障约束下整批回滚；同时修复 MySQL 保留字 `key` 的方言引用
+- **测试 schema 一致性**：handler 的 SQLite `AutoMigrate` fixture 应用生产租户索引并固定单连接，避免旧索引与内存库多连接造成假失败
+- **Go 全量回归**：改后 `go test ./... -count=1` 通过，无失败包或失败测试
+- **Release 独立包**：移除无法使用 SQLite 的 CGO-off 多平台伪发布，收窄为 Ubuntu 22.04 原生 CGO 的 Linux amd64 包，携带 `web/dist` 并在解压后执行迁移、健康检查、首页和静态资源 smoke；新增只验证不发布的安全手动 dispatch，远程 Ubuntu workflow 仍待运行
+
+### Changed — TypeScript SDK 与前端门禁
+
+- **SDK 响应契约**：按后端 `{code,message,data,err_code}` 解包，补齐 HTTP/应用错误、空响应和裸 health 处理，修正业务返回类型并导出 `ContentXError`
+- **SDK 租户与发布工程**：配置、动态 set/clear 与上传请求均支持 `X-Tenant-ID`；新增 v3 lockfile、8 项单测、TypeScript 原生 ESM/CJS 构建、示例、README 与 pack 验证，并在 CI 中执行 `npm ci/check/pack`
+- **前端与数据库 CI**：修正登录页品牌副标题的过期 E2E 断言；workflow 加入 ESLint、Playwright Chromium 35 项 E2E、SDK 门禁及 PostgreSQL 16/MySQL 8.4 Settings 集成测试
+
+### Changed — RAG 最小安全闭环（进行中）
+
+- **多 chunk 主逻辑修复**：`memoryVectorStore.removeLocked` 会删除文档全部分片，`Upsert` 使用 seen map 避免同一批次反复清理；同文档缩短更新和完整生命周期回归测试仍待补齐
+- **已发布内容主路径**：`IndexArticle` 拒绝非 published 内容，普通发布、下架、删除和批量操作已接入 RAG 同步；WarmUp/Reindex 孤儿清理、定时发布和失败补偿尚未闭环
+- **租户级 Reindex 原型**：后台任务脱离请求 context 并按当前 tenantID 查询，但当前仍是增量覆盖，缺少清理式重建、超时、状态、进度和结果审计
+- **检索阈值**：新增 `AI_MIN_SCORE` 并传入向量检索；默认值仍为 `0.0`，无结果语义和模型/维度切换验证尚未完成
+- **REST AI 治理基础**：新增 `ai.read`、`ai.ask`、`ai.admin` 权限、独立 IP 限流组和 Search/Ask/Reindex 审计
+- **尚未统一的安全边界**：`AI_ALLOW_OUTBOUND=false` 当前只拦截 REST Ask；外部 Embedding、Reindex 和 MCP RAG 的外发拦截尚未统一，租户/Token 限流、审计及成本控制仍待收口
+- **MCP RAG 门控**：`rag_search` 和 `rag_ask` 已受 tenantID 分区约束并分别要求 `ai.read`/`ai.ask` 权限（见"MCP 主体再验证与 RAG 工具治理"）；在生产验收完成前保持 `AI_ENABLED=false`、`MCP_HTTP_ENABLED=false`
+
+### Documentation — 产品定位统一
+
+- 将统一定位确立为"ContentX：一个用 Go 构建、面向开发者和 AI Agent 的自托管 Headless CMS"
+- 新增产品定位文档，明确 Go、自托管、开发者接口、受控 Agent 操作和安全边界等差异化价值，并给出竞品选型与文案规则
+- 同步 README、PRD、路线图、文档中心、官网和应用入口；移除官网原有的演示品牌、虚构客户与虚构业绩文案
+
+### Documentation — 同步在研状态与安全边界
+
+- `.env.example` 新增 AI/RAG 环境变量段（`AI_ENABLED`、`AI_EMBEDDING_*`、`AI_LLM_*`、`AI_VECTOR_STORE`、`AI_MIN_SCORE`、`AI_ALLOW_OUTBOUND`、`AI_RATE_LIMIT` 等）
+- STATUS 将多租户 P0 与 RAG 标记为进行中，区分可运行原型与生产交付，并记录当前测试盲区和发布阻断项
+- ROADMAP 恢复未完成退出条件，按 TenantGuard、攻击测试、RAG 生命周期与治理、交付链的依赖顺序推进
+
 ## [1.4.0] - 2026-07-30
 
 v1.4.0 聚焦安全与稳定性收口、管理后台重构、MCP、Webhook 持久化投递、S3 正式 SDK、审计日志和文章更新乐观锁。PostgreSQL 16.14 恢复演练与核心加固提交为 `05de8f3`；审查后的恢复边界修复位于 `504d510`，已随[PR #1](https://github.com/yamovo/contentx/pull/1) 合并，随后完成版本整理并发布。

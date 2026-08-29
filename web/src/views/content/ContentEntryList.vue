@@ -387,7 +387,6 @@ async function saveEntry(data: Record<string, unknown>) {
     } else {
       await contentApi.createEntry(uid.value, {
         data,
-        status: contentType.value?.draft_publish ? 'draft' : undefined,
       })
       ElMessage.success('条目草稿已创建')
     }

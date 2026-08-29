@@ -27,7 +27,7 @@ func TestMockWebhook_Create_Success(t *testing.T) {
 
 	wh, err := svc.Create(CreateWebhookRequest{
 		Name: "test", URL: "https://example.com/hook", Events: []string{"article.created"},
-	})
+	}, 1)
 	if err != nil {
 		t.Fatalf("Create failed: %v", err)
 	}
@@ -45,7 +45,7 @@ func TestMockWebhook_Create_Error(t *testing.T) {
 
 	_, err := svc.Create(CreateWebhookRequest{
 		Name: "test", URL: "https://example.com/hook", Events: []string{"article.created"},
-	})
+	}, 1)
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -60,7 +60,7 @@ func TestMockWebhook_List_Success(t *testing.T) {
 	}
 	svc := NewWebhookServiceWithRepo(repo)
 
-	result, err := svc.List()
+	result, err := svc.List(1)
 	if err != nil {
 		t.Fatalf("List failed: %v", err)
 	}
@@ -75,7 +75,7 @@ func TestMockWebhook_Get_Success(t *testing.T) {
 	}
 	svc := NewWebhookServiceWithRepo(repo)
 
-	wh, err := svc.Get(1)
+	wh, err := svc.Get(1, 1)
 	if err != nil {
 		t.Fatalf("Get failed: %v", err)
 	}
@@ -88,7 +88,7 @@ func TestMockWebhook_Get_NotFound(t *testing.T) {
 	repo := &MockWebhookRepository{GetByIDErr: gorm.ErrRecordNotFound}
 	svc := NewWebhookServiceWithRepo(repo)
 
-	_, err := svc.Get(99)
+	_, err := svc.Get(99, 1)
 	if err == nil || err.Error() != "webhook not found" {
 		t.Errorf("expected 'webhook not found', got %v", err)
 	}
@@ -98,7 +98,7 @@ func TestMockWebhook_Delete_Success(t *testing.T) {
 	repo := &MockWebhookRepository{}
 	svc := NewWebhookServiceWithRepo(repo)
 
-	if err := svc.Delete(1); err != nil {
+	if err := svc.Delete(1, 1); err != nil {
 		t.Fatalf("Delete failed: %v", err)
 	}
 }
@@ -107,7 +107,7 @@ func TestMockWebhook_Delete_NotFound(t *testing.T) {
 	// zeroDeleteWebhookRepo returns 0 rows affected → service returns "webhook not found".
 	svc := NewWebhookServiceWithRepo(&zeroDeleteWebhookRepo{})
 
-	err := svc.Delete(99)
+	err := svc.Delete(99, 1)
 	if err == nil || err.Error() != "webhook not found" {
 		t.Errorf("expected 'webhook not found', got %v", err)
 	}
@@ -117,7 +117,7 @@ func TestMockWebhook_Delete_Error(t *testing.T) {
 	repo := &MockWebhookRepository{DeleteErr: gorm.ErrInvalidDB}
 	svc := NewWebhookServiceWithRepo(repo)
 
-	if err := svc.Delete(1); err == nil {
+	if err := svc.Delete(1, 1); err == nil {
 		t.Fatal("expected error")
 	}
 }
@@ -128,7 +128,7 @@ func TestMockWebhook_GetLogs_Success(t *testing.T) {
 	}
 	svc := NewWebhookServiceWithRepo(repo)
 
-	logs, err := svc.GetLogs(1, 50)
+	logs, err := svc.GetLogs(1, 50, 1)
 	if err != nil {
 		t.Fatalf("GetLogs failed: %v", err)
 	}
@@ -144,7 +144,7 @@ func TestMockWebhook_Dispatch_ListActiveError(t *testing.T) {
 	svc := NewWebhookServiceWithRepo(repo)
 
 	// Dispatch is fire-and-forget; should not panic, just log and return.
-	svc.Dispatch("article.created", map[string]string{"id": "1"})
+	svc.Dispatch("article.created", map[string]string{"id": "1"}, 1)
 
 	if repo.ListActiveCalls != 1 {
 		t.Errorf("expected 1 ListActive call, got %d", repo.ListActiveCalls)
@@ -155,7 +155,7 @@ func TestMockWebhook_Dispatch_NoActiveWebhooks(t *testing.T) {
 	repo := &MockWebhookRepository{ActiveWebhooks: nil}
 	svc := NewWebhookServiceWithRepo(repo)
 
-	svc.Dispatch("article.created", map[string]string{"id": "1"})
+	svc.Dispatch("article.created", map[string]string{"id": "1"}, 1)
 
 	if repo.ListActiveCalls != 1 {
 		t.Errorf("expected 1 ListActive call, got %d", repo.ListActiveCalls)
@@ -173,7 +173,7 @@ func TestMockWebhook_Dispatch_EventNotMatching(t *testing.T) {
 	}
 	svc := NewWebhookServiceWithRepo(repo)
 
-	svc.Dispatch("article.created", map[string]string{"id": "1"})
+	svc.Dispatch("article.created", map[string]string{"id": "1"}, 1)
 
 	// Dispatch is synchronous and only enqueues for matching events.
 	if len(repo.EnqueuedDeliveries) != 0 {
@@ -191,7 +191,7 @@ func TestMockWebhook_Dispatch_EnqueuesForMatchingWebhooks(t *testing.T) {
 	}
 	svc := NewWebhookServiceWithRepo(repo)
 
-	svc.Dispatch("article.created", map[string]string{"id": "1"})
+	svc.Dispatch("article.created", map[string]string{"id": "1"}, 1)
 
 	if len(repo.EnqueuedDeliveries) != 2 {
 		t.Fatalf("expected 2 enqueued deliveries (matching webhooks), got %d", len(repo.EnqueuedDeliveries))
@@ -234,17 +234,17 @@ func TestHmacSign(t *testing.T) {
 // zeroDeleteWebhookRepo is a minimal WebhookRepository whose Delete returns 0 rows affected.
 type zeroDeleteWebhookRepo struct{}
 
-func (z *zeroDeleteWebhookRepo) Create(_ *models.Webhook) error  { return nil }
-func (z *zeroDeleteWebhookRepo) List() ([]models.Webhook, error) { return nil, nil }
-func (z *zeroDeleteWebhookRepo) GetByID(_ uint) (*models.Webhook, error) {
+func (z *zeroDeleteWebhookRepo) Create(_ *models.Webhook) error        { return nil }
+func (z *zeroDeleteWebhookRepo) List(_ uint) ([]models.Webhook, error) { return nil, nil }
+func (z *zeroDeleteWebhookRepo) GetByID(_, _ uint) (*models.Webhook, error) {
 	return nil, gorm.ErrRecordNotFound
 }
-func (z *zeroDeleteWebhookRepo) Delete(_ uint) (int64, error) { return 0, nil }
-func (z *zeroDeleteWebhookRepo) ListLogs(_ uint, _ int) ([]models.WebhookLog, error) {
+func (z *zeroDeleteWebhookRepo) Delete(_, _ uint) (int64, error) { return 0, nil }
+func (z *zeroDeleteWebhookRepo) ListLogs(_ uint, _ int, _ uint) ([]models.WebhookLog, error) {
 	return nil, nil
 }
-func (z *zeroDeleteWebhookRepo) CreateLog(_ *models.WebhookLog) error  { return nil }
-func (z *zeroDeleteWebhookRepo) ListActive() ([]models.Webhook, error) { return nil, nil }
+func (z *zeroDeleteWebhookRepo) CreateLog(_ *models.WebhookLog) error        { return nil }
+func (z *zeroDeleteWebhookRepo) ListActive(_ uint) ([]models.Webhook, error) { return nil, nil }
 
 // Queue stubs (not exercised by this mock).
 func (z *zeroDeleteWebhookRepo) EnqueueDelivery(_ *models.WebhookDelivery) error {
@@ -256,5 +256,5 @@ func (z *zeroDeleteWebhookRepo) ClaimDueDeliveries(_ time.Time, _ int) ([]models
 func (z *zeroDeleteWebhookRepo) CompleteDelivery(_ uint, _ repository.DeliveryOutcome) error {
 	return nil
 }
-func (z *zeroDeleteWebhookRepo) RequeueStaleDeliveries() (int64, error) { return 0, nil }
-func (z *zeroDeleteWebhookRepo) CountPendingDeliveries() (int64, error) { return 0, nil }
+func (z *zeroDeleteWebhookRepo) RequeueStaleDeliveries() (int64, error)       { return 0, nil }
+func (z *zeroDeleteWebhookRepo) CountPendingDeliveries(_ uint) (int64, error) { return 0, nil }

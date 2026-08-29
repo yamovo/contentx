@@ -47,6 +47,9 @@ func TestGenerateAndValidateToken(t *testing.T) {
 	if refreshClaims.TokenUse != TokenUseRefresh || refreshClaims.ID == "" || refreshClaims.ID == claims.ID {
 		t.Fatalf("refresh token missing distinct token_use/JTI: %+v", refreshClaims)
 	}
+	if refreshClaims.UserID != claims.UserID || refreshClaims.Username != claims.Username || refreshClaims.RoleSlug != claims.RoleSlug {
+		t.Fatalf("refresh token identity claims mismatch: access=%+v refresh=%+v", claims, refreshClaims)
+	}
 }
 
 func TestValidateToken_Invalid(t *testing.T) {
@@ -92,6 +95,39 @@ func TestRefreshAccessToken(t *testing.T) {
 	}
 	if claims.UserID != 9 {
 		t.Fatalf("expected userID 9, got %d", claims.UserID)
+	}
+}
+
+func TestRefreshAccessToken_PreservesTenantID(t *testing.T) {
+	m := testJWTManager(time.Hour)
+	pair, err := m.GenerateTokenPairWithTenant(9, 42, "bob", "b@x.com", "editor", "Bob")
+	if err != nil {
+		t.Fatalf("GenerateTokenPairWithTenant: %v", err)
+	}
+
+	refreshClaims, err := m.ValidateRefreshToken(pair.RefreshToken)
+	if err != nil {
+		t.Fatalf("ValidateRefreshToken: %v", err)
+	}
+	if refreshClaims.TenantID != 42 {
+		t.Fatalf("refresh claims TenantID = %d, want 42", refreshClaims.TenantID)
+	}
+
+	newPair, err := m.RefreshAccessToken(pair.RefreshToken)
+	if err != nil {
+		t.Fatalf("RefreshAccessToken: %v", err)
+	}
+	for name, token := range map[string]string{
+		"access":  newPair.AccessToken,
+		"refresh": newPair.RefreshToken,
+	} {
+		claims, err := m.ValidateToken(token)
+		if err != nil {
+			t.Fatalf("ValidateToken(%s): %v", name, err)
+		}
+		if claims.TenantID != 42 {
+			t.Errorf("%s claims TenantID = %d, want 42", name, claims.TenantID)
+		}
 	}
 }
 
@@ -182,6 +218,13 @@ func TestGenerateTokenPairWithTenant_EmbedsTenantID(t *testing.T) {
 	}
 	if claims.TenantID != 42 {
 		t.Errorf("claims.TenantID = %d, want 42", claims.TenantID)
+	}
+	refreshClaims, err := m.ValidateRefreshToken(pair.RefreshToken)
+	if err != nil {
+		t.Fatalf("ValidateRefreshToken: %v", err)
+	}
+	if refreshClaims.TenantID != 42 {
+		t.Errorf("refresh claims.TenantID = %d, want 42", refreshClaims.TenantID)
 	}
 
 	// Legacy path stays at 0 (resolved to default tenant by middleware).

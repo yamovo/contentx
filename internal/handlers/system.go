@@ -300,6 +300,16 @@ func (h *SystemHandler) Health(c *gin.Context) {
 func (h *SystemHandler) ActivityLog(c *gin.Context) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "50"))
+	user := getCurrentUser(c)
+	if user == nil {
+		return
+	}
+	tenantID := getCurrentTenant(c)
+	if user.IsAdmin() {
+		// Platform administrators may inspect platform-level and all-tenant
+		// events. Every other caller is strictly limited to the current tenant.
+		tenantID = 0
+	}
 
 	params := services.ActivityLogParams{
 		Page:     page,
@@ -307,6 +317,7 @@ func (h *SystemHandler) ActivityLog(c *gin.Context) {
 		Entity:   c.Query("entity"),
 		Action:   c.Query("action"),
 		UserID:   c.Query("user_id"),
+		TenantID: tenantID,
 	}
 
 	logs, total, err := h.svc.ActivityLog(params)

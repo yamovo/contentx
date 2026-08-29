@@ -170,7 +170,7 @@ func (w *WebhookWorker) processDue() {
 func (w *WebhookWorker) processDelivery(d *models.WebhookDelivery) {
 	attempts := d.Attempts + 1
 
-	wh, err := w.repo.GetByID(d.WebhookID)
+	wh, err := w.repo.GetByID(d.WebhookID, d.TenantID)
 	if err != nil || wh == nil {
 		// Webhook deleted after enqueue: permanent failure. No log row —
 		// logs are cascade-deleted together with the webhook anyway.
@@ -314,6 +314,7 @@ func (w *WebhookWorker) complete(d *models.WebhookDelivery, outcome repository.D
 func (w *WebhookWorker) writeLog(d *models.WebhookDelivery, success bool, status int, errMsg string, retries, duration int) {
 	entry := models.WebhookLog{
 		WebhookID: d.WebhookID,
+		TenantID:  d.TenantID,
 		Event:     d.Event,
 		Payload:   d.Payload,
 		Response:  status,

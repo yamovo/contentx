@@ -1,7 +1,9 @@
 package services
 
 import (
+	"errors"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -179,24 +181,13 @@ func (s *SettingsService) Get(key string, tenantID uint) (*models.SiteSetting, e
 
 // Update upserts multiple settings at once within the tenant's scope.
 func (s *SettingsService) Update(settings map[string]interface{}, tenantID uint, actorIDs ...uint) error {
-	for key, value := range settings {
-		strValue := stringifyValue(value)
-		rowsAffected, err := s.repo.UpdateValue(key, strValue, tenantID)
-		if err != nil {
-			return err
-		}
-		if rowsAffected == 0 {
-			if err := s.repo.Create(&models.SiteSetting{
-				Key:   key,
-				Value: strValue,
-				Type:  detectType(value),
-				Group: "custom",
-			}); err != nil {
-				return err
-			}
-		}
+	if err := s.repo.WithTransaction(func(txRepo repository.SettingsRepository) error {
+		return updateSettingValues(txRepo, settings, tenantID)
+	}); err != nil {
+		return err
 	}
-	// Audit config changes with redacted values. Sensitive keys (e.g. those
+
+	// Audit only committed config changes. Sensitive keys (e.g. those
 	// containing secret/token/password/api_key) record only the key name.
 	redacted := make(map[string]any, len(settings))
 	for k, v := range settings {
@@ -206,10 +197,61 @@ func (s *SettingsService) Update(settings map[string]interface{}, tenantID uint,
 			redacted[k] = v
 		}
 	}
+	tenantIDVal := tenantID
 	s.audit.Log(AuditEvent{
-		UserID: auditActor(actorIDs), Action: "system.config_update", Entity: "system", EntityID: 0,
+		UserID: auditActor(actorIDs), TenantID: &tenantIDVal, Action: "system.config_update", Entity: "system", EntityID: 0,
 		Details: redacted,
 	})
+	return nil
+}
+
+func updateSettingValues(repo repository.SettingsRepository, settings map[string]interface{}, tenantID uint) error {
+	keys := make([]string, 0, len(settings))
+	for key := range settings {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+
+	for _, key := range keys {
+		value := settings[key]
+		strValue := stringifyValue(value)
+		rowsAffected, err := repo.UpdateValue(key, strValue, tenantID)
+		if err != nil {
+			return err
+		}
+		if rowsAffected == 0 {
+			existing, getErr := repo.Get(key, tenantID)
+			if getErr == nil && existing.TenantID != nil && *existing.TenantID == tenantID {
+				// Some databases report zero affected rows when the stored value is
+				// already identical. The exact tenant override already exists.
+				continue
+			}
+			if getErr != nil && !errors.Is(getErr, gorm.ErrRecordNotFound) {
+				return getErr
+			}
+
+			override := models.SiteSetting{
+				Key:      key,
+				Value:    strValue,
+				Type:     detectType(value),
+				Group:    "custom",
+				TenantID: &tenantID,
+			}
+			if getErr == nil {
+				// A tenant override of a global setting must retain its metadata so
+				// list/public APIs expose the overridden value in the same place.
+				override.Type = existing.Type
+				override.Group = existing.Group
+				override.Label = existing.Label
+				override.HelpText = existing.HelpText
+				override.SortOrder = existing.SortOrder
+				override.IsPublic = existing.IsPublic
+			}
+			if err := repo.UpsertTenantOverride(&override); err != nil {
+				return err
+			}
+		}
+	}
 	return nil
 }
 
@@ -541,10 +583,10 @@ func NewAnalyticsServiceWithRepo(repo repository.AnalyticsRepository) *Analytics
 }
 
 // Dashboard returns aggregate stats, recent articles/comments, and popular articles.
-func (s *AnalyticsService) Dashboard() (DashboardData, error) {
+func (s *AnalyticsService) Dashboard(tenantID uint) (DashboardData, error) {
 	var data DashboardData
 
-	stats, _ := s.repo.DashboardStats()
+	stats, _ := s.repo.DashboardStats(tenantID)
 	data.Stats = DashboardStats{
 		Articles:        stats.Articles,
 		Published:       stats.Published,
@@ -558,23 +600,23 @@ func (s *AnalyticsService) Dashboard() (DashboardData, error) {
 		TotalViews:      stats.TotalViews,
 	}
 
-	recentArticles, _ := s.repo.RecentArticles(5)
+	recentArticles, _ := s.repo.RecentArticles(5, tenantID)
 	data.RecentArticles = recentArticles
-	recentComments, _ := s.repo.RecentComments(5)
+	recentComments, _ := s.repo.RecentComments(5, tenantID)
 	data.RecentComments = recentComments
-	popularArticles, _ := s.repo.PopularArticles(5)
+	popularArticles, _ := s.repo.PopularArticles(5, tenantID)
 	data.PopularArticles = popularArticles
 
 	return data, nil
 }
 
 // ViewsOverTime returns per-day view counts for the last N days, with gaps filled.
-func (s *AnalyticsService) ViewsOverTime(days int) ([]DayStats, error) {
+func (s *AnalyticsService) ViewsOverTime(days int, tenantID uint) ([]DayStats, error) {
 	if days < 1 {
 		days = 30
 	}
 
-	results, err := s.repo.ViewsOverTime(days)
+	results, err := s.repo.ViewsOverTime(days, tenantID)
 	if err != nil {
 		return nil, err
 	}
@@ -588,8 +630,8 @@ func (s *AnalyticsService) ViewsOverTime(days int) ([]DayStats, error) {
 }
 
 // TopReferrers returns the top 10 referrers by hit count.
-func (s *AnalyticsService) TopReferrers() ([]Referrer, error) {
-	results, err := s.repo.TopReferrers(10)
+func (s *AnalyticsService) TopReferrers(tenantID uint) ([]Referrer, error) {
+	results, err := s.repo.TopReferrers(10, tenantID)
 	if err != nil {
 		return nil, err
 	}
@@ -601,8 +643,8 @@ func (s *AnalyticsService) TopReferrers() ([]Referrer, error) {
 }
 
 // DeviceBreakdown returns device, browser, and OS breakdowns.
-func (s *AnalyticsService) DeviceBreakdown() (DeviceBreakdownData, error) {
-	data, err := s.repo.DeviceBreakdown()
+func (s *AnalyticsService) DeviceBreakdown(tenantID uint) (DeviceBreakdownData, error) {
+	data, err := s.repo.DeviceBreakdown(tenantID)
 	if err != nil {
 		return DeviceBreakdownData{}, err
 	}
@@ -623,8 +665,9 @@ func (s *AnalyticsService) DeviceBreakdown() (DeviceBreakdownData, error) {
 }
 
 // RecordView inserts a new page view record.
-func (s *AnalyticsService) RecordView(req RecordViewRequest, clientIP, userAgent, referer, sessionID string) error {
+func (s *AnalyticsService) RecordView(req RecordViewRequest, tenantID uint, clientIP, userAgent, referer, sessionID string) error {
 	view := models.PageView{
+		TenantID:  &tenantID,
 		ArticleID: req.ArticleID,
 		Path:      req.Path,
 		Referrer:  referer,

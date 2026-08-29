@@ -467,7 +467,7 @@ func TestWebhookRepo_ClaimAndComplete(t *testing.T) {
 	}
 
 	// CountPendingDeliveries = the 1 rescheduled + the 1 not-yet-due = 2.
-	pending, err := repo.CountPendingDeliveries()
+	pending, err := repo.CountPendingDeliveries(1)
 	if err != nil || pending != 2 {
 		t.Errorf("pending count = %d, want 2 (err %v)", pending, err)
 	}

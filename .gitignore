@@ -8,11 +8,14 @@
 *.out
 /contentx
 /vortexcms
+/contentx_tfidf
 
 # Node
 node_modules/
 web/dist/
 web/.env.local
+# Vite dependency-prebundle temp manifest (regenerated on every dev run)
+web/vite.config.ts.timestamp-*.mjs
 
 # Playwright
 web/test-results/

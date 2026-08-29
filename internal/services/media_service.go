@@ -244,7 +244,7 @@ func (s *MediaService) Upload(file io.Reader, header *multipart.FileHeader, fold
 	}
 
 	if s.webhook != nil {
-		s.webhook.Dispatch(models.WebhookEventMediaCreate, &media)
+		s.webhook.Dispatch(models.WebhookEventMediaCreate, &media, tenantID)
 	}
 
 	return &media, nil
@@ -293,7 +293,7 @@ func (s *MediaService) Delete(id, tenantID, userID uint, isEditor bool) error {
 	}
 
 	if s.webhook != nil {
-		s.webhook.Dispatch(models.WebhookEventMediaDelete, media)
+		s.webhook.Dispatch(models.WebhookEventMediaDelete, media, tenantID)
 	}
 	return nil
 }

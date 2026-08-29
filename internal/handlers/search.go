@@ -60,6 +60,7 @@ func (h *SearchHandler) Search(c *gin.Context) {
 
 	query := services.SearchQuery{
 		Query:    q,
+		TenantID: getCurrentTenant(c),
 		Type:     c.Query("type"),
 		Status:   status,
 		Locale:   c.Query("locale"),
@@ -122,6 +123,7 @@ func (h *SearchHandler) AdminSearch(c *gin.Context) {
 	// Admin: status is optional; empty means "any".
 	query := services.SearchQuery{
 		Query:    q,
+		TenantID: getCurrentTenant(c),
 		Type:     c.Query("type"),
 		Status:   c.Query("status"),
 		Locale:   c.Query("locale"),

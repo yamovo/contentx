@@ -1,6 +1,8 @@
 package repository
 
 import (
+	"errors"
+
 	"github.com/yamovo/contentx/internal/models"
 	"gorm.io/gorm"
 )
@@ -28,7 +30,12 @@ type AuthRepository interface {
 	CreateActivityLog(log *models.ActivityLog) error
 
 	// Settings
-	FindSetting(key string) (*models.SiteSetting, error)
+	FindSetting(key string, tenantID uint) (*models.SiteSetting, error)
+
+	// Tenant / membership
+	FindTenantByID(id uint) (*models.Tenant, error)
+	CreateMembership(m *models.TenantMembership) error
+	FindUserMemberships(userID uint) ([]models.TenantMembership, error)
 }
 
 // gormAuthRepository implements AuthRepository with GORM.
@@ -61,7 +68,7 @@ func (r *gormAuthRepository) FindUserByIDWithRole(id uint) (*models.User, error)
 
 func (r *gormAuthRepository) FindUserByIDWithPermissions(id uint) (*models.User, error) {
 	var user models.User
-	if err := r.db.Preload("Role").Preload("Role.Permissions").First(&user, id).Error; err != nil {
+	if err := r.db.Preload("Role").Preload("Role.Permissions").Preload("TenantMemberships").First(&user, id).Error; err != nil {
 		return nil, err
 	}
 	return &user, nil
@@ -117,10 +124,36 @@ func (r *gormAuthRepository) CreateActivityLog(log *models.ActivityLog) error {
 	return r.db.Create(log).Error
 }
 
-func (r *gormAuthRepository) FindSetting(key string) (*models.SiteSetting, error) {
+func (r *gormAuthRepository) FindSetting(key string, tenantID uint) (*models.SiteSetting, error) {
 	var setting models.SiteSetting
-	if err := r.db.Where("key = ?", key).First(&setting).Error; err != nil {
+	if err := r.db.Where(map[string]interface{}{"key": key, "tenant_id": tenantID}).First(&setting).Error; err == nil {
+		return &setting, nil
+	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, err
+	}
+
+	if err := r.db.Where(map[string]interface{}{"key": key, "tenant_id": nil}).First(&setting).Error; err != nil {
 		return nil, err
 	}
 	return &setting, nil
+}
+
+func (r *gormAuthRepository) FindTenantByID(id uint) (*models.Tenant, error) {
+	var tenant models.Tenant
+	if err := r.db.Where("id = ?", id).First(&tenant).Error; err != nil {
+		return nil, err
+	}
+	return &tenant, nil
+}
+
+func (r *gormAuthRepository) CreateMembership(m *models.TenantMembership) error {
+	return r.db.Create(m).Error
+}
+
+func (r *gormAuthRepository) FindUserMemberships(userID uint) ([]models.TenantMembership, error) {
+	var memberships []models.TenantMembership
+	if err := r.db.Where("user_id = ?", userID).Find(&memberships).Error; err != nil {
+		return nil, err
+	}
+	return memberships, nil
 }

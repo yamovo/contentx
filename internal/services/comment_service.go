@@ -121,7 +121,7 @@ func (s *CommentService) Create(req CreateCommentRequest, clientIP, userAgent st
 	_ = s.repo.IncrementArticleCommentCount(article.ID, tenantID)
 
 	if s.webhook != nil {
-		s.webhook.Dispatch(models.WebhookEventCommentCreate, &comment)
+		s.webhook.Dispatch(models.WebhookEventCommentCreate, &comment, tenantID)
 	}
 
 	return &comment, nil

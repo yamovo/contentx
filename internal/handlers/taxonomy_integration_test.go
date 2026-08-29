@@ -48,9 +48,7 @@ func setupTaxonomyRouter(t *testing.T) (*gin.Engine, *gorm.DB, string) {
 	if err != nil {
 		t.Fatalf("failed to open test db: %v", err)
 	}
-	if err := database.AutoMigrate(db); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
+	prepareHandlerTestDB(t, db)
 	database.Seed(db)
 
 	cfg := &config.Config{}

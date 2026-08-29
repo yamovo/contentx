@@ -2,16 +2,16 @@
 
 本文档是当前版本、完成度、限制和发布阻断项的唯一事实入口。产品承诺见[产品需求](./PRD.md)，未来计划见[路线图](./ROADMAP.md)。
 
-更新日期：2026-08-07
+更新日期：2026-08-29
 
 ## 1. 发布状态
 
 | 项目 | 当前状态 |
 |---|---|
 | 最新正式版本 | `v1.4.0` |
-| 当前分支 | `main` 已合并 PR #1（`504d510`）并完成发布整理 |
-| 当前里程碑 | 多租户基础（进行中） |
-| 发布建议 | v1.4.0 已发布；多租户数据模型设计（RFC）已排入下一步 |
+| 当前分支 | `main`（`014c2f0`）；多租户 P0、MCP 主体再验证与 RAG 治理收口已随本批次提交 |
+| 当前里程碑 | 语言/扩展边界 + Headless CMS 公开交付 + 多租户/RAG 安全收口（进行中） |
+| 发布建议 | v1.4.0 已发布；多租户 P0 与 RAG 安全收口仍未全部完成，不应创建下一正式版本 |
 
 ## 2. 已交付能力
 
@@ -46,58 +46,104 @@
 - Webhook 持久化队列、并发限制、指数退避、jitter 和崩溃复投
 - Go 测试、前端单测、Playwright E2E、静态检查和 OpenAPI 漂移检查
 
-## 3. 最近验证
+## 3. 在研能力（不计入生产交付）
 
-2026-07-29 至 2026-08-07 本地验证结果：
+### 语言、扩展与公开内容契约
+
+- [ADR-001](./ADR-001-language-and-extension-boundary.md) 已进入验证：暂不重写服务端，先采用“Go 核心 + 语言中立公共契约”；这不是永久语言承诺
+- 当前 Go `Plugin` interface 只支持编译期内置插件，不作为外部插件 ABI；进程外扩展或 WASM 尚未交付
+- 动态 ContentEntry 当前只有受保护的管理接口；[RFC-002](./RFC-002-public-content-delivery.md) 已定义默认关闭、published-only、显式 allowlist 的第一公开交付切片
+- 本批次已关闭 create/update/import/translation 绕过独立发布流程的路径：启用草稿发布的类型只能以 draft 创建或导入，更新请求不能携带 status，翻译也不能直接发布；公开接口仍须建立专用 DTO、分页上限与 default tenant 固定策略
+
+### 多租户 P0 安全收口
+
+- 核心内容模型、Repository 查询、WebhookLog 和 Revision 已加入租户范围
+- MCP HTTP 已接入统一验证的 TokenPrincipal：认证中间件注入租户绑定 principal，每次工具/资源调用经 Authorizer 按请求头再验证并与会话绑定，HTTP 传输使用 per-request stateless server 且强制关闭 drafts；资源发现与 RAG 工具均已按有效权限门控
+- JWT 与 API Token 均按 TenantMembership 角色、租户状态复核并取有效权限交集；刷新令牌租户保持尚未闭环
+- Settings 更新现已写入租户覆盖行并保留全局默认值；Get/List/Public 会优先采用租户覆盖，且私有覆盖不会回退暴露公开全局值
+- Settings 批量写入已置于单一事务，迁移 012 封堵 NULL 全局键重复，并已在 PostgreSQL 16 与 MySQL 8.4 完成迁移、CRUD、唯一性和故障回滚实测；API Token 生命周期、评论父子归属和平台审计日志边界仍需继续收口
+- 当前 tenant A/B 测试以 Service/Repository 为主，尚未形成覆盖 REST、GraphQL、MCP 和身份刷新链的完整攻击矩阵
+
+### AI 与 RAG 原型
+
+- 已实现语义搜索、RAG 问答、按 tenantID 分区的内存向量存储和 REST AI 权限
+- 多 chunk Upsert/Delete 主逻辑已修复，但 WarmUp/Reindex 孤儿清理、定时发布同步和失败补偿尚未闭环
+- REST AI 路由已有 IP 限流与操作审计；MCP RAG 已具备独立权限（`ai.read`/`ai.ask`）与租户分区，但审计、租户/Token 限流和成本边界仍缺
+- `AI_ALLOW_OUTBOUND` 当前只完整约束 REST Ask，尚未统一覆盖外部 Embedding、Reindex 和 MCP
+- `AI_ENABLED=false`、`MCP_HTTP_ENABLED=false` 为默认状态；生产验收通过前不得对公网启用 MCP RAG
+
+## 4. 最近验证
+
+2026-07-29 至 2026-08-29 本地验证结果：
 
 | 检查 | 结果 |
 |---|---|
-| `go test ./... -count=1` | 通过；运行时包含真实 MinIO 集成用例 |
-| `go vet ./...` | 通过 |
-| `golangci-lint run ./...` | 通过，0 issues |
+| `go build ./...` | 通过（CGO_ENABLED=1，Go 1.26.5，GCC 8.1.0） |
+| `go vet ./...` | 通过，0 warnings |
+| `go test ./... -count=1` | 2026-08-29 全量通过：21 个包 0 失败，含新增 MCP 主体再验证、RAG 权限与资源租户隔离回归 |
+| `golangci-lint run ./...` | 通过，0 issues（2026-08-07 验证） |
 | Go 模块完整性 | `go mod verify` 通过 |
-| 前端类型检查、lint、单测和构建 | 通过；22 个文件、189 项单测 |
-| Playwright E2E | 2026-07-30 本地 Chromium 35/35；2026-08-07 复验 35/35 通过（含此前 2 个失败用例，[复验报告](../reports/e2e/e2e-report-20260807.md)）；尚未接入 GitHub Actions |
+| 前端类型检查、lint、单测和构建 | 类型检查、ESLint 与 189 项单测 2026-08-29 通过；22 个文件 |
+| OpenAPI 漂移 | 2026-08-29 `swag init` 重新生成，`/ai/search`、`/ai/rag/ask`、`/ai/reindex`、`/ai/status` 已补齐，无 diff |
+| 动态内容发布边界 | `internal/services` 全量回归通过；`internal/handlers` 全量回归通过；新增 create/update/import/translation 拒绝与 unpublish 时间清理测试 |
+| Playwright E2E | 2026-08-22 本地 Chromium 35/35 通过；CI workflow 已加入 Chromium 安装与 E2E 门禁，仍待远程运行验证 |
+| Settings 租户覆盖 | SQLite 回归及 PostgreSQL 16/MySQL 8.4 真机测试通过；覆盖 001–012 迁移、全局/租户唯一性、覆盖合并、原子批量回滚和 009 安全降级 |
+| TypeScript SDK | v3 lockfile、8/8 单测、严格类型检查、ESM/CJS 构建、示例检查和 21 文件 pack dry-run 通过；CI 已加入 `npm ci/check/pack`，仍待远程空环境运行 |
+| Release 独立包 | Linux amd64 CI 路径已改为 CGO 原生构建并携带 `web/dist`；手动 dispatch 只验证不发布，Windows amd64 本地等价 smoke 通过，目标 Ubuntu 产物仍待远程 workflow |
 | MinIO 真机集成 | 5 个场景通过 |
-| PostgreSQL 16.14 隔离恢复 | 2026-07-30 通过：空库 v1–v7、含数据 v7→v5→v7、备份、清空、CLI 恢复、定向缓存清理和搜索重建；见[演练报告](../reports/backup/pg-drill-20260730.md) |
-| 远程 CI `05de8f3` | `test`、`frontend`、`build`、`docker` 全部成功；`Swagger drift check` 成功；[运行记录](https://github.com/yamovo/contentx/actions/runs/30514387569) |
-| 审查修复 `504d510` | 全量 Go 测试、vet、golangci-lint、定向回归、前端 ESLint 和 Chromium E2E 通过；[PR CI](https://github.com/yamovo/contentx/actions/runs/30515979618) 的 `test`、`frontend`、`build` 成功 |
+| PostgreSQL 16.14 隔离恢复 | 2026-07-30 通过；见[演练报告](../reports/backup/pg-drill-20260730.md) |
+| 多租户隔离测试 | 14 个 `TestTenantIsolation_*` 全绿；主要覆盖 Service/Repository，MCP token 租户绑定/主体再验证/资源隔离已有回归，JWT 刷新、管理员切租户和 GraphQL 攻击路径仍待补齐 |
+| RAG/AI 测试 | 现有 RAG Service 与 MCP RAG 测试全绿，MCP `rag_search`/`rag_ask` 权限门控已覆盖；孤儿向量、定时发布、外发关闭和成本边界尚无完整回归测试 |
+| 远程 CI `05de8f3` | `test`、`frontend`、`build`、`docker` 全部成功；`Swagger drift check` 成功 |
 | `git diff --check` | 通过 |
 
 上述结果证明当前工作区在本机通过，不等同于已提交代码或远程 CI 已通过。
 
-## 4. 已知限制
+## 5. 已知限制
 
 | 范围 | 限制 |
 |---|---|
 | GraphQL | 仅支持公开只读查询 |
+| 动态内容公开交付 | ContentEntry 目前只有受保护的管理接口；published-only 公共 REST 契约仍在设计与实现中，不得直接复用管理 List/Get |
+| 语言与扩展 | 服务端当前使用 Go；语言策略正在验证，外部扩展尚无稳定 ABI，不应把 Go interface 或 `.so` 描述为插件生态 |
+| 日志与审计 | access log 已含 request ID/trace ID，业务审计也已落库与脱敏；ActivityLog 尚无 request/trace/span/source 等一等关联字段，高风险审计仍是 best-effort，OTLP logs、保留、导出和完整性策略未交付 |
 | S3 | MinIO 已实测；R2、AWS 和其他供应商需使用部署账户做上线前冒烟测试 |
 | 搜索 | 内置搜索可用；Meilisearch 尚未达到生产集成状态 |
 | 插件 | 仅支持编译期内置插件，不支持任意外部插件沙箱 |
 | 前端 | 仍有 Sass legacy API 警告；部分页面尚未统一采用设计系统 |
 | 无障碍 | 尚未完成 WCAG 2.2 AA 与 axe 系统审计 |
-| 多租户 | 当前里程碑建设中：RFC-001 已产出；PR-1/PR-2/PR-3 已实现，PR-4 推广中（Article/Category/Tag/Comment/Media/Settings 已完成租户化 + 跨租户拒绝测试），Content/Webhook/Analytics 与搜索/定时任务租户化待实施（见[路线图](./ROADMAP.md)） |
+| 多租户 | P0 安全收口进行中：数据查询、Settings 租户覆盖与 MCP/API Token 主体再验证已完成当前数据库与传输层闭环，刷新令牌租户保持与完整 tenant A/B 攻击矩阵尚未闭环；不得开放真实 tenant B |
+| AI/RAG | 当前仅为默认关闭的可运行原型：生命周期、MCP 治理、外发边界、成本控制和 Provider 校验尚未闭环；向量存储仅有内存实现 |
 | 商业化 | 计费、SSO、SLA 和合规能力尚未交付 |
 
-## 5. 发布阻断项
+## 6. 下一正式版本阻断项
 
-以下事项完成前不应创建下一正式版本：
+v1.4.0 的 PostgreSQL 演练、审查修复和 CI 证据已经归档。以下是当前未提交里程碑进入下一正式版本前必须关闭的新阻断项：
 
-1. ~~评审并合并草稿 PR #1~~ — 已完成。
-2. ~~浏览器 E2E 当前只有本地证据~~ — 35/35 已通过并归档至 `reports/e2e/`（2026-08-07 复验报告确认此前 2 个失败用例已修复）；接入 CI 作为后续门禁改进。
-3. ~~确定版本号并同步发布说明与镜像标签~~ — 已确定为 `v1.4.0`，CHANGELOG 已同步。
+1. 动态内容 create/update/import/translation 的发布权限绕过已关闭；公共内容交付上线前仍须通过 draft/publish/unpublish、allowlist、输出 DTO 和 tenant A/B 拒绝测试。
+2. 刷新令牌租户保持与 access/refresh 链路的统一验证尚未完成；MCP 与 API Token 主体再验证已闭环，仍须通过完整 tenant A/B 攻击测试。
+3. 修复评论父子归属、平台审计日志和其他剩余跨租户边界。
+4. 完成 RAG 孤儿清理、定时发布同步、失败补偿；REST 与 MCP 的独立权限已就位，外发统一拦截、限流、审计和成本边界仍待收口。
+5. 通过安全的手动 workflow 或正式 tag CI 验证 Ubuntu 22.04 上的 Linux amd64 CGO + SQLite + `web/dist` 独立包；其他平台须有原生 CGO runner 和同等 smoke 后再发布。
+6. 在远程 CI 验证 TypeScript SDK 的锁文件空环境安装、check 与 pack，并补发布前消费者冒烟测试。
 
-v1.4.0 的 PostgreSQL 演练、审查修复和 CI 证据均已归档。当前里程碑为多租户基础。
+## 7. 下一步
 
-## 6. 下一步
+1. 继续验证 ADR-001 的语言中立公共/扩展边界；发布绕过前置修复已完成，下一步按 RFC-002 实现默认关闭的 published-only 公开 REST 切片。
+2. 多租户 P0 安全收口：关闭刷新令牌租户保持和审计边界，补齐 REST、GraphQL、MCP 和身份刷新链的完整 tenant A/B 攻击矩阵。
+3. RAG 最小安全闭环：统一 `AI_ALLOW_OUTBOUND` 对外部 Embedding、Reindex 和 MCP 的拦截，补齐 MCP 审计、租户/Token 限流和成本边界，并修复完整索引生命周期。
+4. 交付链验证：在真实 tag CI 运行 Linux amd64 SQLite、前端打包和 Release 产物冒烟测试。
+5. 同步 OpenAPI、SOP、部署文档和状态口径。
+6. 实现租户管理 API、成员管理、切换器和 tenant-aware Vue Query 缓存。
+7. 远程验证新增的 Playwright/ESLint、SDK 与 PostgreSQL/MySQL workflow，并为 `main` 配置 CI required checks。
 
-1. 多租户数据模型设计 RFC-001 已产出（[`RFC-001-tenant-model.md`](./RFC-001-tenant-model.md)）；PR-1（迁移 008/009）、PR-2（租户上下文）、PR-3（Article 全链路租户化 + 跨租户拒绝测试）已实现待提交，下一步为其余租户级表推广与搜索/定时任务租户化（PR-4）。
-2. 将 Playwright E2E 接入 GitHub Actions。
-3. 为 `main` 配置 CI required checks。
-
-## 7. 相关文档
+## 8. 相关文档
 
 - [文档中心](./README.md)
+- [产品定位](./POSITIONING.md)
+- [语言与扩展边界](./ADR-001-language-and-extension-boundary.md)
+- [公开动态内容交付契约](./RFC-002-public-content-delivery.md)
+- [竞品与日志/审计方向](./RESEARCH-001-market-and-observability.md)
 - [产品需求](./PRD.md)
 - [路线图](./ROADMAP.md)
 - [标准操作流程](./SOP.md)

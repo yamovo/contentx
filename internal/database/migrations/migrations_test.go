@@ -1,6 +1,7 @@
 package migrations
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/yamovo/contentx/internal/database"
@@ -141,7 +142,7 @@ func TestIndexMigrations_UpIdempotent(t *testing.T) {
 
 	// Running the index migrations again must be a no-op (HasIndex guard),
 	// not a "index already exists" failure.
-	for _, version := range []int{2, 3} {
+	for _, version := range []int{2, 3, 12} {
 		mig := findMigration(t, version)
 		if err := mig.Up(db); err != nil {
 			t.Errorf("migration %d Up() should be idempotent, got: %v", version, err)
@@ -157,7 +158,7 @@ func TestIndexMigrations_DownIdempotent(t *testing.T) {
 		t.Fatalf("Up() error: %v", err)
 	}
 
-	for _, version := range []int{2, 3} {
+	for _, version := range []int{2, 3, 12} {
 		mig := findMigration(t, version)
 		if err := mig.Down(db); err != nil {
 			t.Fatalf("migration %d Down() error: %v", version, err)
@@ -265,6 +266,87 @@ func TestTenantMigration_BackfillsMembershipsForExistingUsers(t *testing.T) {
 	}
 }
 
+func TestTenantMigration011_NormalizesLegacyMembershipRoles(t *testing.T) {
+	db := newMigrationTestDB(t)
+
+	// Migration 008 historically copied arbitrary global role slugs. Build the
+	// schema through that point, then simulate canonical and legacy memberships.
+	for v := 1; v <= 8; v++ {
+		if err := findMigration(t, v).Up(db); err != nil {
+			t.Fatalf("migration %d Up() error: %v", v, err)
+		}
+	}
+	tenant := models.Tenant{Name: "Other", Slug: "other", Status: models.TenantStatusActive}
+	if err := db.Create(&tenant).Error; err != nil {
+		t.Fatalf("create tenant: %v", err)
+	}
+
+	roles := []string{
+		models.TenantRoleMember,
+		models.TenantRoleEditor,
+		models.TenantRoleAdmin,
+		"author",
+		"subscriber",
+		"reviewer",
+	}
+	for i, role := range roles {
+		membership := models.TenantMembership{
+			TenantID: tenant.ID,
+			UserID:   uint(i + 100),
+			RoleSlug: role,
+		}
+		if err := db.Create(&membership).Error; err != nil {
+			t.Fatalf("create membership %q: %v", role, err)
+		}
+	}
+	legacyToken := models.APIToken{
+		Name:        "legacy",
+		Token:       "legacy-token-hash",
+		IsActive:    true,
+		CreatedByID: 100,
+	}
+	if err := db.Create(&legacyToken).Error; err != nil {
+		t.Fatalf("create legacy token: %v", err)
+	}
+
+	if err := findMigration(t, 11).Up(db); err != nil {
+		t.Fatalf("migration 011 Up() error: %v", err)
+	}
+
+	var memberships []models.TenantMembership
+	if err := db.Where("tenant_id = ?", tenant.ID).Order("user_id ASC").Find(&memberships).Error; err != nil {
+		t.Fatalf("list normalized memberships: %v", err)
+	}
+	want := []string{
+		models.TenantRoleMember,
+		models.TenantRoleEditor,
+		models.TenantRoleAdmin,
+		models.TenantRoleMember,
+		models.TenantRoleMember,
+		models.TenantRoleMember,
+	}
+	if len(memberships) != len(want) {
+		t.Fatalf("memberships = %d, want %d", len(memberships), len(want))
+	}
+	for i := range want {
+		if memberships[i].RoleSlug != want[i] {
+			t.Errorf("membership %d role = %q, want %q", i, memberships[i].RoleSlug, want[i])
+		}
+	}
+	var migratedToken models.APIToken
+	if err := db.First(&migratedToken, legacyToken.ID).Error; err != nil {
+		t.Fatalf("read migrated token: %v", err)
+	}
+	if migratedToken.TenantID == nil || *migratedToken.TenantID != models.DefaultTenantID {
+		t.Fatalf("legacy token tenant = %v, want %d", migratedToken.TenantID, models.DefaultTenantID)
+	}
+
+	// Reapplying a data migration must remain harmless.
+	if err := findMigration(t, 11).Up(db); err != nil {
+		t.Fatalf("second migration 011 Up() error: %v", err)
+	}
+}
+
 func TestTenantMigration_DownDropsTables(t *testing.T) {
 	db := newMigrationTestDB(t)
 	m := database.NewMigrator(db)
@@ -272,10 +354,11 @@ func TestTenantMigration_DownDropsTables(t *testing.T) {
 	if err := m.Up(); err != nil {
 		t.Fatalf("Up() error: %v", err)
 	}
-	// 008 is not the newest migration anymore (009 sits above it), so roll
-	// back two steps to remove both multi-tenancy migrations.
-	if err := m.Down(2); err != nil {
-		t.Fatalf("Down(2) error: %v", err)
+	// 008 is not the newest migration anymore (012 through 009 sit above it),
+	// so roll back five steps to remove settings scope uniqueness, role
+	// normalization, the embedding table, and both multi-tenancy migrations.
+	if err := m.Down(5); err != nil {
+		t.Fatalf("Down(5) error: %v", err)
 	}
 
 	if db.Migrator().HasTable(&models.Tenant{}) {
@@ -376,6 +459,87 @@ func TestTenantMigration009_BackfillsAndScopesUnique(t *testing.T) {
 	}
 }
 
+func TestSiteSettingMigration012_EnforcesGlobalAndTenantUniqueness(t *testing.T) {
+	db := newMigrationTestDB(t)
+	m := database.NewMigrator(db)
+	m.Register(All()...)
+	if err := m.Up(); err != nil {
+		t.Fatalf("Up() error: %v", err)
+	}
+	if !db.Migrator().HasIndex("site_settings", siteSettingGlobalKeyIndex) {
+		t.Fatalf("%s should exist after migration 012", siteSettingGlobalKeyIndex)
+	}
+
+	global := models.SiteSetting{Key: "scope_unique", Value: "global", Type: "string", Group: "general"}
+	if err := db.Create(&global).Error; err != nil {
+		t.Fatalf("create global setting: %v", err)
+	}
+	duplicateGlobal := models.SiteSetting{Key: global.Key, Value: "duplicate", Type: "string", Group: "general"}
+	if err := db.Create(&duplicateGlobal).Error; err == nil {
+		t.Fatal("duplicate global setting key should be rejected")
+	}
+
+	tenantID := uint(7)
+	override := models.SiteSetting{Key: global.Key, Value: "tenant", Type: "string", Group: "general", TenantID: &tenantID}
+	if err := db.Create(&override).Error; err != nil {
+		t.Fatalf("global and tenant override should coexist: %v", err)
+	}
+	duplicateOverride := models.SiteSetting{Key: global.Key, Value: "duplicate tenant", Type: "string", Group: "general", TenantID: &tenantID}
+	if err := db.Create(&duplicateOverride).Error; err == nil {
+		t.Fatal("duplicate key within one tenant should be rejected")
+	}
+}
+
+func TestSiteSettingMigration012_RejectsExistingDuplicateGlobals(t *testing.T) {
+	db := newMigrationTestDB(t)
+	for version := 1; version <= 11; version++ {
+		if err := findMigration(t, version).Up(db); err != nil {
+			t.Fatalf("migration %03d Up() error: %v", version, err)
+		}
+	}
+
+	for _, value := range []string{"first", "second"} {
+		setting := models.SiteSetting{Key: "duplicate_global", Value: value, Type: "string", Group: "general"}
+		if err := db.Create(&setting).Error; err != nil {
+			t.Fatalf("create pre-012 duplicate global row: %v", err)
+		}
+	}
+
+	err := findMigration(t, 12).Up(db)
+	if err == nil || !strings.Contains(err.Error(), "deduplicate") {
+		t.Fatalf("migration 012 error = %v, want actionable duplicate error", err)
+	}
+	if db.Migrator().HasIndex("site_settings", siteSettingGlobalKeyIndex) {
+		t.Fatalf("%s must not be created when duplicates exist", siteSettingGlobalKeyIndex)
+	}
+}
+
+func TestTenantMigration009_DownRejectsTenantScopedRowsBeforeDDL(t *testing.T) {
+	db := newMigrationTestDB(t)
+	for version := 1; version <= 9; version++ {
+		if err := findMigration(t, version).Up(db); err != nil {
+			t.Fatalf("migration %03d Up() error: %v", version, err)
+		}
+	}
+
+	tenantID := uint(9)
+	setting := models.SiteSetting{Key: "tenant_override", Value: "tenant", Type: "string", Group: "general", TenantID: &tenantID}
+	if err := db.Create(&setting).Error; err != nil {
+		t.Fatalf("create tenant override: %v", err)
+	}
+
+	err := findMigration(t, 9).Down(db)
+	if err == nil || !strings.Contains(err.Error(), "scope would be lost") {
+		t.Fatalf("migration 009 Down error = %v, want tenant-scope refusal", err)
+	}
+	if !db.Migrator().HasColumn(&models.SiteSetting{}, "TenantID") {
+		t.Fatal("preflight refusal must leave site_settings.tenant_id intact")
+	}
+	if !db.Migrator().HasIndex("site_settings", "idx_site_settings_tenant_key") {
+		t.Fatal("preflight refusal must happen before dropping tenant indexes")
+	}
+}
+
 func TestTenantMigration009_DownRestoresSchema(t *testing.T) {
 	db := newMigrationTestDB(t)
 	m := database.NewMigrator(db)
@@ -383,8 +547,11 @@ func TestTenantMigration009_DownRestoresSchema(t *testing.T) {
 	if err := m.Up(); err != nil {
 		t.Fatalf("Up() error: %v", err)
 	}
-	if err := m.Down(1); err != nil {
-		t.Fatalf("Down(1) error: %v", err)
+	// Roll back 012 (settings scope uniqueness), 011 (role normalization), 010
+	// (embeddings), and 009 (tenant_id columns) to verify 009's Down restores
+	// the pre-multi-tenancy schema.
+	if err := m.Down(4); err != nil {
+		t.Fatalf("Down(4) error: %v", err)
 	}
 
 	if db.Migrator().HasColumn(&models.Article{}, "TenantID") {

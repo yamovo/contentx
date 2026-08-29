@@ -132,12 +132,12 @@ func TestContentTypeService_InvalidateType_WithCache(t *testing.T) {
 	s := NewContentTypeServiceWithRepo(typeRepo, nil)
 	s.WithCache(c, 5*time.Minute)
 
-	s.invalidateType("product")
+	s.invalidateType("product", 1)
 	if len(c.DeleteCalls) != 1 {
 		t.Fatalf("expected 1 Delete call, got %d", len(c.DeleteCalls))
 	}
-	if c.DeleteCalls[0] != "contenttype:product" {
-		t.Errorf("Delete key = %q, want contenttype:product", c.DeleteCalls[0])
+	if c.DeleteCalls[0] != "contenttype:t1:product" {
+		t.Errorf("Delete key = %q, want contenttype:t1:product", c.DeleteCalls[0])
 	}
 }
 
@@ -145,7 +145,7 @@ func TestContentTypeService_InvalidateType_NoCache(t *testing.T) {
 	typeRepo := &MockContentTypeRepository{}
 	s := NewContentTypeServiceWithRepo(typeRepo, nil)
 	// 无 cache → 不应 panic
-	s.invalidateType("product")
+	s.invalidateType("product", 1)
 }
 
 // ============================================================
@@ -163,7 +163,7 @@ func TestContentTypeService_GetEntriesByUID_Success(t *testing.T) {
 	}
 	s := NewContentTypeServiceWithRepo(typeRepo, entryRepo)
 
-	entries, err := s.GetEntriesByUID("product", []uint{1, 2})
+	entries, err := s.GetEntriesByUID("product", []uint{1, 2}, 1)
 	if err != nil {
 		t.Fatalf("GetEntriesByUID failed: %v", err)
 	}
@@ -179,7 +179,7 @@ func TestContentTypeService_GetEntriesByUID_NotFound(t *testing.T) {
 	entryRepo := &MockContentEntryRepository{}
 	s := NewContentTypeServiceWithRepo(typeRepo, entryRepo)
 
-	_, err := s.GetEntriesByUID("nonexistent", []uint{1})
+	_, err := s.GetEntriesByUID("nonexistent", []uint{1}, 1)
 	if err == nil {
 		t.Fatal("expected error for not found content type")
 	}
@@ -190,7 +190,7 @@ func TestContentTypeService_GetEntriesByUID_RepoError(t *testing.T) {
 	entryRepo := &MockContentEntryRepository{FindByIDsErr: gorm.ErrInvalidDB}
 	s := NewContentTypeServiceWithRepo(typeRepo, entryRepo)
 
-	_, err := s.GetEntriesByUID("product", []uint{1})
+	_, err := s.GetEntriesByUID("product", []uint{1}, 1)
 	if err == nil {
 		t.Fatal("expected error from FindByIDs")
 	}
@@ -212,7 +212,7 @@ func TestContentTypeService_GetContentType_CacheHit(t *testing.T) {
 	s := NewContentTypeServiceWithRepo(typeRepo, nil)
 	s.WithCache(c, 5*time.Minute)
 
-	got, err := s.GetContentType("product")
+	got, err := s.GetContentType("product", 1)
 	if err != nil {
 		t.Fatalf("GetContentType failed: %v", err)
 	}
@@ -232,7 +232,7 @@ func TestContentTypeService_GetContentType_CacheMiss(t *testing.T) {
 	s := NewContentTypeServiceWithRepo(typeRepo, nil)
 	s.WithCache(c, 5*time.Minute)
 
-	got, err := s.GetContentType("product")
+	got, err := s.GetContentType("product", 1)
 	if err != nil {
 		t.Fatalf("GetContentType failed: %v", err)
 	}
@@ -243,8 +243,8 @@ func TestContentTypeService_GetContentType_CacheMiss(t *testing.T) {
 	if len(c.SetCalls) != 1 {
 		t.Fatalf("expected 1 Set call, got %d", len(c.SetCalls))
 	}
-	if c.SetCalls[0].Key != "contenttype:product" {
-		t.Errorf("Set key = %q, want contenttype:product", c.SetCalls[0].Key)
+	if c.SetCalls[0].Key != "contenttype:t1:product" {
+		t.Errorf("Set key = %q, want contenttype:t1:product", c.SetCalls[0].Key)
 	}
 }
 
@@ -252,7 +252,7 @@ func TestContentTypeService_GetContentType_NotFound(t *testing.T) {
 	typeRepo := &MockContentTypeRepository{FindByUIDErr: gorm.ErrRecordNotFound}
 	s := NewContentTypeServiceWithRepo(typeRepo, nil)
 
-	_, err := s.GetContentType("missing")
+	_, err := s.GetContentType("missing", 1)
 	if err == nil {
 		t.Fatal("expected error for not found")
 	}

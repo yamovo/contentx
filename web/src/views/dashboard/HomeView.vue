@@ -12,8 +12,8 @@
         </div>
       </nav>
       <div class="hero-content">
-        <h1>现代化内容管理系统</h1>
-        <p>基于 Go + Vue 3 构建的高性能、可扩展的 CMS</p>
+        <h1>面向开发者和 AI Agent 的自托管 Headless CMS</h1>
+        <p>用 REST、GraphQL 与 MCP 连接网站、应用和 Agent，内容与数据始终由你掌控。</p>
         <div class="hero-actions">
           <el-button
             type="primary"
@@ -34,7 +34,7 @@
 
     <section class="features">
       <div class="container">
-        <h2>核心特性</h2>
+        <h2>为什么选择 ContentX</h2>
         <el-row :gutter="24">
           <el-col
             v-for="f in features"
@@ -56,8 +56,30 @@
       </div>
     </section>
 
+    <section class="comparison">
+      <div class="container">
+        <h2>差异不只是功能数量</h2>
+        <p class="section-lead">
+          ContentX 选择更适合开发团队与 AI 工作流的技术路线。
+        </p>
+        <el-row :gutter="24">
+          <el-col
+            v-for="item in differentiators"
+            :key="item.title"
+            :span="8"
+          >
+            <div class="comparison-card">
+              <span>{{ item.context }}</span>
+              <h3>{{ item.title }}</h3>
+              <p>{{ item.desc }}</p>
+            </div>
+          </el-col>
+        </el-row>
+      </div>
+    </section>
+
     <footer class="footer">
-      <p>© 2026 ContentX. Powered by Go + Vue 3</p>
+      <p>© 2026 ContentX · 自托管 · Agent-ready</p>
     </footer>
   </div>
 </template>
@@ -71,12 +93,30 @@ const { animate, stagger } = useAnime()
 let featuresObserver: IntersectionObserver | null = null
 
 const features = [
-  { title: '高性能', desc: 'Go 后端，编译型语言带来的极致性能', icon: 'Lightning', color: '#e6a23c' },
-  { title: 'Markdown 支持', desc: '原生 Markdown 编辑器，所见即所得', icon: 'EditPen', color: '#409eff' },
-  { title: 'SEO 优化', desc: '内置 SEO 工具，自动生成 Sitemap', icon: 'Search', color: '#67c23a' },
-  { title: 'RBAC 权限', desc: '细粒度角色权限控制', icon: 'Lock', color: '#909399' },
-  { title: '插件系统', desc: '可扩展的插件架构', icon: 'Connection', color: '#f56c6c' },
-  { title: '数据分析', desc: '内置访问统计和分析报表', icon: 'TrendCharts', color: '#764ba2' },
+  { title: '语言中立契约', desc: '核心当前使用 Go，消费者通过 REST、OpenAPI 与 MCP 接入，不依赖内部语言类型', icon: 'Lightning', color: '#e6a23c' },
+  { title: '数据主权', desc: '部署在自己的基础设施中，数据、权限与升级节奏由团队掌控', icon: 'DataAnalysis', color: '#409eff' },
+  { title: 'Agent-ready', desc: '通过 MCP 为 AI Agent 提供受权限控制的内容读写与发布能力', icon: 'Connection', color: '#67c23a' },
+  { title: '多协议 API', desc: 'REST、只读 GraphQL 与 OpenAPI，让网站、应用和工具按需接入', icon: 'Link', color: '#909399' },
+  { title: '安全权限边界', desc: 'RBAC、API Token、审计日志与发布工作流共同保护内容操作', icon: 'Lock', color: '#f56c6c' },
+  { title: '完整内容工作台', desc: '内容建模、媒体、SEO、Webhook 与分析能力集中在一个后台', icon: 'Grid', color: '#764ba2' },
+]
+
+const differentiators = [
+  {
+    context: '对比主流 Node.js CMS',
+    title: 'Go 技术栈更利于自托管',
+    desc: '减少运行时依赖，以编译型后端获得更直接的部署和运维体验。',
+  },
+  {
+    context: '对比云端 SaaS CMS',
+    title: '基础设施与数据留在自己手中',
+    desc: '不被托管平台绑定，部署位置、数据边界和升级窗口都由团队决定。',
+  },
+  {
+    context: '对比只服务人工后台的 CMS',
+    title: '开发者与 Agent 共用内容底座',
+    desc: 'REST、GraphQL 与 MCP 并行，让人、应用和 AI Agent 在权限边界内协作。',
+  },
 ]
 
 onMounted(() => {
@@ -162,8 +202,42 @@ function scrollToFeatures() {
       p { color: #606266; font-size: 14px; }
     }
   }
+  .comparison {
+    padding: 80px 0;
+    background: #f5f7fa;
+    .container { max-width: 1000px; margin: 0 auto; padding: 0 20px; }
+    h2 { text-align: center; font-size: 32px; margin-bottom: 12px; }
+    .section-lead { text-align: center; color: #606266; margin: 0 0 40px; }
+    .comparison-card {
+      height: 100%;
+      box-sizing: border-box;
+      padding: 28px;
+      border: 1px solid #e4e7ed;
+      border-radius: 12px;
+      background: #fff;
+      span { color: #409eff; font-size: 13px; font-weight: 600; }
+      h3 { margin: 12px 0 10px; font-size: 18px; }
+      p { margin: 0; color: #606266; font-size: 14px; line-height: 1.7; }
+    }
+  }
   .footer {
     text-align: center; padding: 24px; background: #1d1e2c; color: rgba(255,255,255,0.5); font-size: 14px;
+  }
+}
+
+@media (max-width: 768px) {
+  .home-page {
+    .hero {
+      .nav { padding: 20px 24px; }
+      .hero-content {
+        padding-top: 88px;
+        h1 { font-size: 36px; }
+      }
+    }
+    .features,
+    .comparison {
+      :deep(.el-col) { max-width: 100%; flex: 0 0 100%; margin-bottom: 20px; }
+    }
   }
 }
 </style>

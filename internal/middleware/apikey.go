@@ -34,9 +34,9 @@ func APIKeyMiddleware(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 
-		// Load user.
+		// Load user with memberships for tenant resolution.
 		var user models.User
-		if err := db.Preload("Role").Preload("Role.Permissions").
+		if err := db.Preload("Role").Preload("Role.Permissions").Preload("TenantMemberships").
 			Where("id = ?", apiKey.UserID).First(&user).Error; err != nil {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "User not found"})
 			c.Abort()
@@ -52,12 +52,15 @@ func APIKeyMiddleware(db *gorm.DB) gin.HandlerFunc {
 		// Update last used.
 		db.Model(&apiKey).Update("last_used", gorm.Expr("CURRENT_TIMESTAMP"))
 
+		// Resolve tenant from the user's first membership (fall back to default).
+		tenantID := models.DefaultTenantID
+		if len(user.TenantMemberships) > 0 {
+			tenantID = user.TenantMemberships[0].TenantID
+		}
+
 		c.Set(ContextKeyUser, &user)
 		c.Set("api_key", &apiKey)
-		// auth.APIKey has no tenant binding yet; API-key traffic resolves to
-		// the default tenant until token-level tenant binding lands (RFC-001
-		// §11 open question 2).
-		c.Set(ContextKeyTenant, models.DefaultTenantID)
+		c.Set(ContextKeyTenant, tenantID)
 		c.Next()
 	}
 }

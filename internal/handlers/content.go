@@ -32,7 +32,7 @@ func NewContentTypeHandler(svc *services.ContentTypeService) *ContentTypeHandler
 //	@Failure      401  {object}  APIResponse
 //	@Router       /content-types [get]
 func (h *ContentTypeHandler) ListTypes(c *gin.Context) {
-	types, err := h.svc.ListContentTypes()
+	types, err := h.svc.ListContentTypes(getCurrentTenant(c))
 	if err != nil {
 		handleServiceError(c, err)
 		return
@@ -53,7 +53,7 @@ func (h *ContentTypeHandler) ListTypes(c *gin.Context) {
 //	@Failure      404  {object}  APIResponse
 //	@Router       /content-types/{uid} [get]
 func (h *ContentTypeHandler) GetType(c *gin.Context) {
-	ct, err := h.svc.GetContentType(c.Param("uid"))
+	ct, err := h.svc.GetContentType(c.Param("uid"), getCurrentTenant(c))
 	if err != nil {
 		handleServiceError(c, err)
 		return
@@ -83,7 +83,7 @@ func (h *ContentTypeHandler) CreateType(c *gin.Context) {
 		return
 	}
 
-	ct, err := h.svc.CreateContentType(req)
+	ct, err := h.svc.CreateContentType(req, getCurrentTenant(c))
 	if err != nil {
 		handleServiceError(c, err)
 		return
@@ -107,7 +107,7 @@ func (h *ContentTypeHandler) CreateType(c *gin.Context) {
 //	@Failure      404  {object}  APIResponse
 //	@Router       /content-types/{uid} [delete]
 func (h *ContentTypeHandler) DeleteType(c *gin.Context) {
-	if err := h.svc.DeleteContentType(c.Param("uid")); err != nil {
+	if err := h.svc.DeleteContentType(c.Param("uid"), getCurrentTenant(c)); err != nil {
 		handleServiceError(c, err)
 		return
 	}
@@ -156,7 +156,7 @@ func (h *ContentTypeHandler) ListEntries(c *gin.Context) {
 		}
 	}
 
-	result, err := h.svc.ListEntries(uid, params)
+	result, err := h.svc.ListEntries(uid, params, getCurrentTenant(c))
 	if err != nil {
 		handleServiceError(c, err)
 		return
@@ -179,7 +179,7 @@ func (h *ContentTypeHandler) ListEntries(c *gin.Context) {
 //	@Failure      404  {object}  APIResponse
 //	@Router       /content/{uid}/{documentId} [get]
 func (h *ContentTypeHandler) GetEntry(c *gin.Context) {
-	entry, err := h.svc.GetEntry(c.Param("uid"), c.Param("documentId"))
+	entry, err := h.svc.GetEntry(c.Param("uid"), c.Param("documentId"), getCurrentTenant(c))
 	if err != nil {
 		handleServiceError(c, err)
 		return
@@ -191,7 +191,7 @@ func (h *ContentTypeHandler) GetEntry(c *gin.Context) {
 // POST /api/v1/content/:uid
 //
 //	@Summary      Create entry
-//	@Description  Create a new entry for a content type
+//	@Description  Create a new entry. Draft/publish-enabled types always start as draft; use the publish endpoint for publication.
 //	@Tags         Content Entries
 //	@Accept       json
 //	@Produce      json
@@ -202,6 +202,7 @@ func (h *ContentTypeHandler) GetEntry(c *gin.Context) {
 //	@Failure      400   {object}  APIResponse
 //	@Failure      401   {object}  APIResponse
 //	@Failure      404   {object}  APIResponse
+//	@Failure      422   {object}  APIResponse
 //	@Router       /content/{uid} [post]
 func (h *ContentTypeHandler) CreateEntry(c *gin.Context) {
 	var req services.CreateEntryRequest
@@ -215,7 +216,7 @@ func (h *ContentTypeHandler) CreateEntry(c *gin.Context) {
 		return
 	}
 
-	entry, err := h.svc.CreateEntry(c.Param("uid"), req, user.ID)
+	entry, err := h.svc.CreateEntry(c.Param("uid"), req, getCurrentTenant(c), user.ID)
 	if err != nil {
 		handleServiceError(c, err)
 		return
@@ -228,7 +229,7 @@ func (h *ContentTypeHandler) CreateEntry(c *gin.Context) {
 // PUT /api/v1/content/:uid/:documentId
 //
 //	@Summary      Update entry
-//	@Description  Update an existing entry
+//	@Description  Update entry data. Publication status cannot be changed here; use the publish or unpublish endpoint.
 //	@Tags         Content Entries
 //	@Accept       json
 //	@Produce      json
@@ -239,6 +240,7 @@ func (h *ContentTypeHandler) CreateEntry(c *gin.Context) {
 //	@Success      200         {object}  APIResponse{data=models.ContentEntry}
 //	@Failure      400         {object}  APIResponse
 //	@Failure      404         {object}  APIResponse
+//	@Failure      422         {object}  APIResponse
 //	@Router       /content/{uid}/{documentId} [put]
 func (h *ContentTypeHandler) UpdateEntry(c *gin.Context) {
 	var req services.UpdateEntryRequest
@@ -252,7 +254,7 @@ func (h *ContentTypeHandler) UpdateEntry(c *gin.Context) {
 		return
 	}
 
-	entry, err := h.svc.UpdateEntry(c.Param("uid"), c.Param("documentId"), req, user.ID)
+	entry, err := h.svc.UpdateEntry(c.Param("uid"), c.Param("documentId"), req, getCurrentTenant(c), user.ID)
 	if err != nil {
 		handleServiceError(c, err)
 		return
@@ -275,7 +277,7 @@ func (h *ContentTypeHandler) UpdateEntry(c *gin.Context) {
 //	@Failure      404  {object}  APIResponse
 //	@Router       /content/{uid}/{documentId} [delete]
 func (h *ContentTypeHandler) DeleteEntry(c *gin.Context) {
-	if err := h.svc.DeleteEntry(c.Param("uid"), c.Param("documentId")); err != nil {
+	if err := h.svc.DeleteEntry(c.Param("uid"), c.Param("documentId"), getCurrentTenant(c)); err != nil {
 		handleServiceError(c, err)
 		return
 	}
@@ -301,7 +303,7 @@ func (h *ContentTypeHandler) PublishEntry(c *gin.Context) {
 		return
 	}
 
-	entry, err := h.svc.PublishEntry(c.Param("uid"), c.Param("documentId"), user.ID)
+	entry, err := h.svc.PublishEntry(c.Param("uid"), c.Param("documentId"), getCurrentTenant(c), user.ID)
 	if err != nil {
 		handleServiceError(c, err)
 		return
@@ -328,7 +330,7 @@ func (h *ContentTypeHandler) UnpublishEntry(c *gin.Context) {
 		return
 	}
 
-	entry, err := h.svc.UnpublishEntry(c.Param("uid"), c.Param("documentId"), user.ID)
+	entry, err := h.svc.UnpublishEntry(c.Param("uid"), c.Param("documentId"), getCurrentTenant(c), user.ID)
 	if err != nil {
 		handleServiceError(c, err)
 		return
@@ -349,7 +351,7 @@ func (h *ContentTypeHandler) UnpublishEntry(c *gin.Context) {
 //	@Failure      404  {object}  APIResponse
 //	@Router       /content/{uid}/export [get]
 func (h *ContentTypeHandler) ExportEntries(c *gin.Context) {
-	data, err := h.svc.ExportEntries(c.Param("uid"))
+	data, err := h.svc.ExportEntries(c.Param("uid"), getCurrentTenant(c))
 	if err != nil {
 		handleServiceError(c, err)
 		return
@@ -361,7 +363,7 @@ func (h *ContentTypeHandler) ExportEntries(c *gin.Context) {
 // POST /api/v1/content/:uid/import
 //
 //	@Summary      Import entries
-//	@Description  Import entries from JSON data
+//	@Description  Import entries from JSON data. Draft/publish-enabled types import as drafts.
 //	@Tags         Content Entries
 //	@Accept       json
 //	@Produce      json
@@ -371,6 +373,7 @@ func (h *ContentTypeHandler) ExportEntries(c *gin.Context) {
 //	@Success      200   {object}  APIResponse{data=object{imported=int}}
 //	@Failure      400   {object}  APIResponse
 //	@Failure      404   {object}  APIResponse
+//	@Failure      422   {object}  APIResponse
 //	@Router       /content/{uid}/import [post]
 func (h *ContentTypeHandler) ImportEntries(c *gin.Context) {
 	var body struct {
@@ -386,7 +389,7 @@ func (h *ContentTypeHandler) ImportEntries(c *gin.Context) {
 		return
 	}
 
-	count, err := h.svc.ImportEntries(c.Param("uid"), body.JSON, user.ID)
+	count, err := h.svc.ImportEntries(c.Param("uid"), body.JSON, getCurrentTenant(c), user.ID)
 	if err != nil {
 		handleServiceError(c, err)
 		return
@@ -421,7 +424,7 @@ func isReservedParam(key string) bool {
 //	@Failure      404  {object}  APIResponse
 //	@Router       /content/{uid}/{documentId}/translations [get]
 func (h *ContentTypeHandler) ListEntryTranslations(c *gin.Context) {
-	translations, err := h.svc.ListEntryTranslations(c.Param("uid"), c.Param("documentId"))
+	translations, err := h.svc.ListEntryTranslations(c.Param("uid"), c.Param("documentId"), getCurrentTenant(c))
 	if err != nil {
 		handleServiceError(c, err)
 		return
@@ -463,7 +466,7 @@ func (h *ContentTypeHandler) CreateEntryTranslation(c *gin.Context) {
 	if user == nil {
 		return
 	}
-	entry, err := h.svc.CreateEntryTranslation(c.Param("uid"), c.Param("documentId"), locale, req, user.ID)
+	entry, err := h.svc.CreateEntryTranslation(c.Param("uid"), c.Param("documentId"), locale, req, getCurrentTenant(c), user.ID)
 	if err != nil {
 		handleServiceError(c, err)
 		return

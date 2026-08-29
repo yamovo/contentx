@@ -1,11 +1,13 @@
 export interface ContentXConfig {
   baseURL: string
   token?: string
+  tenantID?: number
   timeout?: number
 }
 
-export interface APIResponse<T = any> {
+export interface APIResponse<T = unknown> {
   code: number
+  err_code?: string
   message: string
   data?: T
   meta?: PaginationMeta
@@ -15,7 +17,6 @@ export interface PaginationMeta {
   page: number
   page_size: number
   total: number
-  total_pages: number
   has_next: boolean
   has_prev: boolean
 }

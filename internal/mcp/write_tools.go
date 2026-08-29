@@ -3,7 +3,6 @@ package mcp
 import (
 	"context"
 	"fmt"
-	"net/http"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -38,18 +37,15 @@ func permitted(perms []string, want string) bool {
 
 // identity resolves the acting writer from the request's HTTP headers via the
 // configured Authorizer. Returns an error when write access is unavailable.
-func (t *toolset) identity(req *mcpsdk.CallToolRequest) (*WriterIdentity, error) {
+func (t *toolset) identity(ctx context.Context, req *mcpsdk.CallToolRequest) (*WriterIdentity, error) {
 	if t.deps.Authorizer == nil {
 		return nil, fmt.Errorf("write operations are not enabled")
 	}
-	var h http.Header
-	if req != nil && req.Extra != nil {
-		h = req.Extra.Header
-	}
+	h := requestHeader(req)
 	if h == nil {
 		return nil, fmt.Errorf("missing request headers")
 	}
-	return t.deps.Authorizer.Resolve(h)
+	return t.verifiedHTTPPrincipal(ctx, h)
 }
 
 // ─── create_article ────────────────────────────────────────────────────────
@@ -63,8 +59,8 @@ type createArticleInput struct {
 	Locale     string `json:"locale,omitempty" jsonschema:"optional BCP-47 locale, e.g. en or zh (default en)"`
 }
 
-func (t *toolset) createArticle(_ context.Context, req *mcpsdk.CallToolRequest, in createArticleInput) (*mcpsdk.CallToolResult, articleSummary, error) {
-	id, err := t.identity(req)
+func (t *toolset) createArticle(ctx context.Context, req *mcpsdk.CallToolRequest, in createArticleInput) (*mcpsdk.CallToolResult, articleSummary, error) {
+	id, err := t.identity(ctx, req)
 	if err != nil {
 		return nil, articleSummary{}, err
 	}
@@ -83,7 +79,7 @@ func (t *toolset) createArticle(_ context.Context, req *mcpsdk.CallToolRequest, 
 		CategoryID: in.CategoryID,
 		TagIDs:     in.TagIDs,
 		Locale:     in.Locale,
-	}, t.tenantID(), id.UserID)
+	}, id.TenantID, id.UserID)
 	if err != nil {
 		return nil, articleSummary{}, err
 	}
@@ -102,8 +98,8 @@ type updateArticleInput struct {
 	TagIDs          []uint  `json:"tag_ids,omitempty" jsonschema:"replacement tag IDs"`
 }
 
-func (t *toolset) updateArticle(_ context.Context, req *mcpsdk.CallToolRequest, in updateArticleInput) (*mcpsdk.CallToolResult, articleSummary, error) {
-	id, err := t.identity(req)
+func (t *toolset) updateArticle(ctx context.Context, req *mcpsdk.CallToolRequest, in updateArticleInput) (*mcpsdk.CallToolResult, articleSummary, error) {
+	id, err := t.identity(ctx, req)
 	if err != nil {
 		return nil, articleSummary{}, err
 	}
@@ -126,7 +122,7 @@ func (t *toolset) updateArticle(_ context.Context, req *mcpsdk.CallToolRequest, 
 		CategoryID:      in.CategoryID,
 		TagIDs:          in.TagIDs,
 		ExpectedVersion: &in.ExpectedVersion,
-	}, t.tenantID(), id.UserID, canUpdateAll)
+	}, id.TenantID, id.UserID, canUpdateAll)
 	if err != nil {
 		return nil, articleSummary{}, err
 	}
@@ -139,8 +135,8 @@ type publishArticleInput struct {
 	ID uint `json:"id" jsonschema:"the article ID to publish (required)"`
 }
 
-func (t *toolset) publishArticle(_ context.Context, req *mcpsdk.CallToolRequest, in publishArticleInput) (*mcpsdk.CallToolResult, articleSummary, error) {
-	id, err := t.identity(req)
+func (t *toolset) publishArticle(ctx context.Context, req *mcpsdk.CallToolRequest, in publishArticleInput) (*mcpsdk.CallToolResult, articleSummary, error) {
+	id, err := t.identity(ctx, req)
 	if err != nil {
 		return nil, articleSummary{}, err
 	}
@@ -150,7 +146,7 @@ func (t *toolset) publishArticle(_ context.Context, req *mcpsdk.CallToolRequest,
 	if in.ID == 0 {
 		return nil, articleSummary{}, fmt.Errorf("id is required")
 	}
-	article, err := t.deps.Article.Publish(in.ID)
+	article, err := t.deps.Article.PublishAs(in.ID, id.TenantID, id.UserID)
 	if err != nil {
 		return nil, articleSummary{}, err
 	}

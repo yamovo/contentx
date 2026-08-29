@@ -523,6 +523,7 @@ func TestMockAuth_RefreshToken_Success(t *testing.T) {
 			Status:      models.UserStatusActive,
 			Role:        models.Role{Slug: "editor"},
 		},
+		Memberships: []models.TenantMembership{{TenantID: models.DefaultTenantID, UserID: 1, RoleSlug: models.TenantRoleMember}},
 	}
 	svc := NewAuthServiceWithRepo(repo, jwtMgr, auth.NewBlacklist(), nil)
 
@@ -538,6 +539,7 @@ func TestMockAuth_RefreshToken_Success(t *testing.T) {
 	if newPair == nil {
 		t.Fatal("expected non-nil pair")
 	}
+	assertTokenPairTenant(t, jwtMgr, newPair, models.DefaultTenantID)
 }
 
 // TestMockAuth_RefreshToken_RoleChanged verifies that a role change takes
@@ -561,6 +563,7 @@ func TestMockAuth_RefreshToken_RoleChanged(t *testing.T) {
 			Status:      models.UserStatusActive,
 			Role:        models.Role{Slug: "editor"},
 		},
+		Memberships: []models.TenantMembership{{TenantID: models.DefaultTenantID, UserID: 1, RoleSlug: models.TenantRoleMember}},
 	}
 	svc := NewAuthServiceWithRepo(repo, jwtMgr, auth.NewBlacklist(), nil)
 
@@ -575,6 +578,40 @@ func TestMockAuth_RefreshToken_RoleChanged(t *testing.T) {
 	}
 	if claims.RoleSlug != "editor" {
 		t.Fatalf("expected refreshed role editor (loaded from DB), got %q", claims.RoleSlug)
+	}
+	if claims.TenantID != models.DefaultTenantID {
+		t.Fatalf("expected refreshed tenant %d, got %d", models.DefaultTenantID, claims.TenantID)
+	}
+}
+
+func TestMockAuth_RefreshToken_DemotedAdminCannotBypassMembership(t *testing.T) {
+	jwtMgr := newTestJWTManager()
+	pair, err := jwtMgr.GenerateTokenPairWithTenant(1, 42, "alice", "alice@example.com", "admin", "Alice")
+	if err != nil {
+		t.Fatalf("GenerateTokenPairWithTenant failed: %v", err)
+	}
+
+	// The refresh token says admin, but authorization must use the current DB
+	// role. A now-editor user without tenant 42 membership must be rejected.
+	repo := &MockAuthRepository{
+		UserByIDWithRole: &models.User{
+			BaseModel:   models.BaseModel{ID: 1},
+			Username:    "alice",
+			Email:       "alice@example.com",
+			DisplayName: "Alice",
+			Status:      models.UserStatusActive,
+			Role:        models.Role{Slug: "editor"},
+		},
+	}
+	svc := NewAuthServiceWithRepo(repo, jwtMgr, auth.NewBlacklist(), nil)
+
+	_, err = svc.RefreshToken(pair.RefreshToken)
+	if err == nil {
+		t.Fatal("expected refresh to reject missing membership after admin demotion")
+	}
+	appErr, ok := err.(*errs.AppError)
+	if !ok || appErr.Code != "UNAUTHORIZED" {
+		t.Fatalf("expected UNAUTHORIZED, got %v", err)
 	}
 }
 

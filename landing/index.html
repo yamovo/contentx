@@ -3,8 +3,18 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="description" content="Nebula — 现代化数字产品工作室,专注品牌、产品与增长">
-<title>Nebula · 数字产品工作室</title>
+<meta name="description" content="ContentX：面向开发者和 AI Agent 的自托管 Headless CMS。提供 REST、只读 GraphQL、OpenAPI 与 MCP 等语言中立接口，让内容、权限和部署留在自己的基础设施中。">
+<meta name="keywords" content="ContentX,Headless CMS,Go CMS,自托管 CMS,AI Agent,MCP,REST API,GraphQL,OpenAPI">
+<meta name="author" content="ContentX Contributors">
+<meta name="theme-color" content="#0b0e14">
+<meta property="og:type" content="website">
+<meta property="og:title" content="ContentX · 面向开发者和 AI Agent 的自托管 Headless CMS">
+<meta property="og:description" content="自托管内容控制、语言中立接口、受控 MCP 工具与可验证的发布工作流。">
+<meta property="og:site_name" content="ContentX">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="ContentX · 自托管 Headless CMS">
+<meta name="twitter:description" content="面向开发者和 AI Agent 的自托管 Headless CMS。">
+<title>ContentX · 面向开发者和 AI Agent 的自托管 Headless CMS</title>
 <style>
 :root{
   --bg:#0b0e14;
@@ -56,7 +66,7 @@ img{max-width:100%;display:block}
 .logo{display:flex;align-items:center;gap:10px;font-weight:700;font-size:20px;letter-spacing:.5px}
 .logo-mark{
   width:32px;height:32px;border-radius:10px;background:var(--grad);
-  display:grid;place-items:center;font-size:15px;color:#fff;font-weight:800;
+  display:grid;place-items:center;font-size:11px;color:#fff;font-weight:800;letter-spacing:-.4px;
   box-shadow:0 4px 16px rgba(108,92,231,.5);
 }
 .nav-links{display:flex;gap:34px;list-style:none;align-items:center}
@@ -89,7 +99,7 @@ img{max-width:100%;display:block}
 }
 .hero-tag i{width:7px;height:7px;border-radius:50%;background:var(--brand2);box-shadow:0 0 10px var(--brand2);animation:pulse 2s infinite}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
-.hero h1{font-size:clamp(34px,5vw,58px);line-height:1.15;font-weight:800;letter-spacing:-1px}
+.hero h1{font-size:clamp(34px,4.35vw,56px);line-height:1.15;font-weight:800;letter-spacing:-1px}
 .hero h1 .grad{background:var(--grad);-webkit-background-clip:text;background-clip:text;color:transparent}
 .hero p{margin:22px 0 34px;color:var(--muted);font-size:17px;max-width:520px}
 .hero-actions{display:flex;gap:16px;flex-wrap:wrap}
@@ -129,6 +139,20 @@ img{max-width:100%;display:block}
 @keyframes grow{from{transform:scaleY(0);transform-origin:bottom}}
 .kpi{display:flex;justify-content:space-between;font-size:13px;color:var(--muted)}
 .kpi b{color:var(--text);font-size:20px}
+.protocol-head{display:flex;align-items:center;justify-content:space-between;gap:18px;margin-bottom:18px}
+.protocol-head span:first-child{font-weight:700;font-size:15px}
+.protocol-status{display:inline-flex;align-items:center;gap:7px;color:var(--brand2);font-size:11px;font-weight:700;letter-spacing:1px}
+.protocol-status::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--brand2);box-shadow:0 0 10px var(--brand2)}
+.protocol-list{display:grid;gap:10px}
+.protocol-item{
+  display:grid;grid-template-columns:82px 1fr auto;gap:12px;align-items:center;
+  padding:13px 14px;border:1px solid var(--line);border-radius:12px;background:rgba(255,255,255,.025)
+}
+.protocol-item code{font-family:"SFMono-Regular",Consolas,monospace;color:var(--brand2);font-size:13px;font-weight:700}
+.protocol-item span{font-size:12.5px;color:var(--muted)}
+.protocol-item b{font-size:11px;color:var(--text);padding:3px 8px;border-radius:999px;background:rgba(108,92,231,.14);border:1px solid rgba(108,92,231,.3)}
+.protocol-foot{display:flex;justify-content:space-between;gap:16px;margin-top:16px;padding-top:15px;border-top:1px solid var(--line);font-size:11.5px;color:var(--muted)}
+.protocol-foot strong{color:var(--text);font-weight:600}
 .float-badge{
   position:absolute;padding:12px 16px;border-radius:14px;background:rgba(21,26,38,.9);
   border:1px solid var(--line);backdrop-filter:blur(8px);font-size:13px;
@@ -191,27 +215,28 @@ section{padding:100px 0}
   background:rgba(255,255,255,.05);border:1px solid var(--line);color:var(--muted);
 }
 
-/* ---------- 作品展示 ---------- */
-.works{display:grid;grid-template-columns:repeat(3,1fr);gap:24px}
-.w-card{
-  border-radius:var(--radius);overflow:hidden;border:1px solid var(--line);
-  background:var(--card);transition:transform .35s,box-shadow .35s;cursor:pointer;
+/* ---------- 产品差异 ---------- */
+.compare-wrap{border:1px solid var(--line);border-radius:20px;overflow-x:auto;background:linear-gradient(160deg,var(--card),var(--bg-soft));box-shadow:var(--shadow)}
+.compare-table{width:100%;min-width:860px;border-collapse:collapse;text-align:left}
+.compare-table th,.compare-table td{padding:20px 22px;border-bottom:1px solid var(--line);vertical-align:top;font-size:14px}
+.compare-table thead th{font-size:13px;letter-spacing:.3px;color:var(--muted);background:rgba(255,255,255,.025)}
+.compare-table tbody th{width:150px;color:var(--text);font-weight:650}
+.compare-table td{color:var(--muted)}
+.compare-table .cx-col{background:rgba(108,92,231,.09);border-left:1px solid rgba(108,92,231,.24);border-right:1px solid rgba(108,92,231,.24)}
+.compare-table thead .cx-col{color:var(--brand2);font-weight:800}
+.compare-table tbody tr:last-child th,.compare-table tbody tr:last-child td{border-bottom:0}
+.compare-note{display:flex;gap:16px;justify-content:space-between;align-items:flex-start;margin-top:18px;color:var(--muted);font-size:12.5px}
+.compare-note a{color:var(--brand2);white-space:nowrap;transition:color .25s}
+.compare-note a:hover{color:var(--text)}
+.boundary{
+  margin-top:26px;padding:20px 22px;border:1px solid rgba(0,210,255,.22);border-radius:14px;
+  background:rgba(0,210,255,.055);display:flex;align-items:center;justify-content:space-between;gap:24px
 }
-.w-card:hover{transform:translateY(-8px);box-shadow:var(--shadow)}
-.w-cover{height:180px;position:relative;overflow:hidden;display:grid;place-items:center;font-size:44px}
-.w-cover.c1{background:linear-gradient(135deg,#6c5ce7,#341f97)}
-.w-cover.c2{background:linear-gradient(135deg,#00d2ff,#0066ff)}
-.w-cover.c3{background:linear-gradient(135deg,#ffb86b,#ff5e62)}
-.w-cover.c4{background:linear-gradient(135deg,#00b894,#006266)}
-.w-cover.c5{background:linear-gradient(135deg,#e84393,#6c5ce7)}
-.w-cover.c6{background:linear-gradient(135deg,#0984e3,#00cec9)}
-.w-cover span{transition:transform .4s}
-.w-card:hover .w-cover span{transform:scale(1.2) rotate(-6deg)}
-.w-body{padding:20px 22px}
-.w-body h3{font-size:16.5px;margin-bottom:6px}
-.w-body p{color:var(--muted);font-size:13.5px}
+.boundary p{color:var(--muted);font-size:13.5px}
+.boundary strong{color:var(--text)}
+.boundary a{font-size:13px;color:var(--brand2);white-space:nowrap}
 
-/* ---------- 客户评价 ---------- */
+/* ---------- 适合团队 ---------- */
 .quotes{display:grid;grid-template-columns:repeat(3,1fr);gap:24px}
 .q-card{
   background:linear-gradient(160deg,var(--card),var(--bg-soft));
@@ -219,15 +244,12 @@ section{padding:100px 0}
   transition:transform .3s,border-color .3s;display:flex;flex-direction:column;
 }
 .q-card:hover{transform:translateY(-6px);border-color:rgba(255,184,107,.4)}
-.q-stars{color:var(--accent);letter-spacing:3px;margin-bottom:16px;font-size:15px}
+.persona-icon{font-size:28px;margin-bottom:18px}
+.q-card h3{font-size:18px;margin-bottom:10px}
 .q-card p{color:var(--muted);font-size:14.5px;flex:1}
-.q-who{display:flex;align-items:center;gap:12px;margin-top:22px}
-.q-avatar{
-  width:44px;height:44px;border-radius:50%;display:grid;place-items:center;
-  font-weight:700;color:#fff;background:var(--grad);flex-shrink:0;
-}
-.q-who b{display:block;font-size:14.5px}
-.q-who span{font-size:12.5px;color:var(--muted)}
+.persona-points{display:grid;gap:9px;margin-top:20px;list-style:none}
+.persona-points li{font-size:12.5px;color:var(--muted);display:flex;gap:8px}
+.persona-points li::before{content:"✓";color:var(--brand2);font-weight:800}
 
 /* ---------- 合作伙伴 ---------- */
 .partners{border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding:44px 0;background:var(--bg-soft)}
@@ -272,7 +294,7 @@ footer{background:#080a10;padding:70px 0 30px;border-top:1px solid var(--line)}
 @media (max-width:960px){
   .hero-grid{grid-template-columns:1fr;gap:70px}
   .hero-visual{max-width:480px}
-  .features,.works,.quotes{grid-template-columns:repeat(2,1fr)}
+  .features,.quotes{grid-template-columns:repeat(2,1fr)}
   .foot-grid{grid-template-columns:1fr 1fr}
 }
 @media (max-width:680px){
@@ -289,8 +311,11 @@ footer{background:#080a10;padding:70px 0 30px;border-top:1px solid var(--line)}
   .nav-links a::after{display:none}
   .nav-cta{margin:12px 0 20px}
   .burger{display:flex}
-  .features,.works,.quotes,.services{grid-template-columns:1fr}
+  .features,.quotes,.services{grid-template-columns:1fr}
   .hero-stats{gap:26px;flex-wrap:wrap}
+  .protocol-item{grid-template-columns:70px 1fr}.protocol-item b{display:none}
+  .protocol-foot{flex-direction:column;gap:6px}
+  .compare-note,.boundary{flex-direction:column}
   .float-badge.b1{right:0}
   .float-badge.b2{left:0}
   .foot-grid{grid-template-columns:1fr;gap:34px}
@@ -305,15 +330,15 @@ footer{background:#080a10;padding:70px 0 30px;border-top:1px solid var(--line)}
 <!-- 导航栏 -->
 <nav class="nav" id="nav">
   <div class="container nav-inner">
-    <a class="logo" href="#top"><span class="logo-mark">N</span>Nebula</a>
+    <a class="logo" href="#top" aria-label="ContentX 首页"><span class="logo-mark">CX</span>ContentX</a>
     <ul class="nav-links" id="navLinks">
-      <li><a href="#features">产品特性</a></li>
-      <li><a href="#services">服务</a></li>
-      <li><a href="#works">案例</a></li>
-      <li><a href="#quotes">客户评价</a></li>
-      <li><a href="#contact" class="nav-cta">开始合作</a></li>
+      <li><a href="#features">核心优势</a></li>
+      <li><a href="#workflow">内容工作流</a></li>
+      <li><a href="#compare">产品路线</a></li>
+      <li><a href="#for-whom">适合谁</a></li>
+      <li><a href="https://github.com/yamovo/contentx" class="nav-cta" target="_blank" rel="noopener noreferrer">查看 GitHub</a></li>
     </ul>
-    <button class="burger" id="burger" aria-label="菜单"><span></span><span></span><span></span></button>
+    <button class="burger" id="burger" type="button" aria-label="打开导航菜单" aria-controls="navLinks" aria-expanded="false"><span></span><span></span><span></span></button>
   </div>
 </nav>
 
@@ -321,28 +346,33 @@ footer{background:#080a10;padding:70px 0 30px;border-top:1px solid var(--line)}
 <header class="hero" id="top">
   <div class="container hero-grid">
     <div>
-      <div class="hero-tag"><i></i>2026 全新品牌升级</div>
-      <h1>打造下一代<br><span class="grad">数字体验</span><br>从想法到增长</h1>
-      <p>Nebula 是一家专注品牌、产品与增长的数字工作室。我们用设计与工程的力量,帮初创团队与成熟企业把想法变成用户喜爱的产品。</p>
+      <div class="hero-tag"><i></i>v1.4.0 · MIT 开源 · 可自托管</div>
+      <h1><span class="grad">ContentX</span><br>面向开发者和 AI Agent 的<br>自托管 Headless CMS</h1>
+      <p>让内容数据、权限和部署留在自己的基础设施中。当前服务端核心以 Go 构建，但开发者和 AI Agent 只需依赖 REST、只读 GraphQL、OpenAPI 与 MCP 等语言中立契约。</p>
       <div class="hero-actions">
-        <a href="#contact" class="btn btn-primary">免费咨询 →</a>
-        <a href="#works" class="btn btn-ghost">查看案例</a>
+        <a href="https://github.com/yamovo/contentx" class="btn btn-primary" target="_blank" rel="noopener noreferrer">在 GitHub 查看源码 →</a>
+        <a href="https://github.com/yamovo/contentx/tree/main/docs" class="btn btn-ghost" target="_blank" rel="noopener noreferrer">阅读项目文档</a>
       </div>
       <div class="hero-stats">
-        <div><b>120+</b><span>交付项目</span></div>
-        <div><b>98%</b><span>客户满意度</span></div>
-        <div><b>8 年</b><span>行业经验</span></div>
+        <div><b>Go</b><span>后端核心</span></div>
+        <div><b>2× MCP</b><span>stdio / HTTP</span></div>
+        <div><b>MIT</b><span>开放许可证</span></div>
       </div>
     </div>
     <div class="hero-visual">
       <div class="hero-card">
         <div class="hero-card-inner">
-          <div class="kpi"><span>本月增长</span><b>+128.4%</b></div>
-          <div class="chart-row"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+          <div class="protocol-head"><span>Content access layer</span><span class="protocol-status">READY</span></div>
+          <div class="protocol-list">
+            <div class="protocol-item"><code>REST</code><span>主要读写接口</span><b>API-first</b></div>
+            <div class="protocol-item"><code>GraphQL</code><span>公开只读查询</span><b>Read</b></div>
+            <div class="protocol-item"><code>MCP</code><span>Agent 工具与资源</span><b>Scoped</b></div>
+          </div>
+          <div class="protocol-foot"><span>Auth <strong>JWT · API Token · TOTP</strong></span><span>Guard <strong>RBAC · Audit</strong></span></div>
         </div>
       </div>
-      <div class="float-badge b1">⚡ 转化率 <b>+64%</b></div>
-      <div class="float-badge b2">🏆 设计大奖 <b>×12</b></div>
+      <div class="float-badge b1">🔐 权限边界 <b>RBAC</b></div>
+      <div class="float-badge b2">🤖 Agent 接口 <b>MCP</b></div>
     </div>
   </div>
 </header>
@@ -351,135 +381,146 @@ footer{background:#080a10;padding:70px 0 30px;border-top:1px solid var(--line)}
 <section id="features">
   <div class="container">
     <div class="sec-head reveal">
-      <span class="sec-kicker">Features</span>
-      <h2>为什么选择 Nebula</h2>
-      <p>六大核心能力,覆盖产品从 0 到 1、从 1 到 100 的每个阶段</p>
+      <span class="sec-kicker">Advantages</span>
+      <h2>为可控的内容基础设施而生</h2>
+      <p>ContentX 把开发者体验、Agent 接入和内容治理放在同一套清晰边界里</p>
     </div>
     <div class="features">
-      <div class="f-card reveal"><div class="f-icon">🎨</div><h3>品牌与视觉设计</h3><p>从 Logo 到完整视觉系统,建立一致且有记忆点的品牌语言,让用户一眼记住你。</p></div>
-      <div class="f-card reveal d1"><div class="f-icon">💻</div><h3>Web / App 开发</h3><p>现代技术栈构建高性能应用,响应式适配全端,秒级加载,稳定可靠。</p></div>
-      <div class="f-card reveal d2"><div class="f-icon">📈</div><h3>数据驱动增长</h3><p>埋点分析与 A/B 实验闭环,每一次改版都有数据支撑,增长不再靠运气。</p></div>
-      <div class="f-card reveal"><div class="f-icon">🤖</div><h3>AI 能力集成</h3><p>智能客服、内容生成、推荐系统,把最新 AI 能力无缝嵌入你的产品流程。</p></div>
-      <div class="f-card reveal d1"><div class="f-icon">🛡️</div><h3>安全与合规</h3><p>从架构层落实安全实践,数据加密、权限隔离、审计日志一应俱全。</p></div>
-      <div class="f-card reveal d2"><div class="f-icon">🚀</div><h3>持续运维支持</h3><p>7×24 监控告警,灰度发布与快速回滚,让产品始终在线、持续进化。</p></div>
+      <div class="f-card reveal"><div class="f-icon">🏠</div><h3>数据与部署归你</h3><p>默认走自托管路线，可选 SQLite、PostgreSQL 或 MySQL，以及本地文件或 S3 兼容对象存储。</p></div>
+      <div class="f-card reveal d1"><div class="f-icon">⚙️</div><h3>开发者优先</h3><p>REST 作为主要读写接口，并提供 OpenAPI 契约、只读 GraphQL 与语言中立的集成边界。</p></div>
+      <div class="f-card reveal d2"><div class="f-icon">🤖</div><h3>AI Agent 原生入口</h3><p>同时提供 stdio 与 Streamable HTTP MCP；HTTP 模式通过 API Token 授权写工具，不让 Agent 绕过业务规则直连数据。</p></div>
+      <div class="f-card reveal"><div class="f-icon">📝</div><h3>发布过程可治理</h3><p>草稿、提交审核、发布、取消发布、定时和归档一条链路，辅以修订历史与乐观锁冲突保护。</p></div>
+      <div class="f-card reveal d1"><div class="f-icon">🔌</div><h3>内容交付不绑前端</h3><p>同一份内容可交给网站、App、内部工具或自动化流程；Webhook、RSS 与 API 负责衔接现有技术栈。</p></div>
+      <div class="f-card reveal d2"><div class="f-icon">🛡️</div><h3>生产基础内置</h3><p>JWT、刷新令牌轮换、API Token、TOTP、RBAC、审计、限流、备份恢复与可观测性共同守住运行边界。</p></div>
     </div>
   </div>
 </section>
 
-<!-- 服务介绍 -->
-<section id="services" style="background:var(--bg-soft);border-top:1px solid var(--line);border-bottom:1px solid var(--line)">
+<!-- 内容工作流 -->
+<section id="workflow" style="background:var(--bg-soft);border-top:1px solid var(--line);border-bottom:1px solid var(--line)">
   <div class="container">
     <div class="sec-head reveal">
-      <span class="sec-kicker">Services</span>
-      <h2>我们的服务流程</h2>
-      <p>四个阶段,标准化交付,每一步都可追踪、可验收</p>
+      <span class="sec-kicker">Workflow</span>
+      <h2>从内容模型到多端交付，一条链路完成</h2>
+      <p>后台服务内容团队，开放接口服务应用与 Agent；每一步都有明确状态和权限边界</p>
     </div>
     <div class="services">
-      <div class="s-card reveal"><div class="s-num">01</div><div><h3>需求洞察</h3><p>深入业务场景,梳理用户旅程与核心指标,输出可落地的产品蓝图。</p><div class="s-tags"><span>用户访谈</span><span>竞品分析</span><span>PRD</span></div></div></div>
-      <div class="s-card reveal d1"><div class="s-num">02</div><div><h3>体验设计</h3><p>从信息架构到高保真原型,多轮评审打磨每个交互细节。</p><div class="s-tags"><span>UI/UX</span><span>设计系统</span><span>原型测试</span></div></div></div>
-      <div class="s-card reveal"><div class="s-num">03</div><div><h3>敏捷开发</h3><p>双周迭代、持续交付,代码评审与自动化测试保障质量底线。</p><div class="s-tags"><span>CI/CD</span><span>代码评审</span><span>自动化测试</span></div></div></div>
-      <div class="s-card reveal d1"><div class="s-num">04</div><div><h3>增长运营</h3><p>上线不是终点。数据看板 + 增长实验,陪跑产品持续进化。</p><div class="s-tags"><span>数据看板</span><span>A/B 实验</span><span>SEO</span></div></div></div>
+      <div class="s-card reveal"><div class="s-num">01</div><div><h3>定义与组织</h3><p>使用文章、页面、分类、标签等内置结构，或创建自定义内容类型和国际化字段。</p><div class="s-tags"><span>内容模型</span><span>动态条目</span><span>i18n 字段</span></div></div></div>
+      <div class="s-card reveal d1"><div class="s-num">02</div><div><h3>创作与审核</h3><p>作者创建草稿，编辑跨作者审核；修订历史和乐观锁让协作过程可追踪、可恢复。</p><div class="s-tags"><span>草稿</span><span>审核</span><span>修订历史</span></div></div></div>
+      <div class="s-card reveal"><div class="s-num">03</div><div><h3>发布与查询</h3><p>定时或手动发布，再通过 REST、公开只读 GraphQL、RSS 等渠道交付到不同终端。</p><div class="s-tags"><span>REST</span><span>GraphQL Read</span><span>RSS</span></div></div></div>
+      <div class="s-card reveal d1"><div class="s-num">04</div><div><h3>自动化与回溯</h3><p>Webhook 持久化投递衔接下游系统，MCP 接入 Agent；审计日志记录关键业务操作。</p><div class="s-tags"><span>Webhook</span><span>MCP</span><span>Audit</span></div></div></div>
     </div>
   </div>
 </section>
 
-<!-- 作品展示 -->
-<section id="works">
+<!-- 产品路线对比 -->
+<section id="compare">
   <div class="container">
     <div class="sec-head reveal">
-      <span class="sec-kicker">Works</span>
-      <h2>精选案例</h2>
-      <p>每一个项目,都是一次与客户共同完成的创造</p>
+      <span class="sec-kicker">Positioning</span>
+      <h2>不是谁替代谁，而是默认路线不同</h2>
+      <p>如果你需要的是自托管、Go 技术路线和可治理的 Agent 内容操作，ContentX 会更顺手</p>
     </div>
-    <div class="works">
-      <div class="w-card reveal"><div class="w-cover c1"><span>🛍️</span></div><div class="w-body"><h3>星选电商 App</h3><p>重构购物流程,转化率提升 64%,月活破百万。</p></div></div>
-      <div class="w-card reveal d1"><div class="w-cover c2"><span>🏦</span></div><div class="w-body"><h3>蓝海金融平台</h3><p>理财 SaaS 全案设计开发,服务 30+ 机构客户。</p></div></div>
-      <div class="w-card reveal d2"><div class="w-cover c3"><span>🍜</span></div><div class="w-body"><h3>食光餐饮连锁</h3><p>小程序点餐 + 会员体系,复购率提升 41%。</p></div></div>
-      <div class="w-card reveal"><div class="w-cover c4"><span>🌿</span></div><div class="w-body"><h3>绿洲健康</h3><p>AI 健康助手,上线 6 个月用户突破 50 万。</p></div></div>
-      <div class="w-card reveal d1"><div class="w-cover c5"><span>🎓</span></div><div class="w-body"><h3>启明在线教育</h3><p>互动课堂重构,完课率从 38% 提升至 72%。</p></div></div>
-      <div class="w-card reveal d2"><div class="w-cover c6"><span>✈️</span></div><div class="w-body"><h3>云旅出行</h3><p>一站式差旅平台,企业客户续费率 95%。</p></div></div>
+    <div class="compare-wrap reveal" role="region" aria-label="ContentX 与常见 CMS 产品路线对比" tabindex="0">
+      <table class="compare-table">
+        <thead>
+          <tr><th scope="col">关注点</th><th scope="col">一体式 CMS</th><th scope="col">通用 Headless CMS</th><th scope="col" class="cx-col">ContentX</th></tr>
+        </thead>
+        <tbody>
+          <tr><th scope="row">默认交付方式</th><td>页面、主题与内容管理紧密结合</td><td>以 API 或 SDK 向多端交付内容</td><td class="cx-col">REST 读写 + 只读 GraphQL + OpenAPI 契约</td></tr>
+          <tr><th scope="row">部署与数据</th><td>通常与网站运行环境一起管理</td><td>可托管或自托管，取决于具体产品</td><td class="cx-col">自托管优先；数据库和对象存储由团队选择</td></tr>
+          <tr><th scope="row">Agent 接入</th><td>通常需要自行桥接内容能力</td><td>多通过 API、SDK 或产品生态集成</td><td class="cx-col">内置 stdio 与 Streamable HTTP MCP</td></tr>
+          <tr><th scope="row">Agent 写入治理</th><td>取决于插件与既有工作流</td><td>取决于产品权限模型与集成方式</td><td class="cx-col">沿用 API Token / RBAC；创建默认草稿，发布需要独立权限</td></tr>
+          <tr><th scope="row">更适合</th><td>站点页面与内容编辑高度一体的项目</td><td>需要成熟生态或托管服务的多端项目</td><td class="cx-col">偏好 Go、自有基础设施与受控 Agent 自动化的团队</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="compare-note reveal"><p>以上比较描述常见产品路线，不代表所有产品；其他 Headless CMS 也可能支持自托管，具体能力以各产品版本和部署方案为准。</p><a href="https://github.com/yamovo/contentx/blob/main/docs/PRD.md" target="_blank" rel="noopener noreferrer">查看产品范围 →</a></div>
+    <div class="boundary reveal">
+      <p><strong>能力边界公开：</strong>当前 GraphQL 仅支持公开只读查询；外部插件沙箱、计费与 SSO 尚未交付，多租户基础仍在建设中。</p>
+      <a href="https://github.com/yamovo/contentx/blob/main/docs/STATUS.md" target="_blank" rel="noopener noreferrer">查看当前状态 →</a>
     </div>
   </div>
 </section>
 
-<!-- 客户评价 -->
-<section id="quotes" style="background:var(--bg-soft);border-top:1px solid var(--line)">
+<!-- 适合团队 -->
+<section id="for-whom" style="background:var(--bg-soft);border-top:1px solid var(--line)">
   <div class="container">
     <div class="sec-head reveal">
-      <span class="sec-kicker">Testimonials</span>
-      <h2>客户怎么说</h2>
-      <p>真实的反馈,是我们最好的名片</p>
+      <span class="sec-kicker">Built For</span>
+      <h2>适合这些团队</h2>
+      <p>把 ContentX 当作统一的内容后端，而不是另一个要迁就的页面系统</p>
     </div>
     <div class="quotes">
       <div class="q-card reveal">
-        <div class="q-stars">★★★★★</div>
-        <p>"Nebula 团队对细节的追求令人印象深刻。新官网上线后,我们的询盘量翻了三倍,超出预期太多。"</p>
-        <div class="q-who"><div class="q-avatar">林</div><div><b>林晓峰</b><span>星选电商 · CEO</span></div></div>
+        <div class="persona-icon">🧑‍💻</div>
+        <h3>产品与平台开发团队</h3>
+        <p>前端框架、终端形态和发布节奏由你决定，ContentX 提供稳定的内容模型、接口契约与管理后台。</p>
+        <ul class="persona-points"><li>网站、App 与内部工具共用内容</li><li>需要 REST、OpenAPI 或只读 GraphQL</li><li>偏好 Go 与容器化部署</li></ul>
       </div>
       <div class="q-card reveal d1">
-        <div class="q-stars">★★★★★</div>
-        <p>"从需求到上线只用了八周,沟通顺畅、交付准时。这是我合作过最专业的外部团队,没有之一。"</p>
-        <div class="q-who"><div class="q-avatar">苏</div><div><b>苏婉清</b><span>蓝海金融 · 产品总监</span></div></div>
+        <div class="persona-icon">🤖</div>
+        <h3>AI Agent 与自动化团队</h3>
+        <p>通过标准 MCP 接入内容资源和工具，让 Agent 在显式授权范围内参与创作、更新与发布流程。</p>
+        <ul class="persona-points"><li>stdio 与 Streamable HTTP 两种传输</li><li>HTTP MCP 写入默认进入草稿</li><li>发布权限与日常写入分离</li></ul>
       </div>
       <div class="q-card reveal d2">
-        <div class="q-stars">★★★★★</div>
-        <p>"他们不只是执行需求,还会主动挑战我们的假设,用数据证明什么是对的。这种伙伴非常难得。"</p>
-        <div class="q-who"><div class="q-avatar">陈</div><div><b>陈默</b><span>绿洲健康 · 创始人</span></div></div>
+        <div class="persona-icon">🔐</div>
+        <h3>重视数据边界的组织</h3>
+        <p>把数据库、对象存储、密钥和运维节奏掌握在自己的基础设施中，同时给编辑团队清晰的日常工作台。</p>
+        <ul class="persona-points"><li>RBAC、TOTP 与关键操作审计</li><li>备份恢复和迁移可重复</li><li>指标、追踪与健康检查可接入</li></ul>
       </div>
     </div>
   </div>
 </section>
 
-<!-- 合作伙伴 -->
+<!-- 技术与协议 -->
 <div class="partners">
   <div class="container partner-track reveal">
-    <span>TENCENT</span><span>Alibaba</span><span>ByteDance</span><span>MEITUAN</span><span>Xiaomi</span><span>NetEase</span>
+    <span>GO</span><span>VUE 3</span><span>REST</span><span>GRAPHQL</span><span>MCP</span><span>OPENAPI</span>
   </div>
 </div>
 
 <!-- 页脚 -->
-<footer id="contact">
+<footer>
   <div class="container">
     <div class="foot-grid">
       <div>
-        <a class="logo" href="#top"><span class="logo-mark">N</span>Nebula</a>
-        <p class="foot-desc">用设计与工程的力量,把想法变成用户喜爱的产品。期待与你的下一次合作。</p>
+        <a class="logo" href="#top"><span class="logo-mark">CX</span>ContentX</a>
+        <p class="foot-desc">面向开发者和 AI Agent 的自托管 Headless CMS。</p>
         <div class="socials">
-          <a href="#" aria-label="微信">💬</a>
-          <a href="#" aria-label="微博">🔥</a>
-          <a href="#" aria-label="GitHub">🐙</a>
-          <a href="#" aria-label="B站">📺</a>
+          <a href="https://github.com/yamovo/contentx" aria-label="ContentX GitHub 仓库" target="_blank" rel="noopener noreferrer">🐙</a>
         </div>
       </div>
       <div>
-        <h4>快速导航</h4>
+        <h4>了解产品</h4>
         <ul>
-          <li><a href="#features">产品特性</a></li>
-          <li><a href="#services">服务流程</a></li>
-          <li><a href="#works">精选案例</a></li>
-          <li><a href="#quotes">客户评价</a></li>
+          <li><a href="#features">核心优势</a></li>
+          <li><a href="#workflow">内容工作流</a></li>
+          <li><a href="#compare">产品路线</a></li>
+          <li><a href="#for-whom">适合团队</a></li>
         </ul>
       </div>
       <div>
-        <h4>服务</h4>
+        <h4>开发者</h4>
         <ul>
-          <li><a href="#">品牌设计</a></li>
-          <li><a href="#">Web 开发</a></li>
-          <li><a href="#">移动应用</a></li>
-          <li><a href="#">增长咨询</a></li>
+          <li><a href="https://github.com/yamovo/contentx#快速开始" target="_blank" rel="noopener noreferrer">快速开始</a></li>
+          <li><a href="https://github.com/yamovo/contentx/tree/main/docs" target="_blank" rel="noopener noreferrer">文档中心</a></li>
+          <li><a href="https://github.com/yamovo/contentx/blob/main/docs/api/swagger.yaml" target="_blank" rel="noopener noreferrer">OpenAPI</a></li>
+          <li><a href="https://github.com/yamovo/contentx/blob/main/CONTRIBUTING.md" target="_blank" rel="noopener noreferrer">参与贡献</a></li>
         </ul>
       </div>
       <div>
-        <h4>联系我们</h4>
-        <ul class="foot-contact">
-          <li>📍 武汉市洪山区光谷创意大厦 12F</li>
-          <li>📧 hello@nebula.studio</li>
-          <li>📞 027-8888-6666</li>
-          <li>🕐 周一至周五 9:00 – 18:30</li>
+        <h4>项目透明度</h4>
+        <ul>
+          <li><a href="https://github.com/yamovo/contentx/blob/main/docs/STATUS.md" target="_blank" rel="noopener noreferrer">当前状态与限制</a></li>
+          <li><a href="https://github.com/yamovo/contentx/blob/main/docs/ROADMAP.md" target="_blank" rel="noopener noreferrer">路线图</a></li>
+          <li><a href="https://github.com/yamovo/contentx/blob/main/CHANGELOG.md" target="_blank" rel="noopener noreferrer">变更日志</a></li>
+          <li><a href="https://github.com/yamovo/contentx/blob/main/SECURITY.md" target="_blank" rel="noopener noreferrer">安全策略</a></li>
         </ul>
       </div>
     </div>
-    <div class="copyright">© 2026 Nebula Studio · 保留所有权利 · 鄂ICP备00000000号</div>
+    <div class="copyright">© 2026 ContentX Contributors · Released under the MIT License</div>
   </div>
 </footer>
 
@@ -490,8 +531,14 @@ addEventListener('scroll',()=>nav.classList.toggle('scrolled',scrollY>10),{passi
 
 // 移动端菜单
 const burger=document.getElementById('burger'),links=document.getElementById('navLinks');
-burger.addEventListener('click',()=>{burger.classList.toggle('open');links.classList.toggle('open')});
-links.addEventListener('click',e=>{if(e.target.tagName==='A'){burger.classList.remove('open');links.classList.remove('open')}});
+const setMenu=open=>{
+  burger.classList.toggle('open',open);
+  links.classList.toggle('open',open);
+  burger.setAttribute('aria-expanded',String(open));
+  burger.setAttribute('aria-label',open?'关闭导航菜单':'打开导航菜单');
+};
+burger.addEventListener('click',()=>setMenu(!links.classList.contains('open')));
+links.addEventListener('click',e=>{if(e.target.tagName==='A')setMenu(false)});
 
 // 滚动进入动画
 const io=new IntersectionObserver(es=>es.forEach(e=>{

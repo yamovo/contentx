@@ -34,6 +34,7 @@ type Config struct {
 	Metrics   MetricsConfig
 	Tracing   TracingConfig
 	MCP       MCPConfig
+	AI        AIConfig
 }
 
 // I18nConfig holds internationalization settings.
@@ -67,6 +68,29 @@ type MCPConfig struct {
 	// Default false: the network-exposed MCP surface is opt-in. When enabled it
 	// still requires a valid API token (models.APIToken).
 	HTTPEnabled bool
+}
+
+// AIConfig holds AI/RAG settings: embedding generation, vector store, and
+// optional LLM for answer synthesis. All fields default to safe values so
+// ContentX runs without any external AI service.
+type AIConfig struct {
+	Enabled            bool   // master switch; when false all AI endpoints return 503
+	EmbeddingProvider  string // "openai" (OpenAI-compatible), "dummy"
+	EmbeddingModel     string // e.g. "text-embedding-3-small"
+	EmbeddingAPIKey    string
+	EmbeddingBaseURL   string  // OpenAI-compatible base URL (empty = api.openai.com)
+	EmbeddingDimension int     // vector dimension (must match model)
+	VectorStore        string  // "memory" (in-process)
+	ChunkSize          int     // max characters per text chunk
+	ChunkOverlap       int     // character overlap between adjacent chunks
+	TopK               int     // default number of retrieval results
+	MinScore           float64 // minimum cosine similarity (0..1) for results
+	AllowOutbound      bool    // when false, blocks outbound calls to embedding/LLM APIs (data exfiltration protection)
+	RateLimit          int     // max AI requests per minute per IP (0 = use global default)
+	LLMProvider        string  // "openai" (OpenAI-compatible), "dummy"
+	LLMModel           string  // e.g. "gpt-4o-mini"
+	LLMAPIKey          string
+	LLMBaseURL         string
 }
 
 // ServerConfig holds HTTP server settings.
@@ -387,6 +411,25 @@ func Load() *Config {
 		MCP: MCPConfig{
 			IncludeDrafts: envBool("MCP_INCLUDE_DRAFTS", false),
 			HTTPEnabled:   envBool("MCP_HTTP_ENABLED", false),
+		},
+		AI: AIConfig{
+			Enabled:            envBool("AI_ENABLED", false),
+			EmbeddingProvider:  envStr("AI_EMBEDDING_PROVIDER", "dummy"),
+			EmbeddingModel:     envStr("AI_EMBEDDING_MODEL", "text-embedding-3-small"),
+			EmbeddingAPIKey:    envStr("AI_EMBEDDING_API_KEY", ""),
+			EmbeddingBaseURL:   envStr("AI_EMBEDDING_BASE_URL", ""),
+			EmbeddingDimension: envInt("AI_EMBEDDING_DIMENSION", 384),
+			VectorStore:        envStr("AI_VECTOR_STORE", "memory"),
+			ChunkSize:          envInt("AI_CHUNK_SIZE", 1000),
+			ChunkOverlap:       envInt("AI_CHUNK_OVERLAP", 200),
+			TopK:               envInt("AI_TOP_K", 5),
+			MinScore:           envFloat("AI_MIN_SCORE", 0.0),
+			AllowOutbound:      envBool("AI_ALLOW_OUTBOUND", true),
+			RateLimit:          envInt("AI_RATE_LIMIT", 30),
+			LLMProvider:        envStr("AI_LLM_PROVIDER", "dummy"),
+			LLMModel:           envStr("AI_LLM_MODEL", "gpt-4o-mini"),
+			LLMAPIKey:          envStr("AI_LLM_API_KEY", ""),
+			LLMBaseURL:         envStr("AI_LLM_BASE_URL", ""),
 		},
 	}
 }

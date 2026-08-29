@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -16,6 +17,8 @@ import (
 
 	"github.com/yamovo/contentx/internal/database"
 	"github.com/yamovo/contentx/internal/mcp"
+	"github.com/yamovo/contentx/internal/models"
+	"github.com/yamovo/contentx/internal/permissions"
 	"github.com/yamovo/contentx/internal/services"
 )
 
@@ -28,11 +31,32 @@ func setupMCPTestDB(t *testing.T) *gorm.DB {
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
-	if err := database.AutoMigrate(db); err != nil {
-		t.Fatalf("migrate: %v", err)
+	prepareHandlerTestDB(t, db)
+	if err := database.Seed(db); err != nil {
+		t.Fatalf("seed: %v", err)
 	}
-	database.Seed(db)
+	defaultTenant := &models.Tenant{
+		BaseModel: models.BaseModel{ID: models.DefaultTenantID},
+		Name:      "Default",
+		Slug:      "default",
+		Status:    models.TenantStatusActive,
+	}
+	if err := db.Where("id = ?", models.DefaultTenantID).FirstOrCreate(defaultTenant).Error; err != nil {
+		t.Fatalf("create default tenant: %v", err)
+	}
 	return db
+}
+
+func grantMCPMembership(t *testing.T, db *gorm.DB, userID, tenantID uint, role string) {
+	t.Helper()
+	membership := &models.TenantMembership{
+		TenantID: tenantID,
+		UserID:   userID,
+		RoleSlug: role,
+	}
+	if err := db.Create(membership).Error; err != nil {
+		t.Fatalf("create MCP tenant membership: %v", err)
+	}
 }
 
 // TestMCPTokenAuth verifies the API-token gate on the MCP HTTP endpoint.
@@ -40,8 +64,12 @@ func TestMCPTokenAuth(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db := setupMCPTestDB(t)
 	user := createTestUserDB(t, db, "mcp-token-user", "admin")
+	grantMCPMembership(t, db, user.ID, models.DefaultTenantID, models.TenantRoleAdmin)
 	tokenSvc := services.NewTokenService(db)
-	created, err := tokenSvc.Create(services.CreateTokenRequest{Name: "mcp"}, user.ID)
+	created, err := tokenSvc.Create(services.CreateTokenRequest{
+		Name:        "mcp",
+		Permissions: []string{permissions.ArticlesRead},
+	}, user.ID, models.DefaultTenantID)
 	if err != nil {
 		t.Fatalf("create token: %v", err)
 	}
@@ -76,6 +104,89 @@ func TestMCPTokenAuth(t *testing.T) {
 	}
 }
 
+func TestMCPTokenAuth_UsesVerifiedTokenTenant(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupMCPTestDB(t)
+	user := createTestUserDB(t, db, "mcp-tenant-principal", "admin")
+	tenantB := &models.Tenant{Name: "MCP Tenant B", Slug: "mcp-tenant-b", Status: models.TenantStatusActive}
+	if err := db.Create(tenantB).Error; err != nil {
+		t.Fatalf("create tenant B: %v", err)
+	}
+	grantMCPMembership(t, db, user.ID, tenantB.ID, models.TenantRoleAdmin)
+	tokenSvc := services.NewTokenService(db)
+	created, err := tokenSvc.Create(services.CreateTokenRequest{
+		Name:        "tenant-b-mcp",
+		Permissions: []string{permissions.ArticlesRead},
+	}, user.ID, tenantB.ID)
+	if err != nil {
+		t.Fatalf("create token: %v", err)
+	}
+
+	r := gin.New()
+	r.GET("/guarded", mcpTokenAuth(tokenSvc), func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"tenant_id": mcp.TenantFromContext(c.Request.Context())})
+	})
+	req := httptest.NewRequest(http.MethodGet, "/guarded", nil)
+	req.Header.Set("Authorization", "Bearer "+created.Token)
+	req.Header.Set("X-Tenant-ID", "1")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
+	}
+	var body struct {
+		TenantID uint `json:"tenant_id"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if body.TenantID != tenantB.ID {
+		t.Fatalf("context tenant = %d, want token tenant %d", body.TenantID, tenantB.ID)
+	}
+}
+
+func TestMCPAuthorizer_UsesEffectiveVerifiedPrincipal(t *testing.T) {
+	db := setupMCPTestDB(t)
+	user := createTestUserDB(t, db, "mcp-effective-principal", "admin")
+	grantMCPMembership(t, db, user.ID, models.DefaultTenantID, models.TenantRoleMember)
+	tokenSvc := services.NewTokenService(db)
+	created, err := tokenSvc.Create(services.CreateTokenRequest{
+		Name:        "effective-mcp",
+		Permissions: []string{permissions.Wildcard},
+	}, user.ID, models.DefaultTenantID)
+	if err != nil {
+		t.Fatalf("create token: %v", err)
+	}
+
+	header := make(http.Header)
+	header.Set("Authorization", "Bearer "+created.Token)
+	identity, err := (mcpAuthorizer{tokenSvc: tokenSvc}).Resolve(header)
+	if err != nil {
+		t.Fatalf("resolve MCP writer: %v", err)
+	}
+	if identity.UserID != user.ID || identity.TenantID != models.DefaultTenantID {
+		t.Fatalf("writer identity = user %d tenant %d", identity.UserID, identity.TenantID)
+	}
+	if !permissions.Grants(identity.Permissions, permissions.ArticlesRead) {
+		t.Fatal("expected member-readable article permission")
+	}
+	if permissions.Grants(identity.Permissions, permissions.ArticlesPublish) {
+		t.Fatal("MCP writer must use the tenant-member permission ceiling")
+	}
+	if permissions.Grants(identity.Permissions, permissions.UsersDelete) {
+		t.Fatal("MCP writer must not receive platform permissions")
+	}
+
+	if err := db.Where("tenant_id = ? AND user_id = ?", models.DefaultTenantID, user.ID).
+		Delete(&models.TenantMembership{}).Error; err != nil {
+		t.Fatalf("remove membership: %v", err)
+	}
+	if _, err := (mcpAuthorizer{tokenSvc: tokenSvc}).Resolve(header); err == nil {
+		t.Fatal("MCP authorizer must reject a principal after membership removal")
+	}
+}
+
 // authRoundTripper injects a Bearer token on every request, since the SDK's
 // StreamableClientTransport has no header field of its own.
 type authRoundTripper struct {
@@ -96,6 +207,7 @@ func TestMCPHTTPRoundTrip(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db := setupMCPTestDB(t)
 	user := createTestUserDB(t, db, "mcp-http-user", "admin")
+	grantMCPMembership(t, db, user.ID, models.DefaultTenantID, models.TenantRoleAdmin)
 	createTestArticleDB(t, db, user.ID, "Published One")
 
 	articleSvc := services.NewArticleService(db, "http://localhost:8080")
@@ -104,7 +216,10 @@ func TestMCPHTTPRoundTrip(t *testing.T) {
 		t.Fatalf("reindex: %v", err)
 	}
 	tokenSvc := services.NewTokenService(db)
-	created, err := tokenSvc.Create(services.CreateTokenRequest{Name: "mcp"}, user.ID)
+	created, err := tokenSvc.Create(services.CreateTokenRequest{
+		Name:        "mcp",
+		Permissions: []string{permissions.ArticlesRead},
+	}, user.ID, models.DefaultTenantID)
 	if err != nil {
 		t.Fatalf("create token: %v", err)
 	}
@@ -170,7 +285,12 @@ func TestMCPHTTPRoundTrip(t *testing.T) {
 // mkToken creates an API token with the given permissions and returns the raw token string.
 func mkToken(t *testing.T, tokenSvc *services.TokenService, userID uint, perms []string) string {
 	t.Helper()
-	created, err := tokenSvc.Create(services.CreateTokenRequest{Name: "mcp", Permissions: perms}, userID)
+	return mkTenantToken(t, tokenSvc, userID, models.DefaultTenantID, perms)
+}
+
+func mkTenantToken(t *testing.T, tokenSvc *services.TokenService, userID, tenantID uint, perms []string) string {
+	t.Helper()
+	created, err := tokenSvc.Create(services.CreateTokenRequest{Name: "mcp", Permissions: perms}, userID, tenantID)
 	if err != nil {
 		t.Fatalf("create token: %v", err)
 	}
@@ -212,6 +332,246 @@ func decodeArticle(t *testing.T, structured any) mcpArticle {
 	return a
 }
 
+func requireMCPToolDenied(t *testing.T, ctx context.Context, cs *mcpsdk.ClientSession, name string, args map[string]any) {
+	t.Helper()
+	res, err := cs.CallTool(ctx, &mcpsdk.CallToolParams{Name: name, Arguments: args})
+	if err == nil && res != nil && !res.IsError {
+		t.Fatalf("%s unexpectedly succeeded: %+v", name, res.StructuredContent)
+	}
+}
+
+// TestMCPReadPermissionsAndDrafts proves that HTTP read tools fail closed on
+// empty or unrelated effective permissions. MCP_INCLUDE_DRAFTS is restricted
+// to local stdio: even an articles.read HTTP token cannot expose drafts.
+func TestMCPReadPermissionsAndDrafts(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupMCPTestDB(t)
+	user := createTestUserDB(t, db, "mcp-read-guard", "admin")
+	grantMCPMembership(t, db, user.ID, models.DefaultTenantID, models.TenantRoleAdmin)
+
+	draft := &models.Article{
+		TenantID: models.DefaultTenantID,
+		Title:    "MCP Secret Draft",
+		Slug:     "mcp-secret-draft",
+		Content:  "draft body must require articles.read",
+		AuthorID: user.ID,
+		Status:   models.StatusDraft,
+	}
+	if err := db.Create(draft).Error; err != nil {
+		t.Fatalf("create draft: %v", err)
+	}
+	published := createTestArticleDB(t, db, user.ID, "MCP Published Article")
+
+	articleSvc := services.NewArticleService(db, "http://localhost:8080")
+	articleSvc.SetSearchIndexer(services.NewBuiltinIndexer())
+	tokenSvc := services.NewTokenService(db)
+	r := gin.New()
+	mountMCPHTTP(r.Group("/api/v1"), mcp.Deps{
+		Article:       articleSvc,
+		ContentType:   services.NewContentTypeService(db),
+		BaseURL:       "http://localhost:8080",
+		IncludeDrafts: true,
+	}, tokenSvc)
+	ts := httptest.NewServer(r)
+	defer ts.Close()
+	endpoint := ts.URL + "/api/v1/mcp"
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	empty := mcpConnect(t, ctx, endpoint, mkToken(t, tokenSvc, user.ID, nil))
+	requireMCPToolDenied(t, ctx, empty, "search_content", map[string]any{"query": "draft"})
+	_ = empty.Close()
+
+	wrong := mcpConnect(t, ctx, endpoint, mkToken(t, tokenSvc, user.ID, []string{permissions.ContentTypesRead}))
+	requireMCPToolDenied(t, ctx, wrong, "get_article", map[string]any{"id": draft.ID})
+	if _, err := wrong.ReadResource(ctx, &mcpsdk.ReadResourceParams{URI: fmt.Sprintf("contentx://articles/%d", draft.ID)}); err == nil {
+		t.Fatal("draft resource unexpectedly readable without articles.read")
+	}
+	_ = wrong.Close()
+
+	reader := mcpConnect(t, ctx, endpoint, mkToken(t, tokenSvc, user.ID, []string{permissions.ArticlesRead}))
+	defer func() { _ = reader.Close() }()
+	requireMCPToolDenied(t, ctx, reader, "get_article", map[string]any{"id": draft.ID})
+	if _, err := reader.ReadResource(ctx, &mcpsdk.ReadResourceParams{URI: fmt.Sprintf("contentx://articles/%d", draft.ID)}); err == nil {
+		t.Fatal("articles.read HTTP token unexpectedly read a draft resource")
+	}
+	res, err := reader.CallTool(ctx, &mcpsdk.CallToolParams{
+		Name:      "get_article",
+		Arguments: map[string]any{"id": published.ID},
+	})
+	if err != nil || res.IsError {
+		t.Fatalf("authorized published read failed: err=%v result=%+v", err, res)
+	}
+	if got := decodeArticle(t, res.StructuredContent); got.Status != string(models.StatusPublished) {
+		t.Fatalf("published status = %q, want %q", got.Status, models.StatusPublished)
+	}
+}
+
+// TestMCPRAGPermissions keeps semantic search and potentially billable answer
+// synthesis separate: ai.read can search but cannot ask, while ai.ask is
+// required for rag_ask. Unrelated article permissions grant neither.
+func TestMCPRAGPermissions(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupMCPTestDB(t)
+	user := createTestUserDB(t, db, "mcp-rag-guard", "admin")
+	grantMCPMembership(t, db, user.ID, models.DefaultTenantID, models.TenantRoleAdmin)
+	article := createTestArticleDB(t, db, user.ID, "Go Agent Security")
+	article.TenantID = models.DefaultTenantID
+
+	articleSvc := services.NewArticleService(db, "http://localhost:8080")
+	articleSvc.SetSearchIndexer(services.NewBuiltinIndexer())
+	ragSvc := services.NewRAGService(
+		db,
+		services.NewDummyEmbeddingProvider(128),
+		services.NewMemoryVectorStore(),
+		services.NewDummyLLM(),
+		500, 100, 5, 0.01,
+	)
+	if err := ragSvc.IndexArticle(context.Background(), article); err != nil {
+		t.Fatalf("index RAG article: %v", err)
+	}
+
+	tokenSvc := services.NewTokenService(db)
+	r := gin.New()
+	mountMCPHTTP(r.Group("/api/v1"), mcp.Deps{
+		Article:     articleSvc,
+		ContentType: services.NewContentTypeService(db),
+		RAG:         ragSvc,
+		BaseURL:     "http://localhost:8080",
+	}, tokenSvc)
+	ts := httptest.NewServer(r)
+	defer ts.Close()
+	endpoint := ts.URL + "/api/v1/mcp"
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	articleOnly := mcpConnect(t, ctx, endpoint, mkToken(t, tokenSvc, user.ID, []string{permissions.ArticlesRead}))
+	requireMCPToolDenied(t, ctx, articleOnly, "rag_search", map[string]any{"query": "Go"})
+	_ = articleOnly.Close()
+
+	searcher := mcpConnect(t, ctx, endpoint, mkToken(t, tokenSvc, user.ID, []string{permissions.AIRead}))
+	searchRes, err := searcher.CallTool(ctx, &mcpsdk.CallToolParams{
+		Name:      "rag_search",
+		Arguments: map[string]any{"query": "Go programming"},
+	})
+	if err != nil || searchRes.IsError {
+		t.Fatalf("ai.read rag_search failed: err=%v result=%+v", err, searchRes)
+	}
+	requireMCPToolDenied(t, ctx, searcher, "rag_ask", map[string]any{"query": "What is Go?"})
+	_ = searcher.Close()
+
+	asker := mcpConnect(t, ctx, endpoint, mkToken(t, tokenSvc, user.ID, []string{permissions.AIAsk}))
+	defer func() { _ = asker.Close() }()
+	askRes, err := asker.CallTool(ctx, &mcpsdk.CallToolParams{
+		Name:      "rag_ask",
+		Arguments: map[string]any{"query": "What is Go?"},
+	})
+	if err != nil || askRes.IsError {
+		t.Fatalf("ai.ask rag_ask failed: err=%v result=%+v", err, askRes)
+	}
+}
+
+// TestMCPResourcesAreTenantScopedAndDynamic covers the SDK resources/list
+// blind spot end-to-end. Each HTTP request discovers schemas from the token's
+// verified tenant, refreshes the catalogue, and rejects callers that lack the
+// resource-specific read permission.
+func TestMCPResourcesAreTenantScopedAndDynamic(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupMCPTestDB(t)
+	user := createTestUserDB(t, db, "mcp-resource-tenant", "admin")
+	tenantA := &models.Tenant{Name: "MCP Tenant A", Slug: "mcp-resource-a", Status: models.TenantStatusActive}
+	tenantB := &models.Tenant{Name: "MCP Tenant B", Slug: "mcp-resource-b", Status: models.TenantStatusActive}
+	if err := db.Create(tenantA).Error; err != nil {
+		t.Fatalf("create tenant A: %v", err)
+	}
+	if err := db.Create(tenantB).Error; err != nil {
+		t.Fatalf("create tenant B: %v", err)
+	}
+	grantMCPMembership(t, db, user.ID, tenantA.ID, models.TenantRoleAdmin)
+	grantMCPMembership(t, db, user.ID, tenantB.ID, models.TenantRoleAdmin)
+
+	ctSvc := services.NewContentTypeService(db)
+	createType := func(tenantID uint, uid, name, description string) {
+		t.Helper()
+		_, err := ctSvc.CreateContentType(services.CreateContentTypeRequest{
+			UID: uid, Name: name, Description: description,
+			Fields: []services.CreateFieldRequest{{Name: "title", Label: "Title", FieldType: models.FieldTypeText}},
+		}, tenantID)
+		if err != nil {
+			t.Fatalf("create content type %s: %v", uid, err)
+		}
+	}
+	createType(tenantA.ID, "tenant_a_schema", "Tenant A Secret", "A-only metadata")
+	createType(tenantB.ID, "tenant_b_schema", "Tenant B Secret", "B-only metadata")
+
+	tokenSvc := services.NewTokenService(db)
+	r := gin.New()
+	mountMCPHTTP(r.Group("/api/v1"), mcp.Deps{
+		Article:     services.NewArticleService(db, "http://localhost:8080"),
+		ContentType: ctSvc,
+		BaseURL:     "http://localhost:8080",
+	}, tokenSvc)
+	ts := httptest.NewServer(r)
+	defer ts.Close()
+	endpoint := ts.URL + "/api/v1/mcp"
+	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
+	defer cancel()
+
+	listText := func(cs *mcpsdk.ClientSession) string {
+		t.Helper()
+		listed, err := cs.ListResources(ctx, nil)
+		if err != nil {
+			t.Fatalf("list resources: %v", err)
+		}
+		var values []string
+		for _, resource := range listed.Resources {
+			values = append(values, resource.URI, resource.Name, resource.Title, resource.Description)
+		}
+		return strings.Join(values, "\n")
+	}
+
+	tokenA := mkTenantToken(t, tokenSvc, user.ID, tenantA.ID, []string{permissions.ContentTypesRead})
+	tokenB := mkTenantToken(t, tokenSvc, user.ID, tenantB.ID, []string{permissions.ContentTypesRead})
+	clientA := mcpConnect(t, ctx, endpoint, tokenA)
+	defer func() { _ = clientA.Close() }()
+	clientB := mcpConnect(t, ctx, endpoint, tokenB)
+	defer func() { _ = clientB.Close() }()
+
+	aList := listText(clientA)
+	if !strings.Contains(aList, "tenant_a_schema") || !strings.Contains(aList, "Tenant A Secret") {
+		t.Fatalf("tenant A metadata missing: %s", aList)
+	}
+	if strings.Contains(aList, "tenant_b_schema") || strings.Contains(aList, "Tenant B Secret") {
+		t.Fatalf("tenant B metadata leaked into tenant A list: %s", aList)
+	}
+	bList := listText(clientB)
+	if !strings.Contains(bList, "tenant_b_schema") || !strings.Contains(bList, "Tenant B Secret") {
+		t.Fatalf("tenant B metadata missing: %s", bList)
+	}
+	if strings.Contains(bList, "tenant_a_schema") || strings.Contains(bList, "Tenant A Secret") {
+		t.Fatalf("tenant A metadata leaked into tenant B list: %s", bList)
+	}
+
+	createType(tenantA.ID, "tenant_a_fresh", "Tenant A Fresh", "registered after connect")
+	if refreshed := listText(clientA); !strings.Contains(refreshed, "tenant_a_fresh") {
+		t.Fatalf("resources/list did not refresh after schema creation: %s", refreshed)
+	}
+	if _, err := clientB.ReadResource(ctx, &mcpsdk.ReadResourceParams{URI: "contentx://content-types/tenant_a_schema"}); err == nil {
+		t.Fatal("tenant B unexpectedly read tenant A content-type resource")
+	}
+
+	noResourcePerm := mcpConnect(t, ctx, endpoint, mkTenantToken(t, tokenSvc, user.ID, tenantA.ID, nil))
+	defer func() { _ = noResourcePerm.Close() }()
+	if _, err := noResourcePerm.ListResources(ctx, nil); err == nil {
+		t.Fatal("resources/list unexpectedly succeeded without content_types.read")
+	}
+	if _, err := noResourcePerm.ListResourceTemplates(ctx, nil); err == nil {
+		t.Fatal("resources/templates/list unexpectedly succeeded without articles.read")
+	}
+}
+
 // TestMCPWriteTools covers the create/update/publish tools and their token-
 // permission gating over the real HTTP transport.
 func TestMCPWriteTools(t *testing.T) {
@@ -219,6 +579,8 @@ func TestMCPWriteTools(t *testing.T) {
 	db := setupMCPTestDB(t)
 	userA := createTestUserDB(t, db, "mcp-writer-a", "admin")
 	userB := createTestUserDB(t, db, "mcp-writer-b", "admin")
+	grantMCPMembership(t, db, userA.ID, models.DefaultTenantID, models.TenantRoleAdmin)
+	grantMCPMembership(t, db, userB.ID, models.DefaultTenantID, models.TenantRoleAdmin)
 
 	articleSvc := services.NewArticleService(db, "http://localhost:8080")
 	articleSvc.SetSearchIndexer(services.NewBuiltinIndexer())

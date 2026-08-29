@@ -103,6 +103,10 @@ const (
 	BackupsCreate  = "backups.create"
 	BackupsRestore = "backups.restore"
 	BackupsDelete  = "backups.delete"
+
+	AIRead  = "ai.read"  // semantic search and RAG status
+	AIAsk   = "ai.ask"   // RAG Q&A (may invoke LLM, incurring cost)
+	AIAdmin = "ai.admin" // reindex and manage AI settings
 )
 
 // Definition describes one canonical permission persisted in the database and
@@ -193,6 +197,10 @@ var definitions = []Definition{
 	{BackupsCreate, "backups", "Create backups"},
 	{BackupsRestore, "backups", "Restore backups"},
 	{BackupsDelete, "backups", "Delete backups"},
+
+	{AIRead, "ai", "Semantic search and AI service status"},
+	{AIAsk, "ai", "RAG Q&A (may invoke LLM, incurring cost)"},
+	{AIAdmin, "ai", "Reindex vectors and manage AI settings"},
 }
 
 var (
@@ -382,6 +390,7 @@ var roleDefinitions = []RoleDefinition{
 			MediaRead, MediaUpload, MediaUpdate, MediaDelete,
 			CategoriesRead, CategoriesCreate, CategoriesUpdate, CategoriesDelete,
 			TagsRead, TagsCreate, TagsUpdate, TagsDelete,
+			AIRead, AIAsk,
 		},
 	},
 	{
@@ -393,6 +402,7 @@ var roleDefinitions = []RoleDefinition{
 			CommentsRead, CommentsCreate,
 			MediaRead, MediaUpload,
 			CategoriesRead, TagsRead,
+			AIRead,
 		},
 	},
 	{

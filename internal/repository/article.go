@@ -94,6 +94,9 @@ type ArticleRepository interface {
 	// ListScheduledDue returns scheduled articles whose ScheduledAt is at or
 	// before `now`, i.e. due for automatic publication. Preloads Author.
 	ListScheduledDue(now time.Time, tenantID uint) ([]models.Article, error)
+	// ListScheduledDueAllTenants returns all due scheduled articles across
+	// every tenant. Used by the background PublishScheduler sweep.
+	ListScheduledDueAllTenants(now time.Time) ([]models.Article, error)
 	EnsureUniqueSlug(original string, excludeID, tenantID uint) (string, error)
 
 	// i18n: ListTranslations returns all articles sharing the same
@@ -263,6 +266,7 @@ func (r *gormArticleRepository) Create(article *models.Article, tagIDs []uint, r
 		}
 		revision := models.Revision{
 			ArticleID: article.ID,
+			TenantID:  article.TenantID,
 			Title:     article.Title,
 			Content:   article.Content,
 			Excerpt:   article.Excerpt,
@@ -470,6 +474,17 @@ func (r *gormArticleRepository) ListPublishedForFeed(limit int, tenantID uint) (
 func (r *gormArticleRepository) ListScheduledDue(now time.Time, tenantID uint) ([]models.Article, error) {
 	var articles []models.Article
 	if err := r.db.Where("status = ? AND scheduled_at <= ? AND tenant_id = ?", models.StatusScheduled, now, tenantID).
+		Preload("Author").
+		Order("scheduled_at ASC").
+		Find(&articles).Error; err != nil {
+		return nil, err
+	}
+	return articles, nil
+}
+
+func (r *gormArticleRepository) ListScheduledDueAllTenants(now time.Time) ([]models.Article, error) {
+	var articles []models.Article
+	if err := r.db.Where("status = ? AND scheduled_at <= ?", models.StatusScheduled, now).
 		Preload("Author").
 		Order("scheduled_at ASC").
 		Find(&articles).Error; err != nil {

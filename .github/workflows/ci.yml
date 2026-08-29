@@ -6,6 +6,13 @@ on:
     tags: ['v*']
   pull_request:
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      release_version:
+        description: SemVer package label used only for validation (for example v1.5.0-rc.1)
+        required: true
+        default: v0.0.0-dispatch
+        type: string
 
 # 取消同一分支上的旧运行，避免并发浪费
 concurrency:
@@ -72,9 +79,52 @@ jobs:
         with:
           file: coverage.out
 
+  settings-databases:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: contentx_test_pw
+          POSTGRES_DB: contentx_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U postgres -d contentx_test"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: contentx_test_pw
+          MYSQL_DATABASE: contentx_test
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -pcontentx_test_pw --silent"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Run live Settings migration and isolation tests
+        env:
+          CONTENTX_SETTINGS_POSTGRES_DSN: host=127.0.0.1 user=postgres password=contentx_test_pw dbname=contentx_test port=5432 sslmode=disable TimeZone=UTC
+          CONTENTX_SETTINGS_MYSQL_DSN: root:contentx_test_pw@tcp(127.0.0.1:3306)/contentx_test?charset=utf8mb4&parseTime=true&loc=UTC
+        run: go test ./internal/database/migrations -run '^TestSettingsIntegration_' -count=1 -v
+
   frontend:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
 
@@ -99,13 +149,58 @@ jobs:
         working-directory: web
         run: npx vue-tsc --noEmit
 
+      - name: Run linter
+        working-directory: web
+        run: npm run lint
+
       - name: Run tests
         working-directory: web
         run: npx vitest run --coverage
 
+      - name: Install Playwright Chromium
+        working-directory: web
+        run: npx playwright install --with-deps chromium
+
+      - name: Run Playwright E2E
+        working-directory: web
+        run: npm run test:e2e
+
       - name: Build frontend
         working-directory: web
         run: npm run build
+
+      - name: Upload frontend bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: contentx-web-dist
+          path: web/dist/
+          if-no-files-found: error
+          retention-days: 7
+
+  sdk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: sdk/typescript
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: sdk/typescript/package-lock.json
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Typecheck, test, build, and validate example
+        run: npm run check
+
+      - name: Verify package contents
+        run: npm pack --dry-run
 
   build:
     runs-on: ubuntu-latest
@@ -122,10 +217,11 @@ jobs:
       - name: Build
         run: go build -o contentx ./cmd/server
 
-      - name: Upload binary
+      - name: Upload CI-only binary
         uses: actions/upload-artifact@v4
         with:
-          name: contentx-linux-amd64
+          # This is a compile-check artifact, not the complete standalone package.
+          name: contentx-ci-binary-linux-amd64
           path: contentx
 
   # ──────────────────────────────────────────────────────────────────────────
@@ -135,8 +231,10 @@ jobs:
   docker:
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    needs: [test, frontend]
-    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
+    needs: [test, settings-databases, frontend, sdk]
+    if: >-
+      github.event_name == 'push' &&
+      (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
     permissions:
       contents: read
       packages: write
@@ -179,15 +277,33 @@ jobs:
           cache-to: type=gha,mode=max
 
   # ──────────────────────────────────────────────────────────────────────────
-  # Release: 打 tag 时构建多平台二进制 + 发布 GitHub Release
+  # Release: 打 tag 时构建可运行的独立包并发布 GitHub Release。
+  #
+  # 默认 SQLite 驱动依赖 CGO。这里有意只发布在 Ubuntu 22.04（glibc）
+  # GitHub 托管 runner 上原生编译和冒烟验证的 linux/amd64 包；
+  # 不要用 CGO_ENABLED=0 伪装成
+  # SQLite 可用的跨平台二进制。其他平台在具备原生 CGO runner 和对应
+  # startup smoke 后再加入矩阵。Docker 镜像仍单独提供 linux/amd64、arm64。
   # ──────────────────────────────────────────────────────────────────────────
-  release:
-    runs-on: ubuntu-latest
+  release-build:
+    name: Release build (${{ matrix.target }})
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 20
-    needs: [test, frontend]
-    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [test, settings-databases, frontend, sdk]
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v'))
     permissions:
-      contents: write
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: linux-amd64
+            runner: ubuntu-22.04
+            goos: linux
+            goarch: amd64
+            binary: contentx
     steps:
       - uses: actions/checkout@v4
 
@@ -196,26 +312,169 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - name: Build cross-platform binaries
+      - name: Resolve and validate release version
+        id: release-version
+        shell: bash
+        env:
+          DISPATCH_VERSION: ${{ inputs.release_version }}
+          TAG_VERSION: ${{ github.ref_name }}
         run: |
-          VERSION=${GITHUB_REF#refs/tags/}
-          mkdir -p dist
-          # linux/amd64
-          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w -X main.version=${VERSION}" -o dist/contentx-${VERSION}-linux-amd64 ./cmd/server
-          # linux/arm64
-          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -ldflags="-s -w -X main.version=${VERSION}" -o dist/contentx-${VERSION}-linux-arm64 ./cmd/server
-          # darwin/amd64
-          CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w -X main.version=${VERSION}" -o dist/contentx-${VERSION}-darwin-amd64 ./cmd/server
-          # darwin/arm64 (Apple Silicon)
-          CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w -X main.version=${VERSION}" -o dist/contentx-${VERSION}-darwin-arm64 ./cmd/server
-          # windows/amd64
-          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags="-s -w -X main.version=${VERSION}" -o dist/contentx-${VERSION}-windows-amd64.exe ./cmd/server
-          # 压缩
-          cd dist
-          for f in contentx-${VERSION}-linux-*; do tar -czf ${f}.tar.gz ${f}; done
-          for f in contentx-${VERSION}-darwin-*; do tar -czf ${f}.tar.gz ${f}; done
-          zip contentx-${VERSION}-windows-amd64.zip contentx-${VERSION}-windows-amd64.exe
-          cd ..
+          set -euo pipefail
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+            version="${DISPATCH_VERSION}"
+          else
+            version="${TAG_VERSION}"
+          fi
+
+          version_pattern='^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z]+([.-][0-9A-Za-z]+)*)?([+][0-9A-Za-z]+([.-][0-9A-Za-z]+)*)?$'
+          if (( ${#version} > 64 )) || [[ ! "${version}" =~ ${version_pattern} ]]; then
+            printf '::error::Unsafe release version: %q\n' "${version}"
+            exit 1
+          fi
+
+          printf 'version=%s\n' "${version}" >> "${GITHUB_OUTPUT}"
+
+      - name: Download frontend bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: contentx-web-dist
+          path: web/dist
+
+      - name: Verify frontend bundle
+        shell: bash
+        run: |
+          test -s web/dist/index.html
+          test -d web/dist/assets
+
+      - name: Build and package
+        shell: bash
+        env:
+          VERSION: ${{ steps.release-version.outputs.version }}
+          TARGET: ${{ matrix.target }}
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          BINARY_NAME: ${{ matrix.binary }}
+        run: |
+          set -euo pipefail
+          package="contentx-${VERSION}-${TARGET}"
+          package_dir="dist/${package}"
+
+          mkdir -p "${package_dir}/web"
+          CGO_ENABLED=1 go build \
+            -trimpath \
+            -ldflags="-s -w -X main.version=${VERSION}" \
+            -o "${package_dir}/${BINARY_NAME}" \
+            ./cmd/server
+
+          cp -R web/dist "${package_dir}/web/dist"
+          cp README.md LICENSE .env.example "${package_dir}/"
+          tar -C dist -czf "dist/${package}.tar.gz" "${package}"
+
+      - name: Smoke test packaged archive
+        shell: bash
+        env:
+          VERSION: ${{ steps.release-version.outputs.version }}
+          TARGET: ${{ matrix.target }}
+          BINARY_NAME: ${{ matrix.binary }}
+        run: |
+          set -euo pipefail
+          package="contentx-${VERSION}-${TARGET}"
+          smoke_root="${RUNNER_TEMP}/contentx-release-smoke"
+
+          mkdir -p "${smoke_root}"
+          tar -xzf "dist/${package}.tar.gz" -C "${smoke_root}"
+          cd "${smoke_root}/${package}"
+
+          test -x "./${BINARY_NAME}"
+          test -s web/dist/index.html
+          test -d web/dist/assets
+
+          mkdir -p smoke/uploads smoke/backups
+          export SERVER_MODE=release
+          export SERVER_HOST=127.0.0.1
+          export SERVER_PORT=18080
+          export SERVER_BASE_URL=http://127.0.0.1:18080
+          export JWT_SECRET=release-smoke-jwt-secret-0123456789
+          export ADMIN_PASSWORD=release-smoke-admin-0123456789
+          export DB_DRIVER=sqlite
+          export DB_NAME="${PWD}/smoke/contentx"
+          export CACHE_DRIVER=memory
+          export STORAGE_DRIVER=local
+          export UPLOAD_STORAGE_PATH="${PWD}/smoke/uploads"
+          export BACKUP_DIR="${PWD}/smoke/backups"
+
+          "./${BINARY_NAME}" --migrate
+          "./${BINARY_NAME}" --migrate-status | tee smoke/migrate-status.log
+          grep -q '✓ v1' smoke/migrate-status.log
+
+          "./${BINARY_NAME}" >smoke/server.log 2>&1 &
+          server_pid=$!
+          cleanup() {
+            kill -TERM "${server_pid}" 2>/dev/null || true
+            wait "${server_pid}" 2>/dev/null || true
+          }
+          trap cleanup EXIT
+
+          ready=false
+          for _ in $(seq 1 30); do
+            if curl --fail --silent --show-error \
+              http://127.0.0.1:18080/api/v1/system/health \
+              --output smoke/health.json; then
+              ready=true
+              break
+            fi
+            if ! kill -0 "${server_pid}" 2>/dev/null; then
+              cat smoke/server.log
+              exit 1
+            fi
+            sleep 1
+          done
+          if [ "${ready}" != true ]; then
+            cat smoke/server.log
+            exit 1
+          fi
+
+          curl --fail --silent --show-error \
+            http://127.0.0.1:18080/ \
+            --output smoke/index.html
+          grep -q '<div id="app"></div>' smoke/index.html
+          asset_path=$(grep -oE '/assets/[^" ]+\.js' smoke/index.html | sed -n '1p')
+          test -n "${asset_path}"
+          curl --fail --silent --show-error \
+            "http://127.0.0.1:18080${asset_path}" \
+            --output smoke/app.js
+          test -s smoke/app.js
+
+      - name: Upload release archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: contentx-release-${{ matrix.target }}
+          path: dist/contentx-${{ steps.release-version.outputs.version }}-${{ matrix.target }}.tar.gz
+          if-no-files-found: error
+          retention-days: 7
+
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: [release-build]
+    # A dispatch may target a tag ref, so event_name must also be checked.
+    # Only a pushed v* tag is allowed to create or update a GitHub Release.
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+    steps:
+      - name: Download release archives
+        uses: actions/download-artifact@v4
+        with:
+          pattern: contentx-release-*
+          path: dist
+          merge-multiple: true
+
+      - name: Verify release archives
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(find dist -maxdepth 1 -type f -name '*.tar.gz' | wc -l)" -gt 0
           ls -la dist/
 
       - name: Create GitHub Release
@@ -224,4 +483,3 @@ jobs:
           generate_release_notes: true
           files: |
             dist/*.tar.gz
-            dist/*.zip

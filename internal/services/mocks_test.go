@@ -229,6 +229,13 @@ func (m *MockArticleRepository) ListScheduledDue(now time.Time, _ uint) ([]model
 	return m.ScheduledDue, nil
 }
 
+func (m *MockArticleRepository) ListScheduledDueAllTenants(now time.Time) ([]models.Article, error) {
+	if m.ListScheduledDueErr != nil {
+		return nil, m.ListScheduledDueErr
+	}
+	return m.ScheduledDue, nil
+}
+
 func (m *MockArticleRepository) EnsureUniqueSlug(original string, excludeID, _ uint) (string, error) {
 	m.EnsureUniqueCalls = append(m.EnsureUniqueCalls, original)
 	if m.UniqueSlugSuffix != "" {
@@ -266,6 +273,8 @@ type MockAuthRepository struct {
 	DefaultRole            *models.Role
 	RoleBySlug             *models.Role
 	Setting                *models.SiteSetting
+	TenantByID             *models.Tenant
+	Memberships            []models.TenantMembership
 
 	// 错误控制
 	FindUserByUsernameOrEmailErr error
@@ -280,6 +289,9 @@ type MockAuthRepository struct {
 	FindRoleBySlugErr            error
 	CreateActivityLogErr         error
 	FindSettingErr               error
+	FindTenantErr                error
+	CreateMembershipErr          error
+	FindUserMembershipsErr       error
 
 	// 调用追踪
 	CreatedUsers      []*models.User
@@ -376,12 +388,36 @@ func (m *MockAuthRepository) CreateActivityLog(log *models.ActivityLog) error {
 	return nil
 }
 
-func (m *MockAuthRepository) FindSetting(key string) (*models.SiteSetting, error) {
+func (m *MockAuthRepository) FindSetting(key string, tenantID uint) (*models.SiteSetting, error) {
 	m.FindSettingCalls = append(m.FindSettingCalls, key)
 	if m.FindSettingErr != nil {
 		return nil, m.FindSettingErr
 	}
 	return m.Setting, nil
+}
+
+func (m *MockAuthRepository) FindTenantByID(id uint) (*models.Tenant, error) {
+	if m.FindTenantErr != nil {
+		return nil, m.FindTenantErr
+	}
+	if m.TenantByID != nil {
+		return m.TenantByID, nil
+	}
+	return &models.Tenant{BaseModel: models.BaseModel{ID: id}, Status: models.TenantStatusActive}, nil
+}
+
+func (m *MockAuthRepository) CreateMembership(mem *models.TenantMembership) error {
+	if m.CreateMembershipErr != nil {
+		return m.CreateMembershipErr
+	}
+	return nil
+}
+
+func (m *MockAuthRepository) FindUserMemberships(userID uint) ([]models.TenantMembership, error) {
+	if m.FindUserMembershipsErr != nil {
+		return nil, m.FindUserMembershipsErr
+	}
+	return m.Memberships, nil
 }
 
 // ---------- MockCommentRepository ----------
@@ -582,6 +618,7 @@ type MockWebhookRepository struct {
 	CreatedLogs        []*models.WebhookLog
 	EnqueuedDeliveries []*models.WebhookDelivery
 	ListActiveCalls    int
+	ListActiveTenantID uint
 }
 
 func (m *MockWebhookRepository) Create(wh *models.Webhook) error {
@@ -592,21 +629,21 @@ func (m *MockWebhookRepository) Create(wh *models.Webhook) error {
 	return nil
 }
 
-func (m *MockWebhookRepository) List() ([]models.Webhook, error) {
+func (m *MockWebhookRepository) List(tenantID uint) ([]models.Webhook, error) {
 	if m.ListErr != nil {
 		return nil, m.ListErr
 	}
 	return m.WebhooksList, nil
 }
 
-func (m *MockWebhookRepository) GetByID(id uint) (*models.Webhook, error) {
+func (m *MockWebhookRepository) GetByID(id, tenantID uint) (*models.Webhook, error) {
 	if m.GetByIDErr != nil {
 		return nil, m.GetByIDErr
 	}
 	return m.Webhook, nil
 }
 
-func (m *MockWebhookRepository) Delete(id uint) (int64, error) {
+func (m *MockWebhookRepository) Delete(id, tenantID uint) (int64, error) {
 	if m.DeleteErr != nil {
 		return 0, m.DeleteErr
 	}
@@ -616,7 +653,7 @@ func (m *MockWebhookRepository) Delete(id uint) (int64, error) {
 	return m.DeleteRows, nil
 }
 
-func (m *MockWebhookRepository) ListLogs(webhookID uint, limit int) ([]models.WebhookLog, error) {
+func (m *MockWebhookRepository) ListLogs(webhookID uint, limit int, tenantID uint) ([]models.WebhookLog, error) {
 	if m.ListLogsErr != nil {
 		return nil, m.ListLogsErr
 	}
@@ -631,8 +668,9 @@ func (m *MockWebhookRepository) CreateLog(log *models.WebhookLog) error {
 	return nil
 }
 
-func (m *MockWebhookRepository) ListActive() ([]models.Webhook, error) {
+func (m *MockWebhookRepository) ListActive(tenantID uint) ([]models.Webhook, error) {
 	m.ListActiveCalls++
+	m.ListActiveTenantID = tenantID
 	if m.ListActiveErr != nil {
 		return nil, m.ListActiveErr
 	}
@@ -660,7 +698,7 @@ func (m *MockWebhookRepository) CompleteDelivery(_ uint, _ repository.DeliveryOu
 
 func (m *MockWebhookRepository) RequeueStaleDeliveries() (int64, error) { return 0, nil }
 
-func (m *MockWebhookRepository) CountPendingDeliveries() (int64, error) { return 0, nil }
+func (m *MockWebhookRepository) CountPendingDeliveries(tenantID uint) (int64, error) { return 0, nil }
 
 // ---------- MockMediaRepository ----------
 
@@ -875,7 +913,7 @@ type MockContentTypeRepository struct {
 	DeletedIDs []uint
 }
 
-func (m *MockContentTypeRepository) CountByUID(uid string) (int64, error) {
+func (m *MockContentTypeRepository) CountByUID(uid string, tenantID uint) (int64, error) {
 	if m.CountErr != nil {
 		return 0, m.CountErr
 	}
@@ -890,28 +928,28 @@ func (m *MockContentTypeRepository) Create(ct *models.ContentType) error {
 	return nil
 }
 
-func (m *MockContentTypeRepository) List() ([]models.ContentType, error) {
+func (m *MockContentTypeRepository) List(tenantID uint) ([]models.ContentType, error) {
 	if m.ListErr != nil {
 		return nil, m.ListErr
 	}
 	return m.ContentTypes, nil
 }
 
-func (m *MockContentTypeRepository) FindByUID(uid string) (*models.ContentType, error) {
+func (m *MockContentTypeRepository) FindByUID(uid string, tenantID uint) (*models.ContentType, error) {
 	if m.FindByUIDErr != nil {
 		return nil, m.FindByUIDErr
 	}
 	return m.ContentType, nil
 }
 
-func (m *MockContentTypeRepository) FindByID(id uint) (*models.ContentType, error) {
+func (m *MockContentTypeRepository) FindByID(id, tenantID uint) (*models.ContentType, error) {
 	if m.FindByIDErr != nil {
 		return nil, m.FindByIDErr
 	}
 	return m.ContentType, nil
 }
 
-func (m *MockContentTypeRepository) Delete(id uint) error {
+func (m *MockContentTypeRepository) Delete(id, tenantID uint) error {
 	if m.DeleteErr != nil {
 		return m.DeleteErr
 	}
@@ -919,7 +957,7 @@ func (m *MockContentTypeRepository) Delete(id uint) error {
 	return nil
 }
 
-func (m *MockContentTypeRepository) CountEntriesByTypeID(typeID uint) (int64, error) {
+func (m *MockContentTypeRepository) CountEntriesByTypeID(typeID, tenantID uint) (int64, error) {
 	if m.CountErr != nil {
 		return 0, m.CountErr
 	}
@@ -952,7 +990,7 @@ type MockContentEntryRepository struct {
 	SavedEntries   []*models.ContentEntry
 }
 
-func (m *MockContentEntryRepository) FindByDocumentID(typeID uint, docID string) (*models.ContentEntry, error) {
+func (m *MockContentEntryRepository) FindByDocumentID(typeID uint, docID string, tenantID uint) (*models.ContentEntry, error) {
 	if m.FindByDocumentErr != nil {
 		return nil, m.FindByDocumentErr
 	}
@@ -975,35 +1013,35 @@ func (m *MockContentEntryRepository) Save(entry *models.ContentEntry) error {
 	return nil
 }
 
-func (m *MockContentEntryRepository) DeleteByDocumentID(typeID uint, docID string) (int64, error) {
+func (m *MockContentEntryRepository) DeleteByDocumentID(typeID uint, docID string, tenantID uint) (int64, error) {
 	if m.DeleteByDocIDErr != nil {
 		return 0, m.DeleteByDocIDErr
 	}
 	return 1, nil
 }
 
-func (m *MockContentEntryRepository) List(filter repository.ContentEntryListFilter) ([]models.ContentEntry, int64, error) {
+func (m *MockContentEntryRepository) List(filter repository.ContentEntryListFilter, tenantID uint) ([]models.ContentEntry, int64, error) {
 	if m.ListErr != nil {
 		return nil, 0, m.ListErr
 	}
 	return m.Entries, m.CountVal, nil
 }
 
-func (m *MockContentEntryRepository) FindByIDs(typeID uint, ids []uint) ([]models.ContentEntry, error) {
+func (m *MockContentEntryRepository) FindByIDs(typeID uint, ids []uint, tenantID uint) ([]models.ContentEntry, error) {
 	if m.FindByIDsErr != nil {
 		return nil, m.FindByIDsErr
 	}
 	return m.Entries, nil
 }
 
-func (m *MockContentEntryRepository) Search(typeID uint, query string, limit int) ([]models.ContentEntry, error) {
+func (m *MockContentEntryRepository) Search(typeID uint, query string, limit int, tenantID uint) ([]models.ContentEntry, error) {
 	if m.SearchErr != nil {
 		return nil, m.SearchErr
 	}
 	return m.Entries, nil
 }
 
-func (m *MockContentEntryRepository) ExportAll(typeID uint) ([]models.ContentEntry, error) {
+func (m *MockContentEntryRepository) ExportAll(typeID, tenantID uint) ([]models.ContentEntry, error) {
 	if m.ExportErr != nil {
 		return nil, m.ExportErr
 	}
@@ -1018,13 +1056,13 @@ func (m *MockContentEntryRepository) CreateMany(entries []models.ContentEntry) (
 }
 
 // i18n translation stubs.
-func (m *MockContentEntryRepository) ListTranslations(typeID, groupID, excludeID uint) ([]models.ContentEntry, error) {
+func (m *MockContentEntryRepository) ListTranslations(typeID, groupID, excludeID, tenantID uint) ([]models.ContentEntry, error) {
 	if m.EntryTranslations != nil {
 		return m.EntryTranslations, nil
 	}
 	return nil, nil
 }
-func (m *MockContentEntryRepository) FindTranslationInLocale(typeID, groupID uint, locale string) (*models.ContentEntry, error) {
+func (m *MockContentEntryRepository) FindTranslationInLocale(typeID, groupID uint, locale string, tenantID uint) (*models.ContentEntry, error) {
 	if m.EntryTranslationByLocale != nil {
 		if e, ok := m.EntryTranslationByLocale[locale]; ok {
 			return e, nil
@@ -1163,14 +1201,15 @@ type MockWebhookDispatcher struct {
 	Dispatches []DispatchRecord
 }
 
-// DispatchRecord 记录一次 Dispatch 调用的事件名和数据。
+// DispatchRecord 记录一次 Dispatch 调用的事件名、数据和租户 ID。
 type DispatchRecord struct {
-	Event string
-	Data  interface{}
+	Event    string
+	Data     interface{}
+	TenantID uint
 }
 
-func (m *MockWebhookDispatcher) Dispatch(event string, data interface{}) {
-	m.Dispatches = append(m.Dispatches, DispatchRecord{Event: event, Data: data})
+func (m *MockWebhookDispatcher) Dispatch(event string, data interface{}, tenantID uint) {
+	m.Dispatches = append(m.Dispatches, DispatchRecord{Event: event, Data: data, TenantID: tenantID})
 }
 
 // Last 返回最后一次 Dispatch 记录，没有则返回零值。
@@ -1208,49 +1247,49 @@ type MockAnalyticsRepository struct {
 	CreatedPageViews []*models.PageView
 }
 
-func (m *MockAnalyticsRepository) DashboardStats() (repository.DashboardStatsData, error) {
+func (m *MockAnalyticsRepository) DashboardStats(_ uint) (repository.DashboardStatsData, error) {
 	if m.DashboardStatsErr != nil {
 		return repository.DashboardStatsData{}, m.DashboardStatsErr
 	}
 	return m.DashboardStatsData, nil
 }
 
-func (m *MockAnalyticsRepository) RecentArticles(limit int) ([]models.Article, error) {
+func (m *MockAnalyticsRepository) RecentArticles(_ int, _ uint) ([]models.Article, error) {
 	if m.RecentArticlesErr != nil {
 		return nil, m.RecentArticlesErr
 	}
 	return m.RecentArticlesData, nil
 }
 
-func (m *MockAnalyticsRepository) RecentComments(limit int) ([]models.Comment, error) {
+func (m *MockAnalyticsRepository) RecentComments(_ int, _ uint) ([]models.Comment, error) {
 	if m.RecentCommentsErr != nil {
 		return nil, m.RecentCommentsErr
 	}
 	return m.RecentCommentsData, nil
 }
 
-func (m *MockAnalyticsRepository) PopularArticles(limit int) ([]models.Article, error) {
+func (m *MockAnalyticsRepository) PopularArticles(_ int, _ uint) ([]models.Article, error) {
 	if m.PopularArticlesErr != nil {
 		return nil, m.PopularArticlesErr
 	}
 	return m.PopularData, nil
 }
 
-func (m *MockAnalyticsRepository) ViewsOverTime(days int) ([]repository.DayStatsData, error) {
+func (m *MockAnalyticsRepository) ViewsOverTime(_ int, _ uint) ([]repository.DayStatsData, error) {
 	if m.ViewsOverTimeErr != nil {
 		return nil, m.ViewsOverTimeErr
 	}
 	return m.ViewsOverTimeData, nil
 }
 
-func (m *MockAnalyticsRepository) TopReferrers(limit int) ([]repository.ReferrerData, error) {
+func (m *MockAnalyticsRepository) TopReferrers(_ int, _ uint) ([]repository.ReferrerData, error) {
 	if m.TopReferrersErr != nil {
 		return nil, m.TopReferrersErr
 	}
 	return m.TopReferrersData, nil
 }
 
-func (m *MockAnalyticsRepository) DeviceBreakdown() (repository.DeviceBreakdownData, error) {
+func (m *MockAnalyticsRepository) DeviceBreakdown(_ uint) (repository.DeviceBreakdownData, error) {
 	if m.DeviceBreakdownErr != nil {
 		return repository.DeviceBreakdownData{}, m.DeviceBreakdownErr
 	}

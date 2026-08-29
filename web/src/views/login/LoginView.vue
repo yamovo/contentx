@@ -13,7 +13,7 @@
             ContentX
           </h1>
           <p class="subtitle">
-            内容管理系统
+            面向开发者和 AI Agent 的自托管 Headless CMS
           </p>
         </div>
 
@@ -276,6 +276,7 @@ onMounted(() => {
     .subtitle {
       color: #909399;
       font-size: 14px;
+      line-height: 1.7;
     }
   }
 

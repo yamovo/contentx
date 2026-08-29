@@ -23,7 +23,7 @@ func TestContentTypeRepository_CreateAndFindByUID(t *testing.T) {
 		t.Fatal("ID should be set")
 	}
 
-	got, err := repo.FindByUID("product")
+	got, err := repo.FindByUID("product", 1)
 	if err != nil {
 		t.Fatalf("FindByUID: %v", err)
 	}
@@ -35,7 +35,7 @@ func TestContentTypeRepository_CreateAndFindByUID(t *testing.T) {
 func TestContentTypeRepository_FindByUID_NotFound(t *testing.T) {
 	db := setupTestDB(t)
 	repo := NewContentTypeRepository(db)
-	_, err := repo.FindByUID("nonexistent")
+	_, err := repo.FindByUID("nonexistent", 1)
 	if err != gorm.ErrRecordNotFound {
 		t.Fatalf("expected ErrRecordNotFound, got %v", err)
 	}
@@ -46,7 +46,7 @@ func TestContentTypeRepository_CountByUID(t *testing.T) {
 	repo := NewContentTypeRepository(db)
 	repo.Create(&models.ContentType{Name: "Blog", UID: "blog"})
 
-	count, err := repo.CountByUID("blog")
+	count, err := repo.CountByUID("blog", 1)
 	if err != nil {
 		t.Fatalf("CountByUID: %v", err)
 	}
@@ -54,7 +54,7 @@ func TestContentTypeRepository_CountByUID(t *testing.T) {
 		t.Fatalf("expected count=1, got %d", count)
 	}
 
-	count, _ = repo.CountByUID("nonexistent")
+	count, _ = repo.CountByUID("nonexistent", 1)
 	if count != 0 {
 		t.Fatalf("expected count=0 for nonexistent UID, got %d", count)
 	}
@@ -66,7 +66,7 @@ func TestContentTypeRepository_List(t *testing.T) {
 	repo.Create(&models.ContentType{Name: "A", UID: "a"})
 	repo.Create(&models.ContentType{Name: "B", UID: "b"})
 
-	types, err := repo.List()
+	types, err := repo.List(1)
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -100,7 +100,7 @@ func TestContentTypeRepository_List_PreloadsFields(t *testing.T) {
 		SortOrder:     1,
 	})
 
-	types, _ := repo.List()
+	types, _ := repo.List(1)
 	var got *models.ContentType
 	for i := range types {
 		if types[i].UID == "with-fields" {
@@ -139,12 +139,12 @@ func TestContentTypeRepository_Delete_Cascades(t *testing.T) {
 		DocumentID:    "test-doc-001",
 	})
 
-	if err := repo.Delete(ct.ID); err != nil {
+	if err := repo.Delete(ct.ID, 1); err != nil {
 		t.Fatalf("Delete: %v", err)
 	}
 
 	// Verify type is gone.
-	_, err := repo.FindByID(ct.ID)
+	_, err := repo.FindByID(ct.ID, 1)
 	if err != gorm.ErrRecordNotFound {
 		t.Fatalf("expected ErrRecordNotFound, got %v", err)
 	}
@@ -174,12 +174,144 @@ func TestContentTypeRepository_CountEntriesByTypeID(t *testing.T) {
 	db.Create(&models.ContentEntry{ContentTypeID: ct.ID, DocumentID: "doc-1"})
 	db.Create(&models.ContentEntry{ContentTypeID: ct.ID, DocumentID: "doc-2"})
 
-	count, err := repo.CountEntriesByTypeID(ct.ID)
+	count, err := repo.CountEntriesByTypeID(ct.ID, 1)
 	if err != nil {
 		t.Fatalf("CountEntriesByTypeID: %v", err)
 	}
 	if count != 2 {
 		t.Fatalf("expected 2 entries, got %d", count)
+	}
+}
+
+// TestContentTypeRepository_TenantIsolation verifies RFC-001 §5: every
+// content-type query carries the tenant scope and cross-tenant access is
+// invisible (not found / empty), never an error leaking existence.
+func TestContentTypeRepository_TenantIsolation(t *testing.T) {
+	db := setupTestDB(t)
+	repo := NewContentTypeRepository(db)
+
+	ct := &models.ContentType{TenantID: 1, Name: "T1 Product", UID: "t1-product"}
+	if err := repo.Create(ct); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	// Cross-tenant reads return not found / empty.
+	if _, err := repo.FindByUID("t1-product", 2); err != gorm.ErrRecordNotFound {
+		t.Fatalf("FindByUID cross-tenant = %v, want gorm.ErrRecordNotFound", err)
+	}
+	if _, err := repo.FindByID(ct.ID, 2); err != gorm.ErrRecordNotFound {
+		t.Fatalf("FindByID cross-tenant = %v, want gorm.ErrRecordNotFound", err)
+	}
+	types, err := repo.List(2)
+	if err != nil || len(types) != 0 {
+		t.Fatalf("List cross-tenant = %d/%v, want 0/nil", len(types), err)
+	}
+	count, err := repo.CountByUID("t1-product", 2)
+	if err != nil || count != 0 {
+		t.Fatalf("CountByUID cross-tenant = %d/%v, want 0/nil", count, err)
+	}
+
+	// UID uniqueness check input is tenant-scoped (CountByUID above returns 0
+	// for tenant 2); DB-level composite uniqueness is covered by migration
+	// tests. A second tenant type with its own UID coexists fine.
+	ct2 := &models.ContentType{TenantID: 2, Name: "T2 Product", UID: "t2-product"}
+	if err := repo.Create(ct2); err != nil {
+		t.Fatalf("Create tenant 2 type: %v", err)
+	}
+
+	// Cross-tenant delete is a no-op; both rows stay intact.
+	if err := repo.Delete(ct.ID, 2); err != gorm.ErrRecordNotFound {
+		t.Fatalf("Delete cross-tenant = %v, want gorm.ErrRecordNotFound (no-op)", err)
+	}
+	if _, err := repo.FindByID(ct.ID, 1); err != nil {
+		t.Fatalf("tenant 1 content type missing after cross-tenant delete: %v", err)
+	}
+
+	// Same-tenant delete cascades only within the tenant.
+	entryRepo := NewContentEntryRepository(db)
+	if err := entryRepo.Create(&models.ContentEntry{TenantID: 1, ContentTypeID: ct.ID, DocumentID: "t1-doc"}); err != nil {
+		t.Fatalf("Create entry: %v", err)
+	}
+	if err := repo.Delete(ct.ID, 1); err != nil {
+		t.Fatalf("Delete same-tenant: %v", err)
+	}
+	var entryCount int64
+	db.Model(&models.ContentEntry{}).Where("content_type_id = ?", ct.ID).Count(&entryCount)
+	if entryCount != 0 {
+		t.Fatalf("expected 0 entries after same-tenant delete, got %d", entryCount)
+	}
+	if _, err := repo.FindByID(ct2.ID, 2); err != nil {
+		t.Fatalf("tenant 2 content type must survive tenant 1 delete: %v", err)
+	}
+}
+
+// TestContentEntryRepository_TenantIsolation verifies entry queries never
+// cross tenant boundaries (RFC-001 §5), including identifier guessing via
+// document_id.
+func TestContentEntryRepository_TenantIsolation(t *testing.T) {
+	db := setupTestDB(t)
+	typeRepo := NewContentTypeRepository(db)
+	entryRepo := NewContentEntryRepository(db)
+
+	ct1 := &models.ContentType{TenantID: 1, Name: "T1", UID: "t1-type"}
+	ct2 := &models.ContentType{TenantID: 2, Name: "T2", UID: "t2-type"}
+	if err := typeRepo.Create(ct1); err != nil {
+		t.Fatalf("Create ct1: %v", err)
+	}
+	if err := typeRepo.Create(ct2); err != nil {
+		t.Fatalf("Create ct2: %v", err)
+	}
+
+	entry := &models.ContentEntry{TenantID: 1, ContentTypeID: ct1.ID, DocumentID: "doc-t1", Data: models.JSONMap{"color": "red"}}
+	if err := entryRepo.Create(entry); err != nil {
+		t.Fatalf("Create entry: %v", err)
+	}
+
+	// Cross-tenant reads return not found / empty — even with a valid type id
+	// of the other tenant and a guessed document_id.
+	if _, err := entryRepo.FindByDocumentID(ct2.ID, "doc-t1", 2); err != gorm.ErrRecordNotFound {
+		t.Fatalf("FindByDocumentID cross-tenant = %v, want gorm.ErrRecordNotFound", err)
+	}
+	entries, total, err := entryRepo.List(ContentEntryListFilter{TypeID: ct2.ID, Page: 1, PageSize: 10}, 2)
+	if err != nil || total != 0 || len(entries) != 0 {
+		t.Fatalf("List cross-tenant = %d/%d/%v, want 0/0/nil", total, len(entries), err)
+	}
+	found, err := entryRepo.FindByIDs(ct2.ID, []uint{entry.ID}, 2)
+	if err != nil || len(found) != 0 {
+		t.Fatalf("FindByIDs cross-tenant = %d/%v, want 0/nil", len(found), err)
+	}
+	searched, err := entryRepo.Search(ct2.ID, "red", 10, 2)
+	if err != nil || len(searched) != 0 {
+		t.Fatalf("Search cross-tenant = %d/%v, want 0/nil", len(searched), err)
+	}
+	exported, err := entryRepo.ExportAll(ct2.ID, 2)
+	if err != nil || len(exported) != 0 {
+		t.Fatalf("ExportAll cross-tenant = %d/%v, want 0/nil", len(exported), err)
+	}
+
+	// Cross-tenant delete is a no-op.
+	rows, err := entryRepo.DeleteByDocumentID(ct2.ID, "doc-t1", 2)
+	if err != nil || rows != 0 {
+		t.Fatalf("DeleteByDocumentID cross-tenant = %d/%v, want 0/nil", rows, err)
+	}
+	if _, err := entryRepo.FindByDocumentID(ct1.ID, "doc-t1", 1); err != nil {
+		t.Fatalf("tenant 1 entry missing after cross-tenant delete: %v", err)
+	}
+
+	// i18n translation queries stay inside the tenant.
+	trs, err := entryRepo.ListTranslations(ct2.ID, entry.ID, 0, 2)
+	if err != nil || len(trs) != 0 {
+		t.Fatalf("ListTranslations cross-tenant = %d/%v, want 0/nil", len(trs), err)
+	}
+	if _, err := entryRepo.FindTranslationInLocale(ct2.ID, entry.ID, "en", 2); err != gorm.ErrRecordNotFound {
+		t.Fatalf("FindTranslationInLocale cross-tenant = %v, want gorm.ErrRecordNotFound", err)
+	}
+
+	// A second tenant entry with its own document_id coexists fine
+	// (composite document_id uniqueness is covered by migration tests).
+	entry2 := &models.ContentEntry{TenantID: 2, ContentTypeID: ct2.ID, DocumentID: "doc-t2"}
+	if err := entryRepo.Create(entry2); err != nil {
+		t.Fatalf("Create tenant 2 entry: %v", err)
 	}
 }
 
@@ -235,7 +367,7 @@ func TestContentEntryRepository_List_JSONFilters(t *testing.T) {
 	got, total, err := entryRepo.List(ContentEntryListFilter{
 		TypeID: ct.ID, Page: 1, PageSize: 10,
 		Filters: map[string]string{"color": "red"},
-	})
+	}, 1)
 	if err != nil {
 		t.Fatalf("List(color=red): %v", err)
 	}
@@ -247,7 +379,7 @@ func TestContentEntryRepository_List_JSONFilters(t *testing.T) {
 	got, total, err = entryRepo.List(ContentEntryListFilter{
 		TypeID: ct.ID, Page: 1, PageSize: 10,
 		Filters: map[string]string{"color": "red", "size": "small"},
-	})
+	}, 1)
 	if err != nil {
 		t.Fatalf("List(color=red,size=small): %v", err)
 	}
@@ -259,7 +391,7 @@ func TestContentEntryRepository_List_JSONFilters(t *testing.T) {
 	_, total, err = entryRepo.List(ContentEntryListFilter{
 		TypeID: ct.ID, Page: 1, PageSize: 10,
 		Filters: map[string]string{"color": "green"},
-	})
+	}, 1)
 	if err != nil {
 		t.Fatalf("List(color=green): %v", err)
 	}
@@ -285,7 +417,7 @@ func TestContentEntryRepository_List_SkipsInvalidFilterNames(t *testing.T) {
 	got, total, err := entryRepo.List(ContentEntryListFilter{
 		TypeID: ct.ID, Page: 1, PageSize: 10,
 		Filters: map[string]string{`bad"]name`: "x", "drop table": "y", "color": "red"},
-	})
+	}, 1)
 	if err != nil {
 		t.Fatalf("List with invalid filter names: %v", err)
 	}

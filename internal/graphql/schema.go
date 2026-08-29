@@ -11,6 +11,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/graphql-go/graphql"
+	"github.com/yamovo/contentx/internal/models"
 	"github.com/yamovo/contentx/internal/services"
 )
 
@@ -370,6 +371,17 @@ func Handler(schema graphql.Schema) gin.HandlerFunc {
 		// Bound execution time to prevent slow/malicious queries from tying up resources.
 		ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
 		defer cancel()
+
+		// Inject the tenant ID resolved by middleware (OptionalAuthMiddleware
+		// or AuthMiddleware) into the GraphQL context so resolvers scope all
+		// queries. Falls back to DefaultTenantID for unauthenticated requests.
+		tenantID := models.DefaultTenantID
+		if v, ok := c.Get("tenantId"); ok {
+			if tid, ok := v.(uint); ok && tid > 0 {
+				tenantID = tid
+			}
+		}
+		ctx = context.WithValue(ctx, tenantCtxKey{}, tenantID)
 
 		result := graphql.Do(graphql.Params{
 			Context:        ctx,

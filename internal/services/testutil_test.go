@@ -6,6 +6,7 @@ import (
 
 	"github.com/yamovo/contentx/internal/auth"
 	"github.com/yamovo/contentx/internal/database"
+	"github.com/yamovo/contentx/internal/database/migrations"
 	"github.com/yamovo/contentx/internal/models"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
@@ -25,6 +26,11 @@ func setupTestDB(t *testing.T) *gorm.DB {
 
 	if err := database.AutoMigrate(db); err != nil {
 		t.Fatalf("failed to migrate: %v", err)
+	}
+	// Replace single-column unique indexes with tenant-scoped composites so
+	// the test DB matches production (migration 009 index portion).
+	if err := migrations.ApplyTenantScopedIndexes(db); err != nil {
+		t.Fatalf("failed to apply tenant-scoped indexes: %v", err)
 	}
 
 	// Seed minimal data: roles and permissions.

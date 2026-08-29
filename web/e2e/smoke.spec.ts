@@ -28,7 +28,9 @@ test.describe('Public pages smoke', () => {
     await page.goto('/login')
     // Brand title.
     await expect(page.locator('.login-header .logo-text')).toHaveText('ContentX')
-    await expect(page.locator('.login-header .subtitle')).toHaveText('内容管理系统')
+    await expect(page.locator('.login-header .subtitle')).toHaveText(
+      '面向开发者和 AI Agent 的自托管 Headless CMS',
+    )
     // Inputs present.
     await expect(page.getByPlaceholder('用户名或邮箱')).toBeVisible()
     await expect(page.getByPlaceholder('密码')).toBeVisible()

@@ -17,21 +17,31 @@ import type {
   CreateEntryInput,
   UpdateEntryInput,
   ListParams,
-} from './types'
+} from './types.js'
 
 export class ContentX {
   private baseURL: string
   private token: string
+  private tenantID?: number
   private timeout: number
 
   constructor(config: ContentXConfig) {
     this.baseURL = config.baseURL.replace(/\/$/, '')
     this.token = config.token || ''
+    this.tenantID = config.tenantID
     this.timeout = config.timeout || 30000
   }
 
   setToken(token: string) {
     this.token = token
+  }
+
+  setTenantID(tenantID: number) {
+    this.tenantID = tenantID
+  }
+
+  clearTenantID() {
+    this.tenantID = undefined
   }
 
   // ─── Auth ───────────────────────────────────────────────────
@@ -50,7 +60,7 @@ export class ContentX {
       this.post<TokenPair>('/auth/refresh', { refresh_token: refreshToken }),
 
     logout: () =>
-      this.post('/auth/logout'),
+      this.post<{ message: string }>('/auth/logout'),
   }
 
   // ─── Articles ───────────────────────────────────────────────
@@ -60,63 +70,63 @@ export class ContentX {
       this.get<PaginatedResponse<Article>>('/articles', params),
 
     get: (id: number) =>
-      this.get<{ data: Article }>(`/articles/${id}`),
+      this.get<Article>(`/articles/${id}`),
 
     getBySlug: (slug: string) =>
-      this.get<{ data: Article }>(`/articles/slug/${slug}`),
+      this.get<Article>(`/articles/slug/${slug}`),
 
     create: (data: CreateArticleInput) =>
-      this.post<{ data: Article }>('/articles', data),
+      this.post<Article>('/articles', data),
 
     update: (id: number, data: UpdateArticleInput) =>
-      this.put<{ data: Article }>(`/articles/${id}`, data),
+      this.put<Article>(`/articles/${id}`, data),
 
     delete: (id: number) =>
-      this.del(`/articles/${id}`),
+      this.del<{ message: string }>(`/articles/${id}`),
 
     like: (id: number) =>
-      this.post(`/articles/${id}/like`),
+      this.post<{ message: string }>(`/articles/${id}/like`),
   }
 
   // ─── Categories ─────────────────────────────────────────────
 
   categories = {
     list: (params?: ListParams) =>
-      this.get<PaginatedResponse<Category>>('/categories', params),
+      this.get<Category[]>('/categories', params),
 
     get: (id: number) =>
-      this.get<{ data: Category }>(`/categories/${id}`),
+      this.get<Category>(`/categories/${id}`),
 
     create: (data: Partial<Category>) =>
-      this.post<{ data: Category }>('/categories', data),
+      this.post<Category>('/categories', data),
 
     update: (id: number, data: Partial<Category>) =>
-      this.put<{ data: Category }>(`/categories/${id}`, data),
+      this.put<{ message: string }>(`/categories/${id}`, data),
 
     delete: (id: number) =>
-      this.del(`/categories/${id}`),
+      this.del<{ message: string }>(`/categories/${id}`),
   }
 
   // ─── Tags ───────────────────────────────────────────────────
 
   tags = {
     list: (params?: ListParams) =>
-      this.get<PaginatedResponse<Tag>>('/tags', params),
+      this.get<{ data: Tag[]; total: number }>('/tags', params),
 
     get: (id: number) =>
-      this.get<{ data: Tag }>(`/tags/${id}`),
+      this.get<Tag>(`/tags/${id}`),
 
     create: (data: Partial<Tag>) =>
-      this.post<{ data: Tag }>('/tags', data),
+      this.post<Tag>('/tags', data),
 
     update: (id: number, data: Partial<Tag>) =>
-      this.put<{ data: Tag }>(`/tags/${id}`, data),
+      this.put<{ message: string }>(`/tags/${id}`, data),
 
     delete: (id: number) =>
-      this.del(`/tags/${id}`),
+      this.del<{ message: string }>(`/tags/${id}`),
 
     merge: (sourceIds: number[], targetId: number) =>
-      this.post('/tags/merge', { source_ids: sourceIds, target_id: targetId }),
+      this.post<{ message: string }>('/tags/merge', { source_ids: sourceIds, target_id: targetId }),
   }
 
   // ─── Comments ───────────────────────────────────────────────
@@ -126,16 +136,16 @@ export class ContentX {
       this.get<PaginatedResponse<Comment>>('/comments', params),
 
     create: (data: { article_id: number; content: string; parent_id?: number }) =>
-      this.post<{ data: Comment }>('/comments', data),
+      this.post<Comment>('/comments', data),
 
     approve: (id: number) =>
-      this.post(`/comments/${id}/approve`),
+      this.post<{ message: string }>(`/comments/${id}/approve`),
 
     spam: (id: number) =>
-      this.post(`/comments/${id}/spam`),
+      this.post<{ message: string }>(`/comments/${id}/spam`),
 
     trash: (id: number) =>
-      this.post(`/comments/${id}/trash`),
+      this.post<{ message: string }>(`/comments/${id}/trash`),
   }
 
   // ─── Media ──────────────────────────────────────────────────
@@ -145,15 +155,15 @@ export class ContentX {
       this.get<PaginatedResponse<Media>>('/media', params),
 
     get: (id: number) =>
-      this.get<{ data: Media }>(`/media/${id}`),
+      this.get<Media>(`/media/${id}`),
 
     delete: (id: number) =>
-      this.del(`/media/${id}`),
+      this.del<{ message: string }>(`/media/${id}`),
 
     upload: async (file: File | Blob, filename?: string) => {
       const formData = new FormData()
       formData.append('file', file, filename)
-      return this.rawFetch('/media/upload', {
+      return this.rawFetch<Media>('/media/upload', {
         method: 'POST',
         body: formData,
         headers: {}, // let browser set Content-Type
@@ -168,13 +178,13 @@ export class ContentX {
       this.get<ContentType[]>('/content-types'),
 
     get: (uid: string) =>
-      this.get<{ data: ContentType }>(`/content-types/${uid}`),
+      this.get<ContentType>(`/content-types/${uid}`),
 
     create: (data: { uid: string; name: string; fields: any[] }) =>
-      this.post<{ data: ContentType }>('/content-types', data),
+      this.post<ContentType>('/content-types', data),
 
     delete: (uid: string) =>
-      this.del(`/content-types/${uid}`),
+      this.del<{ message: string }>(`/content-types/${uid}`),
   }
 
   // ─── Dynamic Content ───────────────────────────────────────
@@ -185,28 +195,28 @@ export class ContentX {
         this.get<PaginatedResponse<ContentEntry>>(`/content/${uid}`, params),
 
       get: (documentId: string) =>
-        this.get<{ data: ContentEntry }>(`/content/${uid}/${documentId}`),
+        this.get<ContentEntry>(`/content/${uid}/${documentId}`),
 
       create: (data: CreateEntryInput) =>
-        this.post<{ data: ContentEntry }>(`/content/${uid}`, data),
+        this.post<ContentEntry>(`/content/${uid}`, data),
 
       update: (documentId: string, data: UpdateEntryInput) =>
-        this.put<{ data: ContentEntry }>(`/content/${uid}/${documentId}`, data),
+        this.put<ContentEntry>(`/content/${uid}/${documentId}`, data),
 
       delete: (documentId: string) =>
-        this.del(`/content/${uid}/${documentId}`),
+        this.del<{ message: string }>(`/content/${uid}/${documentId}`),
 
       publish: (documentId: string) =>
-        this.post(`/content/${uid}/${documentId}/publish`),
+        this.post<ContentEntry>(`/content/${uid}/${documentId}/publish`),
 
       unpublish: (documentId: string) =>
-        this.post(`/content/${uid}/${documentId}/unpublish`),
+        this.post<ContentEntry>(`/content/${uid}/${documentId}/unpublish`),
 
       export: () =>
-        this.get(`/content/${uid}/export`),
+        this.get<{ json: string }>(`/content/${uid}/export`),
 
       import: (json: string) =>
-        this.post(`/content/${uid}/import`, { json }),
+        this.post<{ imported: number }>(`/content/${uid}/import`, { json }),
     }
   }
 
@@ -217,13 +227,13 @@ export class ContentX {
       this.get<Webhook[]>('/webhooks'),
 
     create: (data: { name: string; url: string; events: string[]; secret?: string }) =>
-      this.post<{ data: Webhook }>('/webhooks', data),
+      this.post<Webhook>('/webhooks', data),
 
     delete: (id: number) =>
-      this.del(`/webhooks/${id}`),
+      this.del<{ message: string }>(`/webhooks/${id}`),
 
     logs: (id: number, limit?: number) =>
-      this.get(`/webhooks/${id}/logs`, { limit }),
+      this.get<unknown[]>(`/webhooks/${id}/logs`, { limit }),
   }
 
   // ─── System ─────────────────────────────────────────────────
@@ -233,7 +243,7 @@ export class ContentX {
       this.get<{ status: string; database: boolean }>('/system/health'),
 
     info: () =>
-      this.get('/system/info'),
+      this.get<Record<string, unknown>>('/system/info'),
   }
 
   // ─── HTTP helpers ───────────────────────────────────────────
@@ -255,50 +265,96 @@ export class ContentX {
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
     }
-    if (this.token) {
-      headers['Authorization'] = `Bearer ${this.token}`
-    }
 
     const opts: RequestInit = { method, headers }
-    if (body && method !== 'GET') {
+    if (body !== undefined && method !== 'GET') {
       opts.body = JSON.stringify(body)
     }
 
-    const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), this.timeout)
-    opts.signal = controller.signal
-
-    try {
-      const resp = await fetch(url, opts)
-      clearTimeout(timeoutId)
-
-      if (!resp.ok) {
-        const err = await resp.json().catch(() => ({ error: resp.statusText }))
-        throw new ContentXError(err.error || resp.statusText, resp.status, err.code)
-      }
-
-      return resp.json()
-    } catch (e: any) {
-      clearTimeout(timeoutId)
-      if (e.name === 'AbortError') {
-        throw new ContentXError('Request timeout', 408)
-      }
-      throw e
-    }
+    return this.rawFetch<T>(url, opts, true)
   }
 
-  private async rawFetch(path: string, opts: RequestInit): Promise<any> {
-    const url = `${this.baseURL}${path}`
+  private async rawFetch<T>(path: string, opts: RequestInit, absolute = false): Promise<T> {
+    const url = absolute ? path : `${this.baseURL}${path}`
     const headers: Record<string, string> = {}
     if (this.token) {
       headers['Authorization'] = `Bearer ${this.token}`
     }
-    const resp = await fetch(url, { ...opts, headers: { ...headers, ...opts.headers } })
-    if (!resp.ok) {
-      const err = await resp.json().catch(() => ({ error: resp.statusText }))
-      throw new ContentXError(err.error || resp.statusText, resp.status)
+    if (this.tenantID !== undefined) {
+      headers['X-Tenant-ID'] = String(this.tenantID)
     }
-    return resp.json()
+
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), this.timeout)
+
+    try {
+      const resp = await fetch(url, {
+        ...opts,
+        headers: { ...headers, ...opts.headers },
+        signal: controller.signal,
+      })
+      const payload = await this.readPayload(resp)
+      const envelope = this.asAPIResponse<T>(payload)
+
+      if (!resp.ok || (envelope && envelope.code !== 0)) {
+        throw this.toResponseError(resp, payload, envelope)
+      }
+
+      if (envelope) {
+        return envelope.data as T
+      }
+
+      // The health endpoint is intentionally a bare JSON object, while 204
+      // and empty successful responses have no payload at all.
+      return payload as T
+    } catch (error: unknown) {
+      if (error instanceof Error && error.name === 'AbortError') {
+        throw new ContentXError('Request timeout', 408)
+      }
+      throw error
+    } finally {
+      clearTimeout(timeoutId)
+    }
+  }
+
+  private async readPayload(resp: Response): Promise<unknown> {
+    const text = await resp.text()
+    if (!text.trim()) return undefined
+
+    try {
+      return JSON.parse(text)
+    } catch {
+      throw new ContentXError('Invalid JSON response', resp.status)
+    }
+  }
+
+  private asAPIResponse<T>(payload: unknown): APIResponse<T> | undefined {
+    if (!payload || typeof payload !== 'object') return undefined
+
+    const value = payload as Record<string, unknown>
+    if (typeof value.code !== 'number' || typeof value.message !== 'string') return undefined
+    return value as unknown as APIResponse<T>
+  }
+
+  private toResponseError(
+    resp: Response,
+    payload: unknown,
+    envelope?: APIResponse<unknown>,
+  ): ContentXError {
+    if (envelope) {
+      return new ContentXError(envelope.message || resp.statusText, resp.status, envelope.err_code)
+    }
+
+    const value = payload && typeof payload === 'object'
+      ? payload as Record<string, unknown>
+      : undefined
+    const message = typeof value?.message === 'string'
+      ? value.message
+      : typeof value?.error === 'string'
+        ? value.error
+        : resp.statusText || `Request failed with status ${resp.status}`
+    const errCode = typeof value?.err_code === 'string' ? value.err_code : undefined
+    return new ContentXError(message, resp.status, errCode)
   }
 
   private get<T>(path: string, params?: Record<string, any>): Promise<T> {

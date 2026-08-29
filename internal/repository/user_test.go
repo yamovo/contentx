@@ -39,6 +39,14 @@ func TestUserRepository_CreateAndGetByID(t *testing.T) {
 	if got.Role.ID != authorRole.ID {
 		t.Fatalf("Role should be preloaded: got ID %d, want %d", got.Role.ID, authorRole.ID)
 	}
+	var membership models.TenantMembership
+	if err := db.Where("tenant_id = ? AND user_id = ?", models.DefaultTenantID, user.ID).
+		First(&membership).Error; err != nil {
+		t.Fatalf("default tenant membership: %v", err)
+	}
+	if membership.RoleSlug != models.TenantRoleMember {
+		t.Fatalf("author membership role = %q, want %q", membership.RoleSlug, models.TenantRoleMember)
+	}
 }
 
 func TestUserRepository_GetByID_NotFound(t *testing.T) {

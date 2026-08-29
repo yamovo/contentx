@@ -67,15 +67,143 @@ func TestSettingsService_Get_NotFound(t *testing.T) {
 func TestSettingsService_Update_Existing(t *testing.T) {
 	db := setupTestDB(t)
 	svc := NewSettingsService(db)
+	tenantID := uint(42)
 
-	err := svc.Update(map[string]interface{}{"site_name": "Updated Name"}, models.DefaultTenantID)
+	var globalBefore models.SiteSetting
+	if err := db.Where("key = ? AND tenant_id IS NULL", "site_name").First(&globalBefore).Error; err != nil {
+		t.Fatalf("get global setting before update: %v", err)
+	}
+
+	err := svc.Update(map[string]interface{}{"site_name": "Updated Name"}, tenantID)
 	if err != nil {
 		t.Fatalf("update setting: %v", err)
 	}
 
-	setting, _ := svc.Get("site_name", models.DefaultTenantID)
+	setting, err := svc.Get("site_name", tenantID)
+	if err != nil {
+		t.Fatalf("get tenant override: %v", err)
+	}
 	if setting.Value != "Updated Name" {
 		t.Fatalf("expected 'Updated Name', got '%s'", setting.Value)
+	}
+	if setting.TenantID == nil || *setting.TenantID != tenantID {
+		t.Fatalf("expected tenant override %d, got %v", tenantID, setting.TenantID)
+	}
+	if setting.Group != globalBefore.Group || setting.Type != globalBefore.Type || setting.IsPublic != globalBefore.IsPublic {
+		t.Fatalf("tenant override did not preserve global metadata: got group=%q type=%q public=%v", setting.Group, setting.Type, setting.IsPublic)
+	}
+
+	var globalAfter models.SiteSetting
+	if err := db.Where("key = ? AND tenant_id IS NULL", "site_name").First(&globalAfter).Error; err != nil {
+		t.Fatalf("get global setting after update: %v", err)
+	}
+	if globalAfter.Value != globalBefore.Value {
+		t.Fatalf("global setting mutated: got %q, want %q", globalAfter.Value, globalBefore.Value)
+	}
+
+	otherTenant, err := svc.Get("site_name", tenantID+1)
+	if err != nil {
+		t.Fatalf("get global fallback for other tenant: %v", err)
+	}
+	if otherTenant.Value != globalBefore.Value {
+		t.Fatalf("other tenant saw override: got %q, want global %q", otherTenant.Value, globalBefore.Value)
+	}
+
+	settings, _, err := svc.List("general", tenantID)
+	if err != nil {
+		t.Fatalf("list effective settings: %v", err)
+	}
+	matching := 0
+	for _, candidate := range settings {
+		if candidate.Key == "site_name" {
+			matching++
+			if candidate.Value != "Updated Name" {
+				t.Fatalf("list returned global value %q instead of tenant override", candidate.Value)
+			}
+		}
+	}
+	if matching != 1 {
+		t.Fatalf("effective list contained %d site_name rows, want 1", matching)
+	}
+
+	public, err := svc.PublicSettings(tenantID)
+	if err != nil {
+		t.Fatalf("get tenant public settings: %v", err)
+	}
+	if public["site_name"] != "Updated Name" {
+		t.Fatalf("public settings returned %q, want tenant override", public["site_name"])
+	}
+	if err := db.Model(&models.SiteSetting{}).
+		Where("key = ? AND tenant_id = ?", "site_name", tenantID).
+		Update("is_public", false).Error; err != nil {
+		t.Fatalf("make tenant override private: %v", err)
+	}
+	public, err = svc.PublicSettings(tenantID)
+	if err != nil {
+		t.Fatalf("get tenant public settings after private override: %v", err)
+	}
+	if _, exposed := public["site_name"]; exposed {
+		t.Fatal("private tenant override must hide the public global default")
+	}
+
+	if err := svc.Update(map[string]interface{}{"site_name": "Updated Again"}, tenantID); err != nil {
+		t.Fatalf("update existing tenant override: %v", err)
+	}
+	var overrideCount int64
+	if err := db.Model(&models.SiteSetting{}).Where("key = ? AND tenant_id = ?", "site_name", tenantID).Count(&overrideCount).Error; err != nil {
+		t.Fatalf("count tenant overrides: %v", err)
+	}
+	if overrideCount != 1 {
+		t.Fatalf("tenant override count = %d, want 1", overrideCount)
+	}
+}
+
+func TestSettingsService_Update_BatchIsAtomic(t *testing.T) {
+	db := setupTestDB(t)
+	svc := NewSettingsService(db)
+	tenantID := uint(73)
+
+	if err := svc.Update(map[string]interface{}{
+		"batch_atomic_a": "before-a",
+		"batch_atomic_b": "before-b",
+	}, tenantID); err != nil {
+		t.Fatalf("seed tenant settings: %v", err)
+	}
+	if err := db.Exec(`
+		CREATE TRIGGER reject_forbidden_setting_value
+		BEFORE UPDATE OF value ON site_settings
+		WHEN NEW.key = 'batch_atomic_b' AND NEW.value = 'forbidden'
+		BEGIN
+			SELECT RAISE(ABORT, 'forced settings batch failure');
+		END
+	`).Error; err != nil {
+		t.Fatalf("create failure trigger: %v", err)
+	}
+
+	capture := &captureAuditLogger{}
+	svc.SetAuditLogger(capture)
+	err := svc.Update(map[string]interface{}{
+		"batch_atomic_a": "after-a",
+		"batch_atomic_b": "forbidden",
+	}, tenantID)
+	if err == nil {
+		t.Fatal("batch update should fail on the second sorted key")
+	}
+
+	for key, want := range map[string]string{
+		"batch_atomic_a": "before-a",
+		"batch_atomic_b": "before-b",
+	} {
+		setting, getErr := svc.Get(key, tenantID)
+		if getErr != nil {
+			t.Fatalf("get %s after rollback: %v", key, getErr)
+		}
+		if setting.Value != want {
+			t.Fatalf("%s after rollback = %q, want %q", key, setting.Value, want)
+		}
+	}
+	if event := capture.findAction("system.config_update"); event != nil {
+		t.Fatalf("failed batch must not emit a committed-change audit event: %+v", event)
 	}
 }
 
@@ -424,7 +552,7 @@ func TestAnalyticsService_Dashboard(t *testing.T) {
 	user := createTestUser(t, db, "dashuser", "author")
 	createTestArticle(t, db, user.ID, "Dash Article")
 
-	data, err := svc.Dashboard()
+	data, err := svc.Dashboard(models.DefaultTenantID)
 	if err != nil {
 		t.Fatalf("dashboard: %v", err)
 	}
@@ -446,7 +574,7 @@ func TestAnalyticsService_Dashboard_Empty(t *testing.T) {
 	db := setupTestDB(t)
 	svc := NewAnalyticsService(db)
 
-	data, err := svc.Dashboard()
+	data, err := svc.Dashboard(models.DefaultTenantID)
 	if err != nil {
 		t.Fatalf("dashboard: %v", err)
 	}
@@ -462,7 +590,7 @@ func TestAnalyticsService_RecordView(t *testing.T) {
 	err := svc.RecordView(RecordViewRequest{
 		Path:     "/test-page",
 		Duration: 30,
-	}, "127.0.0.1", "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/115.0", "https://google.com", "session123")
+	}, models.DefaultTenantID, "127.0.0.1", "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/115.0", "https://google.com", "session123")
 	if err != nil {
 		t.Fatalf("record view: %v", err)
 	}

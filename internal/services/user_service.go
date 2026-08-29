@@ -166,7 +166,7 @@ func (s *UserService) Create(req CreateUserRequest, actorIDs ...uint) (*models.U
 	}
 
 	if s.webhook != nil {
-		s.webhook.Dispatch(models.WebhookEventUserCreate, result)
+		s.webhook.Dispatch(models.WebhookEventUserCreate, result, models.DefaultTenantID)
 	}
 	s.audit.Log(AuditEvent{
 		UserID: auditActor(actorIDs), Action: "user.create", Entity: "user", EntityID: result.ID,

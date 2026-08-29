@@ -19,6 +19,9 @@ type UserRepository interface {
 	List(filter UserListFilter) ([]models.User, int64, error)
 	GetByID(id uint) (*models.User, error)  // preloads Role
 	FindByID(id uint) (*models.User, error) // no preload; returns gorm.ErrRecordNotFound if missing
+	// Create atomically creates the global user and its default-tenant
+	// membership so accounts made through the platform user API can use the
+	// tenant-scoped CMS immediately.
 	Create(user *models.User) error
 	UpdateFields(id uint, updates map[string]interface{}) error
 	UpdatePassword(id uint, hashedPassword string) error
@@ -82,7 +85,29 @@ func (r *gormUserRepository) FindByID(id uint) (*models.User, error) {
 }
 
 func (r *gormUserRepository) Create(user *models.User) error {
-	return r.db.Create(user).Error
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(user).Error; err != nil {
+			return err
+		}
+
+		var role models.Role
+		if err := tx.Select("slug").First(&role, user.RoleID).Error; err != nil {
+			return err
+		}
+		tenantRole := models.TenantRoleMember
+		switch role.Slug {
+		case models.TenantRoleAdmin:
+			tenantRole = models.TenantRoleAdmin
+		case models.TenantRoleEditor:
+			tenantRole = models.TenantRoleEditor
+		}
+
+		return tx.Create(&models.TenantMembership{
+			TenantID: models.DefaultTenantID,
+			UserID:   user.ID,
+			RoleSlug: tenantRole,
+		}).Error
+	})
 }
 
 func (r *gormUserRepository) UpdateFields(id uint, updates map[string]interface{}) error {

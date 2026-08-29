@@ -12,6 +12,7 @@ type ActivityLogListFilter struct {
 	Entity   string
 	Action   string
 	UserID   string
+	TenantID uint // 0 = include all tenants (platform-level only)
 }
 
 // PluginRepository defines data-access operations for plugins.
@@ -155,6 +156,9 @@ func (r *gormSystemRepository) ListActivityLogs(filter ActivityLogListFilter) ([
 
 	query := r.db.Model(&models.ActivityLog{})
 
+	if filter.TenantID > 0 {
+		query = query.Where("tenant_id = ?", filter.TenantID)
+	}
 	if filter.Entity != "" {
 		query = query.Where("entity = ?", filter.Entity)
 	}

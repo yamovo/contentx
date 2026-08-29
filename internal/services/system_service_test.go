@@ -88,6 +88,39 @@ func TestSystemService_ActivityLog_WithFilters(t *testing.T) {
 	}
 }
 
+func TestSystemService_ActivityLog_TenantFilterExcludesOtherTenantsAndPlatformLogs(t *testing.T) {
+	db := setupTestDB(t)
+	svc := NewSystemService(db)
+	tenantA := uint(10)
+	tenantB := uint(20)
+
+	if err := db.Create(&models.ActivityLog{TenantID: &tenantA, Action: "tenant-a", Entity: "article"}).Error; err != nil {
+		t.Fatalf("create tenant A log: %v", err)
+	}
+	if err := db.Create(&models.ActivityLog{TenantID: &tenantB, Action: "tenant-b", Entity: "article"}).Error; err != nil {
+		t.Fatalf("create tenant B log: %v", err)
+	}
+	if err := db.Create(&models.ActivityLog{TenantID: nil, Action: "platform", Entity: "system"}).Error; err != nil {
+		t.Fatalf("create platform log: %v", err)
+	}
+
+	logs, total, err := svc.ActivityLog(ActivityLogParams{Page: 1, PageSize: 10, TenantID: tenantA})
+	if err != nil {
+		t.Fatalf("tenant activity log: %v", err)
+	}
+	if total != 1 || len(logs) != 1 || logs[0].TenantID == nil || *logs[0].TenantID != tenantA {
+		t.Fatalf("tenant A query leaked another scope: total=%d logs=%+v", total, logs)
+	}
+
+	logs, total, err = svc.ActivityLog(ActivityLogParams{Page: 1, PageSize: 10, TenantID: 0})
+	if err != nil {
+		t.Fatalf("platform activity log: %v", err)
+	}
+	if total != 3 || len(logs) != 3 {
+		t.Fatalf("platform query should include all scopes: total=%d len=%d", total, len(logs))
+	}
+}
+
 // ─── PluginService Tests ────────────────────────────────────────────────────
 
 func TestPluginService_List_Empty(t *testing.T) {

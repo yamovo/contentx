@@ -2,12 +2,14 @@ package services
 
 import (
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/yamovo/contentx/internal/auth"
 	"github.com/yamovo/contentx/internal/config"
 	"github.com/yamovo/contentx/internal/errs"
 	"github.com/yamovo/contentx/internal/models"
+	"github.com/yamovo/contentx/internal/permissions"
 	"github.com/yamovo/contentx/internal/repository"
 	"gorm.io/gorm"
 )
@@ -261,8 +263,9 @@ func (s *AuthService) LoginWithTOTP(username, password, totpCode, clientIP, user
 		}
 	}
 
-	tokenPair, err := s.jwtMgr.GenerateTokenPair(
-		user.ID, user.Username, user.Email, user.Role.Slug, user.DisplayName,
+	tenantID := s.resolveUserTenant(user)
+	tokenPair, err := s.jwtMgr.GenerateTokenPairWithTenant(
+		user.ID, tenantID, user.Username, user.Email, user.Role.Slug, user.DisplayName,
 	)
 	if err != nil {
 		return nil, nil, errs.ErrInternal.Wrap(err)
@@ -279,6 +282,7 @@ func (s *AuthService) LoginWithTOTP(username, password, totpCode, clientIP, user
 	// Log activity (best-effort).
 	_ = s.repo.CreateActivityLog(&models.ActivityLog{
 		UserID:    &user.ID,
+		TenantID:  &tenantID,
 		Action:    "login",
 		Entity:    "user",
 		EntityID:  user.ID,
@@ -304,7 +308,7 @@ func (s *AuthService) Register(req RegisterRequest, clientIP string) (*auth.Toke
 	}
 
 	// Check if registration is enabled.
-	if setting, err := s.repo.FindSetting("enable_registration"); err == nil {
+	if setting, err := s.repo.FindSetting("enable_registration", models.DefaultTenantID); err == nil {
 		if setting.Value == "false" {
 			return nil, nil, errs.ErrRegistrationDisabled
 		}
@@ -352,13 +356,20 @@ func (s *AuthService) Register(req RegisterRequest, clientIP string) (*auth.Toke
 		return nil, nil, errs.ErrInternal.Wrap(err)
 	}
 
+	// Create default-tenant membership so the new user can access content.
+	_ = s.repo.CreateMembership(&models.TenantMembership{
+		TenantID: models.DefaultTenantID,
+		UserID:   user.ID,
+		RoleSlug: models.TenantRoleMember,
+	})
+
 	// Reload with role to generate tokens.
 	userWithRole, err := s.repo.FindUserByIDWithRole(user.ID)
 	if err != nil {
 		return nil, nil, errs.ErrInternal.Wrap(fmt.Errorf("user created but role reload failed: %w", err))
 	}
-	tokenPair, err := s.jwtMgr.GenerateTokenPair(
-		userWithRole.ID, userWithRole.Username, userWithRole.Email, userWithRole.Role.Slug, userWithRole.DisplayName,
+	tokenPair, err := s.jwtMgr.GenerateTokenPairWithTenant(
+		userWithRole.ID, models.DefaultTenantID, userWithRole.Username, userWithRole.Email, userWithRole.Role.Slug, userWithRole.DisplayName,
 	)
 	if err != nil {
 		return nil, nil, errs.ErrInternal.Wrap(fmt.Errorf("user created but token generation failed: %w", err))
@@ -377,11 +388,10 @@ func (s *AuthService) Register(req RegisterRequest, clientIP string) (*auth.Toke
 // RefreshToken validates a refresh token, loads the user's current state from
 // the database, and issues a new token pair.
 //
-// Loading the user on every refresh ensures role changes, disablement, or
-// deletion take effect immediately. Previously the refresh reused stale
-// claims from the refresh token, which meant a user whose role was changed
-// or who was disabled could keep obtaining access tokens with the old
-// privileges until the refresh token expired (A-1 security fix).
+// Loading the user and tenant authorization on every refresh ensures role
+// changes, disablement, tenant suspension, or membership removal take effect
+// immediately. Previously refresh reused stale claims and did not preserve or
+// revalidate the tenant bound to the session (A-1 security fix).
 func (s *AuthService) RefreshToken(refreshToken string) (*auth.TokenPair, error) {
 	claims, err := s.jwtMgr.ValidateRefreshToken(refreshToken)
 	if err != nil {
@@ -407,7 +417,133 @@ func (s *AuthService) RefreshToken(refreshToken string) (*auth.TokenPair, error)
 		return nil, errs.ErrUnauthorized.WithMessage("user is not active")
 	}
 
-	return s.jwtMgr.GenerateTokenPair(user.ID, user.Username, user.Email, user.Role.Slug, user.DisplayName)
+	tenantID, err := s.resolveRefreshTenant(user, claims.TenantID)
+	if err != nil {
+		return nil, err
+	}
+	return s.jwtMgr.GenerateTokenPairWithTenant(user.ID, tenantID, user.Username, user.Email, user.Role.Slug, user.DisplayName)
+}
+
+// resolveRefreshTenant validates an explicit tenant carried by a refresh token,
+// or deterministically resolves a legacy TenantID=0 token. Tenant existence and
+// active status are always rechecked. Non-platform-admin users must still have
+// a membership for the selected tenant.
+func (s *AuthService) resolveRefreshTenant(user *models.User, requestedTenantID uint) (uint, error) {
+	if requestedTenantID == 0 {
+		return s.resolveLegacyRefreshTenant(user)
+	}
+
+	tenant, err := s.repo.FindTenantByID(requestedTenantID)
+	if err != nil || tenant.Status != models.TenantStatusActive {
+		return 0, errs.ErrUnauthorized.WithMessage("tenant is unavailable")
+	}
+	if user.Role.Slug == "admin" {
+		return requestedTenantID, nil
+	}
+
+	memberships, err := s.repo.FindUserMemberships(user.ID)
+	if err != nil {
+		return 0, errs.ErrUnauthorized.WithMessage("tenant access is unavailable")
+	}
+	for _, membership := range memberships {
+		if membership.TenantID == requestedTenantID {
+			if _, ok := permissions.NormalizeTenantRole(membership.RoleSlug); !ok {
+				return 0, errs.ErrUnauthorized.WithMessage("tenant membership role is invalid")
+			}
+			return requestedTenantID, nil
+		}
+	}
+	return 0, errs.ErrUnauthorized.WithMessage("tenant membership is required")
+}
+
+// resolveLegacyRefreshTenant selects a tenant for pre-multi-tenancy refresh
+// tokens. Platform admins prefer the active default tenant. Other users, and
+// admins whose default tenant is unavailable, select the first active tenant
+// after memberships are ordered deterministically (default first, then ID).
+func (s *AuthService) resolveLegacyRefreshTenant(user *models.User) (uint, error) {
+	if user.Role.Slug == "admin" {
+		if tenant, err := s.repo.FindTenantByID(models.DefaultTenantID); err == nil && tenant.Status == models.TenantStatusActive {
+			return models.DefaultTenantID, nil
+		}
+	}
+
+	memberships, err := s.repo.FindUserMemberships(user.ID)
+	if err != nil {
+		return 0, errs.ErrUnauthorized.WithMessage("tenant access is unavailable")
+	}
+	if user.Role.Slug != "admin" {
+		for _, membership := range memberships {
+			if _, ok := permissions.NormalizeTenantRole(membership.RoleSlug); !ok {
+				return 0, errs.ErrUnauthorized.WithMessage("tenant membership role is invalid")
+			}
+		}
+	}
+	orderMemberships(memberships)
+	for _, membership := range memberships {
+		if membership.TenantID == 0 {
+			continue
+		}
+		tenant, err := s.repo.FindTenantByID(membership.TenantID)
+		if err == nil && tenant.Status == models.TenantStatusActive {
+			return membership.TenantID, nil
+		}
+	}
+	return 0, errs.ErrUnauthorized.WithMessage("active tenant membership is required")
+}
+
+// resolveUserTenant binds login tokens to the first usable tenant in a stable
+// order. Suspended/missing tenants and unrecognized membership roles are
+// skipped so one stale membership cannot make an otherwise valid account mint
+// an immediately unusable session. The default fallback keeps self-service and
+// platform-only accounts able to authenticate; TenantGuard still denies them
+// from tenant-scoped routes until a valid membership exists.
+func (s *AuthService) resolveUserTenant(user *models.User) uint {
+	if user == nil {
+		return models.DefaultTenantID
+	}
+	if user.Role.Slug == "admin" {
+		if tenant, err := s.repo.FindTenantByID(models.DefaultTenantID); err == nil && tenant.Status == models.TenantStatusActive {
+			return models.DefaultTenantID
+		}
+	}
+
+	memberships, err := s.repo.FindUserMemberships(user.ID)
+	if err != nil || len(memberships) == 0 {
+		return models.DefaultTenantID
+	}
+	orderMemberships(memberships)
+	for _, membership := range memberships {
+		if membership.TenantID == 0 {
+			continue
+		}
+		if user.Role.Slug != "admin" {
+			if _, ok := permissions.NormalizeTenantRole(membership.RoleSlug); !ok {
+				continue
+			}
+		}
+		tenant, tenantErr := s.repo.FindTenantByID(membership.TenantID)
+		if tenantErr == nil && tenant.Status == models.TenantStatusActive {
+			return membership.TenantID
+		}
+	}
+	return models.DefaultTenantID
+}
+
+func orderMemberships(memberships []models.TenantMembership) {
+	sort.SliceStable(memberships, func(i, j int) bool {
+		left := memberships[i].TenantID
+		right := memberships[j].TenantID
+		if left == models.DefaultTenantID && right != models.DefaultTenantID {
+			return true
+		}
+		if right == models.DefaultTenantID && left != models.DefaultTenantID {
+			return false
+		}
+		if left == right {
+			return memberships[i].ID < memberships[j].ID
+		}
+		return left < right
+	})
 }
 
 // LogoutRequest is the optional payload for logout. refresh_token, when

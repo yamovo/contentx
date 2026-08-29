@@ -1,6 +1,9 @@
 package migrations
 
 import (
+	"fmt"
+	"strings"
+
 	"github.com/yamovo/contentx/internal/database"
 	"github.com/yamovo/contentx/internal/models"
 	"gorm.io/gorm"
@@ -61,6 +64,17 @@ func init() {
 			return nil
 		},
 		Down: func(tx *gorm.DB) error {
+			if err := ensureTenantMigration009RollbackSafe(tx); err != nil {
+				return err
+			}
+			// MySQL auto-commits most DDL, so the Migrator transaction cannot
+			// make this multi-table rollback atomic. Fail closed and require a
+			// pre-009 backup restore instead of risking a partially downgraded
+			// schema.
+			if tx.Dialector.Name() == "mysql" {
+				return fmt.Errorf("migration 009 rollback is disabled on MySQL because DDL is not transactional; restore a verified pre-009 backup instead")
+			}
+
 			// Data-destructive: drops tenant_id columns and tenant-scoped
 			// indexes. Back up and stop writers before rolling back.
 			//
@@ -87,7 +101,11 @@ func init() {
 			}
 			for _, u := range tenantUniqueReplaces() {
 				if !tx.Migrator().HasIndex(u.table, u.oldName) {
-					if err := tx.Exec("CREATE UNIQUE INDEX " + u.oldName + " ON " + u.table + " (" + u.oldColumns + ")").Error; err != nil {
+					if err := tx.Exec(
+						"CREATE UNIQUE INDEX " + quoteMigrationIdentifier(tx, u.oldName) +
+							" ON " + quoteMigrationIdentifier(tx, u.table) +
+							" (" + quoteMigrationColumns(tx, u.oldColumns) + ")",
+					).Error; err != nil {
 						return err
 					}
 				}
@@ -95,6 +113,59 @@ func init() {
 			return nil
 		},
 	})
+}
+
+// ensureTenantMigration009RollbackSafe refuses to erase tenant attribution.
+// A lossless rollback is possible only while every NOT NULL tenant table still
+// contains default-tenant rows exclusively and every nullable table contains
+// global (tenant_id NULL) rows exclusively. This preflight runs before any DDL,
+// which also prevents predictable partial rollbacks on databases whose DDL is
+// not transactional.
+func ensureTenantMigration009RollbackSafe(tx *gorm.DB) error {
+	for _, table := range tenantScopedTables() {
+		if !tx.Migrator().HasColumn(table.model, "TenantID") {
+			continue
+		}
+		found, tenantID, err := findTenantID(tx, table.table, "tenant_id <> ?", models.DefaultTenantID)
+		if err != nil {
+			return fmt.Errorf("preflight %s tenant data: %w", table.table, err)
+		}
+		if found {
+			return fmt.Errorf("migration 009 rollback refused: %s contains tenant_id=%d data; export or remove non-default tenant data and take a verified backup first", table.table, tenantID)
+		}
+	}
+
+	for _, table := range tenantNullableTables() {
+		if !tx.Migrator().HasColumn(table.model, "TenantID") {
+			continue
+		}
+		found, tenantID, err := findTenantID(tx, table.table, "tenant_id IS NOT NULL")
+		if err != nil {
+			return fmt.Errorf("preflight %s tenant overrides: %w", table.table, err)
+		}
+		if found {
+			return fmt.Errorf("migration 009 rollback refused: %s contains tenant_id=%d rows whose scope would be lost; export or remove tenant-scoped rows and take a verified backup first", table.table, tenantID)
+		}
+	}
+
+	return nil
+}
+
+func findTenantID(tx *gorm.DB, table, predicate string, args ...interface{}) (bool, uint, error) {
+	var rows []struct {
+		TenantID uint `gorm:"column:tenant_id"`
+	}
+	if err := tx.Table(table).
+		Select("tenant_id").
+		Where(predicate, args...).
+		Limit(1).
+		Scan(&rows).Error; err != nil {
+		return false, 0, err
+	}
+	if len(rows) == 0 {
+		return false, 0, nil
+	}
+	return true, rows[0].TenantID, nil
 }
 
 // tenantTableModel pairs a GORM model with its table name.
@@ -173,7 +244,11 @@ func addTenantColumn(tx *gorm.DB, model interface{}, table string) error {
 	}
 	idx := "idx_" + table + "_tenant_id"
 	if !tx.Migrator().HasIndex(table, idx) {
-		if err := tx.Exec("CREATE INDEX " + idx + " ON " + table + " (tenant_id)").Error; err != nil {
+		if err := tx.Exec(
+			"CREATE INDEX " + quoteMigrationIdentifier(tx, idx) +
+				" ON " + quoteMigrationIdentifier(tx, table) +
+				" (" + quoteMigrationIdentifier(tx, "tenant_id") + ")",
+		).Error; err != nil {
 			return err
 		}
 	}
@@ -189,7 +264,11 @@ func addNullableTenantColumn(tx *gorm.DB, model interface{}, table string) error
 	}
 	idx := "idx_" + table + "_tenant_id"
 	if !tx.Migrator().HasIndex(table, idx) {
-		if err := tx.Exec("CREATE INDEX " + idx + " ON " + table + " (tenant_id)").Error; err != nil {
+		if err := tx.Exec(
+			"CREATE INDEX " + quoteMigrationIdentifier(tx, idx) +
+				" ON " + quoteMigrationIdentifier(tx, table) +
+				" (" + quoteMigrationIdentifier(tx, "tenant_id") + ")",
+		).Error; err != nil {
 			return err
 		}
 	}
@@ -219,11 +298,68 @@ func replaceUnique(tx *gorm.DB, table, oldName, newName, columns string) error {
 		}
 	}
 	if !tx.Migrator().HasIndex(table, newName) {
-		if err := tx.Exec("CREATE UNIQUE INDEX " + newName + " ON " + table + " (" + columns + ")").Error; err != nil {
+		if err := tx.Exec(
+			"CREATE UNIQUE INDEX " + quoteMigrationIdentifier(tx, newName) +
+				" ON " + quoteMigrationIdentifier(tx, table) +
+				" (" + quoteMigrationColumns(tx, columns) + ")",
+		).Error; err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-// addTenantColumn adds a NOT NULL tenant_id column (default 1) and its index.
+// ApplyTenantScopedIndexes replaces single-column unique indexes with
+// tenant-scoped composite unique indexes and adds tenant_id indexes on all
+// tenant-scoped and tenant-nullable tables. This is the index portion of
+// migration 009, extracted so test fixtures that use AutoMigrate (which
+// creates the old single-column unique indexes from model tags) can reach
+// the same schema state as a production database without running the full
+// migration suite.
+func ApplyTenantScopedIndexes(db *gorm.DB) error {
+	for _, u := range tenantUniqueReplaces() {
+		if err := replaceUnique(db, u.table, u.oldName, u.newName, u.columns); err != nil {
+			return err
+		}
+	}
+	for _, t := range tenantScopedTables() {
+		idx := "idx_" + t.table + "_tenant_id"
+		if !db.Migrator().HasIndex(t.table, idx) {
+			if err := db.Exec(
+				"CREATE INDEX " + quoteMigrationIdentifier(db, idx) +
+					" ON " + quoteMigrationIdentifier(db, t.table) +
+					" (" + quoteMigrationIdentifier(db, "tenant_id") + ")",
+			).Error; err != nil {
+				return err
+			}
+		}
+	}
+	for _, t := range tenantNullableTables() {
+		idx := "idx_" + t.table + "_tenant_id"
+		if !db.Migrator().HasIndex(t.table, idx) {
+			if err := db.Exec(
+				"CREATE INDEX " + quoteMigrationIdentifier(db, idx) +
+					" ON " + quoteMigrationIdentifier(db, t.table) +
+					" (" + quoteMigrationIdentifier(db, "tenant_id") + ")",
+			).Error; err != nil {
+				return err
+			}
+		}
+	}
+	return ensureSiteSettingScopeUniqueness(db)
+}
+
+func quoteMigrationColumns(db *gorm.DB, columns string) string {
+	parts := strings.Split(columns, ",")
+	for i, column := range parts {
+		parts[i] = quoteMigrationIdentifier(db, strings.TrimSpace(column))
+	}
+	return strings.Join(parts, ", ")
+}
+
+func quoteMigrationIdentifier(db *gorm.DB, identifier string) string {
+	if db.Dialector.Name() == "mysql" {
+		return "`" + strings.ReplaceAll(identifier, "`", "``") + "`"
+	}
+	return `"` + strings.ReplaceAll(identifier, `"`, `""`) + `"`
+}

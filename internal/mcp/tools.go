@@ -3,12 +3,14 @@ package mcp
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"strings"
 	"time"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/yamovo/contentx/internal/models"
+	"github.com/yamovo/contentx/internal/permissions"
 	"github.com/yamovo/contentx/internal/services"
 )
 
@@ -37,6 +39,19 @@ func registerTools(s *mcpsdk.Server, deps Deps) {
 		Description: "List the custom content types (collections) defined in ContentX with their field schema. Use this to discover the content model before querying.",
 	}, ts.listContentTypes)
 
+	// RAG tools are exposed only when a RAG service is configured.
+	if deps.RAG != nil {
+		mcpsdk.AddTool(s, &mcpsdk.Tool{
+			Name:        "rag_search",
+			Description: "Semantic search across ContentX content using vector similarity. Unlike full-text search, this understands meaning and context. Returns ranked content chunks with similarity scores.",
+		}, ts.ragSearch)
+
+		mcpsdk.AddTool(s, &mcpsdk.Tool{
+			Name:        "rag_ask",
+			Description: "Ask a question and get an answer based on ContentX content using RAG (Retrieval-Augmented Generation). Retrieves relevant content chunks and optionally synthesises an answer. Returns both the answer and the supporting context.",
+		}, ts.ragAsk)
+	}
+
 	// Write tools are exposed only when an Authorizer is configured (HTTP mode).
 	if deps.Authorizer != nil {
 		registerWriteTools(s, ts)
@@ -46,6 +61,65 @@ func registerTools(s *mcpsdk.Server, deps Deps) {
 // toolset carries the shared dependencies for the tool handlers.
 type toolset struct {
 	deps Deps
+}
+
+// requestHeader extracts the transport-provided HTTP headers from an MCP tool
+// request. In-memory and stdio requests legitimately have no headers.
+func requestHeader(req *mcpsdk.CallToolRequest) http.Header {
+	if req == nil || req.Extra == nil {
+		return nil
+	}
+	return req.Extra.Header
+}
+
+// verifiedHTTPPrincipal re-resolves the current request token through the
+// Authorizer and binds it to the principal captured when this MCP session was
+// authenticated. This both applies permission revocations immediately and
+// prevents changing identities or tenants inside an existing HTTP session.
+// A nil Authorizer identifies local stdio mode, which remains read-only and
+// backward compatible without an HTTP principal.
+func (t *toolset) verifiedHTTPPrincipal(ctx context.Context, header http.Header) (*Principal, error) {
+	if t.deps.Authorizer == nil {
+		return nil, nil
+	}
+
+	sessionPrincipal, ok := PrincipalFromContext(ctx)
+	if !ok {
+		return nil, fmt.Errorf("verified MCP principal is required")
+	}
+	if header == nil {
+		return nil, fmt.Errorf("verified MCP request headers are required")
+	}
+	current, err := t.deps.Authorizer.Resolve(header)
+	if err != nil || current == nil || current.UserID == 0 || current.TenantID == 0 {
+		return nil, fmt.Errorf("invalid MCP principal")
+	}
+	if current.UserID != sessionPrincipal.UserID || current.TenantID != sessionPrincipal.TenantID {
+		return nil, fmt.Errorf("MCP principal changed within the session")
+	}
+
+	return &Principal{
+		UserID:      current.UserID,
+		TenantID:    current.TenantID,
+		Permissions: append([]string(nil), current.Permissions...),
+	}, nil
+}
+
+// requirePermission enforces an effective permission only in authenticated
+// HTTP mode. Stdio has no Authorizer and keeps its existing local read-only
+// behavior. HTTP always fails closed on a missing principal/header.
+func (t *toolset) requirePermission(ctx context.Context, header http.Header, want string) error {
+	principal, err := t.verifiedHTTPPrincipal(ctx, header)
+	if err != nil {
+		return err
+	}
+	if principal == nil {
+		return nil
+	}
+	if !permissions.Grants(principal.Permissions, want) {
+		return fmt.Errorf("token lacks permission: %s", want)
+	}
+	return nil
 }
 
 // status returns the article status filter the read tools should enforce.
@@ -58,11 +132,11 @@ func (t *toolset) status() string {
 	return string(models.StatusPublished)
 }
 
-// tenantID returns the tenant all MCP tools operate in. stdio and HTTP modes
-// currently resolve to the default tenant; per-token tenant binding lands
-// with RFC-001 §11 open question 2 (PR-5).
-func (t *toolset) tenantID() uint {
-	return models.DefaultTenantID
+// tenantID returns the tenant for the current tool call. In HTTP mode the
+// tenant is resolved from the API token and stored in the request context by
+// mcpTokenAuth; in stdio mode it falls back to the default tenant.
+func (t *toolset) tenantID(ctx context.Context) uint {
+	return TenantFromContext(ctx)
 }
 
 // articleURL builds an absolute article URL from the configured base URL.
@@ -98,12 +172,16 @@ type searchOutput struct {
 	TotalPages int         `json:"total_pages"`
 }
 
-func (t *toolset) searchContent(ctx context.Context, _ *mcpsdk.CallToolRequest, in searchInput) (*mcpsdk.CallToolResult, searchOutput, error) {
+func (t *toolset) searchContent(ctx context.Context, req *mcpsdk.CallToolRequest, in searchInput) (*mcpsdk.CallToolResult, searchOutput, error) {
+	if err := t.requirePermission(ctx, requestHeader(req), permissions.ArticlesRead); err != nil {
+		return nil, searchOutput{}, err
+	}
 	if strings.TrimSpace(in.Query) == "" {
 		return nil, searchOutput{}, fmt.Errorf("query is required")
 	}
 	res, err := t.deps.Article.Search(ctx, services.SearchQuery{
 		Query:    in.Query,
+		TenantID: t.tenantID(ctx),
 		Type:     in.Type,
 		Status:   t.status(),
 		Locale:   in.Locale,
@@ -166,7 +244,10 @@ type listArticlesOutput struct {
 	TotalPages int              `json:"total_pages"`
 }
 
-func (t *toolset) listArticles(_ context.Context, _ *mcpsdk.CallToolRequest, in listArticlesInput) (*mcpsdk.CallToolResult, listArticlesOutput, error) {
+func (t *toolset) listArticles(ctx context.Context, req *mcpsdk.CallToolRequest, in listArticlesInput) (*mcpsdk.CallToolResult, listArticlesOutput, error) {
+	if err := t.requirePermission(ctx, requestHeader(req), permissions.ArticlesRead); err != nil {
+		return nil, listArticlesOutput{}, err
+	}
 	resp, err := t.deps.Article.List(services.ListArticlesFilter{
 		Page:       in.Page,
 		PageSize:   in.PageSize,
@@ -174,7 +255,7 @@ func (t *toolset) listArticles(_ context.Context, _ *mcpsdk.CallToolRequest, in 
 		CategoryID: in.Category,
 		TagSlug:    in.Tag,
 		Sort:       in.Sort,
-	}, t.tenantID())
+	}, t.tenantID(ctx))
 	if err != nil {
 		return nil, listArticlesOutput{}, err
 	}
@@ -237,11 +318,14 @@ type articleDetail struct {
 	URL         string     `json:"url"`
 }
 
-func (t *toolset) getArticle(_ context.Context, _ *mcpsdk.CallToolRequest, in getArticleInput) (*mcpsdk.CallToolResult, articleDetail, error) {
+func (t *toolset) getArticle(ctx context.Context, req *mcpsdk.CallToolRequest, in getArticleInput) (*mcpsdk.CallToolResult, articleDetail, error) {
+	if err := t.requirePermission(ctx, requestHeader(req), permissions.ArticlesRead); err != nil {
+		return nil, articleDetail{}, err
+	}
 	if in.ID == 0 {
 		return nil, articleDetail{}, fmt.Errorf("id is required")
 	}
-	a, err := t.deps.Article.Get(in.ID, t.tenantID())
+	a, err := t.deps.Article.Get(in.ID, t.tenantID(ctx))
 	if err != nil {
 		return nil, articleDetail{}, fmt.Errorf("article not found")
 	}
@@ -296,8 +380,11 @@ type listContentTypesOutput struct {
 	ContentTypes []contentTypeInfo `json:"content_types"`
 }
 
-func (t *toolset) listContentTypes(_ context.Context, _ *mcpsdk.CallToolRequest, _ emptyInput) (*mcpsdk.CallToolResult, listContentTypesOutput, error) {
-	types, err := t.deps.ContentType.ListContentTypes()
+func (t *toolset) listContentTypes(ctx context.Context, req *mcpsdk.CallToolRequest, _ emptyInput) (*mcpsdk.CallToolResult, listContentTypesOutput, error) {
+	if err := t.requirePermission(ctx, requestHeader(req), permissions.ContentTypesRead); err != nil {
+		return nil, listContentTypesOutput{}, err
+	}
+	types, err := t.deps.ContentType.ListContentTypes(t.tenantID(ctx))
 	if err != nil {
 		return nil, listContentTypesOutput{}, err
 	}
@@ -332,4 +419,114 @@ func authorName(a *models.Article) string {
 		return a.Author.DisplayName
 	}
 	return a.Author.Username
+}
+
+// ─── rag_search ──────────────────────────────────────────────────────────────
+
+type ragSearchInput struct {
+	Query string `json:"query" jsonschema:"the natural-language search query"`
+	TopK  int    `json:"top_k,omitempty" jsonschema:"max results to return, 1-50 (default 5)"`
+}
+
+type ragSearchHit struct {
+	DocID   uint    `json:"doc_id"`
+	DocType string  `json:"doc_type"`
+	Title   string  `json:"title"`
+	Slug    string  `json:"slug"`
+	Excerpt string  `json:"excerpt"`
+	Score   float64 `json:"score"`
+	Locale  string  `json:"locale"`
+	URL     string  `json:"url"`
+}
+
+type ragSearchOutput struct {
+	Query  string         `json:"query"`
+	Hits   []ragSearchHit `json:"hits"`
+	Total  int            `json:"total"`
+	TookMs float64        `json:"took_ms"`
+}
+
+func (t *toolset) ragSearch(ctx context.Context, req *mcpsdk.CallToolRequest, in ragSearchInput) (*mcpsdk.CallToolResult, ragSearchOutput, error) {
+	if err := t.requirePermission(ctx, requestHeader(req), permissions.AIRead); err != nil {
+		return nil, ragSearchOutput{}, err
+	}
+	if strings.TrimSpace(in.Query) == "" {
+		return nil, ragSearchOutput{}, fmt.Errorf("query is required")
+	}
+	if in.TopK <= 0 || in.TopK > 50 {
+		in.TopK = 5
+	}
+	result, err := t.deps.RAG.Search(ctx, in.Query, t.tenantID(ctx), in.TopK)
+	if err != nil {
+		return nil, ragSearchOutput{}, err
+	}
+	out := ragSearchOutput{
+		Query:  result.Query,
+		Total:  result.Total,
+		TookMs: float64(result.Took) / float64(time.Millisecond),
+		Hits:   make([]ragSearchHit, 0, len(result.Hits)),
+	}
+	for _, h := range result.Hits {
+		out.Hits = append(out.Hits, ragSearchHit{
+			DocID:   h.DocID,
+			DocType: h.DocType,
+			Title:   h.Title,
+			Slug:    h.Slug,
+			Excerpt: h.Excerpt,
+			Score:   h.Score,
+			Locale:  h.Locale,
+			URL:     t.articleURL(h.Slug),
+		})
+	}
+	return nil, out, nil
+}
+
+// ─── rag_ask ─────────────────────────────────────────────────────────────────
+
+type ragAskInput struct {
+	Query string `json:"query" jsonschema:"the question to ask"`
+	TopK  int    `json:"top_k,omitempty" jsonschema:"max context chunks to retrieve, 1-20 (default 5)"`
+}
+
+type ragContextItem struct {
+	Title   string  `json:"title"`
+	Content string  `json:"content"`
+	Score   float64 `json:"score"`
+}
+
+type ragAskOutput struct {
+	Query   string           `json:"query"`
+	Answer  string           `json:"answer,omitempty"`
+	Context []ragContextItem `json:"context"`
+	TookMs  float64          `json:"took_ms"`
+}
+
+func (t *toolset) ragAsk(ctx context.Context, req *mcpsdk.CallToolRequest, in ragAskInput) (*mcpsdk.CallToolResult, ragAskOutput, error) {
+	if err := t.requirePermission(ctx, requestHeader(req), permissions.AIAsk); err != nil {
+		return nil, ragAskOutput{}, err
+	}
+	if strings.TrimSpace(in.Query) == "" {
+		return nil, ragAskOutput{}, fmt.Errorf("query is required")
+	}
+	if in.TopK <= 0 || in.TopK > 20 {
+		in.TopK = 5
+	}
+	result, err := t.deps.RAG.Ask(ctx, in.Query, t.tenantID(ctx), in.TopK)
+	if err != nil {
+		return nil, ragAskOutput{}, err
+	}
+	out := ragAskOutput{
+		Query:   result.Query,
+		Answer:  result.Answer,
+		TookMs:  float64(result.Took) / float64(time.Millisecond),
+		Context: make([]ragContextItem, 0, len(result.Context)),
+	}
+	for _, c := range result.Context {
+		out.Context = append(out.Context, ragContextItem{
+			Title:   c.Title,
+			Content: c.Content,
+			Score:   c.Score,
+		})
+	}
+	return nil, out, nil
 }

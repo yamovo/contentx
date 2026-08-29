@@ -33,10 +33,17 @@ func setupAuthTestRouter(t *testing.T) (*gin.Engine, *gorm.DB, *auth.JWTManager)
 		t.Fatalf("failed to open test db: %v", err)
 	}
 
-	if err := database.AutoMigrate(db); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
+	prepareHandlerTestDB(t, db)
 	database.Seed(db)
+	defaultTenant := models.Tenant{
+		BaseModel: models.BaseModel{ID: models.DefaultTenantID},
+		Name:      "Default",
+		Slug:      "default",
+		Status:    models.TenantStatusActive,
+	}
+	if err := db.FirstOrCreate(&defaultTenant, models.DefaultTenantID).Error; err != nil {
+		t.Fatalf("ensure default tenant: %v", err)
+	}
 
 	cfg := &config.Config{}
 	cfg.JWT.Secret = "test-jwt-secret-for-integration-testing-32chars"

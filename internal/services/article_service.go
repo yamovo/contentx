@@ -25,6 +25,7 @@ type ArticleService struct {
 	webhook  WebhookDispatcher
 	plugins  *plugin.Manager
 	search   SearchIndexer // optional; defaults to NoopIndexer when unset
+	rag      RAGIndexer    // optional; defaults to noopRAGIndexer when unset
 	cache    cache.Driver
 	cacheTTL time.Duration
 	cacheGen uint64
@@ -73,6 +74,15 @@ func (s *ArticleService) SetSearchIndexer(idx SearchIndexer) {
 	s.search = idx
 }
 
+// SetRAGIndexer injects a RAG indexer so article create/update/delete events
+// keep the vector index in sync. Pass nil to disable RAG indexing.
+func (s *ArticleService) SetRAGIndexer(idx RAGIndexer) {
+	if idx == nil {
+		idx = noopRAGIndexer{}
+	}
+	s.rag = idx
+}
+
 // indexer returns the configured SearchIndexer (NoopIndexer if unset).
 func (s *ArticleService) indexer() SearchIndexer {
 	if s.search == nil {
@@ -86,41 +96,53 @@ func (s *ArticleService) indexer() SearchIndexer {
 // secondary concern and should not break a successful write.
 func (s *ArticleService) indexArticle(article *models.Article) {
 	idx := s.indexer()
-	if idx == nil {
-		return
+	if idx != nil {
+		doc := ArticleToSearchDoc(article)
+		if err := idx.Index(context.Background(), doc); err != nil {
+			slog.Warn("search index failed", "article_id", article.ID, "error", err)
+		}
 	}
-	doc := ArticleToSearchDoc(article)
-	if err := idx.Index(context.Background(), doc); err != nil {
-		slog.Warn("search index failed", "article_id", article.ID, "error", err)
+	// RAG vector index (best-effort; failures logged but non-fatal).
+	if s.rag != nil {
+		if err := s.rag.IndexArticle(context.Background(), article); err != nil {
+			slog.Warn("rag index failed", "article_id", article.ID, "error", err)
+		}
 	}
 }
 
 // unindexArticle removes an article from the search index (best-effort).
-func (s *ArticleService) unindexArticle(id uint, postType models.PostType) {
+func (s *ArticleService) unindexArticle(id uint, postType models.PostType, tenantID uint) {
 	idx := s.indexer()
-	if idx == nil {
-		return
+	if idx != nil {
+		docType := "article"
+		if postType == models.PostTypePage {
+			docType = "page"
+		}
+		if err := idx.Delete(context.Background(), id, docType, tenantID); err != nil {
+			slog.Warn("search unindex failed", "article_id", id, "error", err)
+		}
 	}
-	docType := "article"
-	if postType == models.PostTypePage {
-		docType = "page"
-	}
-	if err := idx.Delete(context.Background(), id, docType); err != nil {
-		slog.Warn("search unindex failed", "article_id", id, "error", err)
+	// RAG vector index (best-effort).
+	if s.rag != nil {
+		if err := s.rag.DeleteArticle(context.Background(), id, tenantID); err != nil {
+			slog.Warn("rag unindex failed", "article_id", id, "error", err)
+		}
 	}
 }
 
+// reindexByID re-indexes a single article by ID (used after scheduled publish).
 // reindexByID reloads the article with associations preloaded (via GetByID)
 // and pushes it into the search index. Used by status-transition paths
 // (Publish/Unpublish/Schedule/Archive) where the in-memory article came
 // from FindByID (no preloads), so the indexed document would otherwise lose
 // author/category/tag metadata.
 //
-// Skipped entirely when the indexer is NoopIndexer (search disabled) to
-// avoid the extra GetByID DB round-trip.
+// Skipped entirely when both the search indexer and RAG indexer are no-op
+// to avoid the extra GetByID DB round-trip.
 func (s *ArticleService) reindexByID(id, tenantID uint) {
 	idx := s.indexer()
-	if idx == nil || idx.Name() == "noop" {
+	ragActive := s.rag != nil
+	if (idx == nil || idx.Name() == "noop") && !ragActive {
 		return
 	}
 	article, err := s.repo.GetByID(id, tenantID)
@@ -487,7 +509,7 @@ func (s *ArticleService) Create(req CreateArticleRequest, tenantID, userID uint)
 	}
 
 	if s.webhook != nil {
-		s.webhook.Dispatch(models.WebhookEventEntryCreate, &article)
+		s.webhook.Dispatch(models.WebhookEventEntryCreate, &article, tenantID)
 	}
 
 	s.indexArticle(&article)
@@ -500,6 +522,17 @@ func (s *ArticleService) Create(req CreateArticleRequest, tenantID, userID uint)
 	})
 
 	s.invalidateArticle(tenantID, article.ID)
+
+	uid := userID
+	tid := tenantID
+	s.audit.Log(AuditEvent{
+		UserID: &uid, TenantID: &tid, Action: "article.create", Entity: "article", EntityID: article.ID,
+		Details: map[string]any{
+			"title": article.Title, "slug": article.Slug,
+			"post_type": string(article.PostType), "status": string(article.Status),
+		},
+	})
+
 	return &article, nil
 }
 
@@ -617,11 +650,12 @@ func (s *ArticleService) CreateTranslation(sourceID uint, locale string, req Cre
 	}
 
 	if s.webhook != nil {
-		s.webhook.Dispatch(models.WebhookEventEntryCreate, &article)
+		s.webhook.Dispatch(models.WebhookEventEntryCreate, &article, tenantID)
 	}
 	uid := userID
+	tid := tenantID
 	s.audit.Log(AuditEvent{
-		UserID: &uid, Action: "article.create", Entity: "article", EntityID: article.ID,
+		UserID: &uid, TenantID: &tid, Action: "article.create", Entity: "article", EntityID: article.ID,
 		Details: map[string]any{
 			"title": article.Title, "slug": article.Slug,
 			"post_type": string(article.PostType), "status": string(article.Status),
@@ -657,7 +691,7 @@ func (s *ArticleService) Update(id uint, req UpdateArticleRequest, tenantID, use
 	}
 
 	if s.webhook != nil {
-		s.webhook.Dispatch(models.WebhookEventEntryUpdate, article)
+		s.webhook.Dispatch(models.WebhookEventEntryUpdate, article, tenantID)
 	}
 
 	s.indexArticle(article)
@@ -668,8 +702,9 @@ func (s *ArticleService) Update(id uint, req UpdateArticleRequest, tenantID, use
 	})
 
 	uid := userID
+	tid := tenantID
 	s.audit.Log(AuditEvent{
-		UserID: &uid, Action: "article.update", Entity: "article", EntityID: article.ID,
+		UserID: &uid, TenantID: &tid, Action: "article.update", Entity: "article", EntityID: article.ID,
 		Details: map[string]any{
 			"title": article.Title, "slug": article.Slug, "version": article.Version,
 		},
@@ -749,18 +784,19 @@ func (s *ArticleService) Delete(id, tenantID, userID uint, isEditor bool) error 
 	}
 
 	if s.webhook != nil {
-		s.webhook.Dispatch(models.WebhookEventEntryDelete, article)
+		s.webhook.Dispatch(models.WebhookEventEntryDelete, article, tenantID)
 	}
 
-	s.unindexArticle(article.ID, article.PostType)
+	s.unindexArticle(article.ID, article.PostType, tenantID)
 
 	s.fireAction("article.afterDelete", map[string]interface{}{
 		"article_id": id,
 		"user_id":    userID,
 	})
 	uid := userID
+	tid := tenantID
 	s.audit.Log(AuditEvent{
-		UserID: &uid,
+		UserID: &uid, TenantID: &tid,
 		Action: "article.delete", Entity: "article", EntityID: id,
 		Details: map[string]any{"title": article.Title, "slug": article.Slug},
 	})
@@ -789,10 +825,30 @@ func (s *ArticleService) BulkAction(req BulkActionRequest, tenantID uint) (int64
 			"ids":    req.ArticleIDs,
 			"action": req.Action,
 			"count":  n,
-		})
+		}, tenantID)
 	}
+	s.syncBulkRAG(req.Action, req.ArticleIDs, tenantID)
 	s.invalidateArticle(tenantID, req.ArticleIDs...)
 	return n, nil
+}
+
+// syncBulkRAG keeps the RAG vector index in sync after a bulk action.
+// Publish re-indexes articles (IndexArticle only indexes published status);
+// draft/trash/delete removes them from the vector index.
+func (s *ArticleService) syncBulkRAG(action string, ids []uint, tenantID uint) {
+	if s.rag == nil {
+		return
+	}
+	switch action {
+	case "publish":
+		for _, id := range ids {
+			s.reindexByID(id, tenantID)
+		}
+	case "draft", "trash", "delete":
+		for _, id := range ids {
+			s.unindexArticle(id, models.PostTypePost, tenantID)
+		}
+	}
 }
 
 // bulkActionRepo dispatches to the repository without webhook side-effects.
@@ -921,10 +977,11 @@ func (s *ArticleService) publish(id uint, userID *uint, tenantID uint) (*models.
 		return nil, err
 	}
 	if s.webhook != nil {
-		s.webhook.Dispatch(models.WebhookEventEntryPublish, updated)
+		s.webhook.Dispatch(models.WebhookEventEntryPublish, updated, tenantID)
 	}
+	tid := tenantID
 	s.audit.Log(AuditEvent{
-		UserID: userID, Action: "article.publish", Entity: "article", EntityID: id,
+		UserID: userID, TenantID: &tid, Action: "article.publish", Entity: "article", EntityID: id,
 		Details: map[string]any{"title": updated.Title, "slug": updated.Slug, "from": string(current.Status), "to": string(models.StatusPublished)},
 	})
 	return updated, nil
@@ -948,10 +1005,11 @@ func (s *ArticleService) unpublish(id uint, userID *uint, tenantID uint) (*model
 		return nil, err
 	}
 	if s.webhook != nil {
-		s.webhook.Dispatch(models.WebhookEventEntryUnpublish, updated)
+		s.webhook.Dispatch(models.WebhookEventEntryUnpublish, updated, tenantID)
 	}
+	tid := tenantID
 	s.audit.Log(AuditEvent{
-		UserID: userID, Action: "article.unpublish", Entity: "article", EntityID: id,
+		UserID: userID, TenantID: &tid, Action: "article.unpublish", Entity: "article", EntityID: id,
 		Details: map[string]any{"title": updated.Title, "slug": updated.Slug, "to": string(models.StatusDraft)},
 	})
 	return updated, nil
@@ -972,8 +1030,9 @@ func (s *ArticleService) submitForReview(id uint, userID *uint, tenantID uint) (
 	if err != nil {
 		return nil, err
 	}
+	tid := tenantID
 	s.audit.Log(AuditEvent{
-		UserID: userID, Action: "article.submit_review", Entity: "article", EntityID: id,
+		UserID: userID, TenantID: &tid, Action: "article.submit_review", Entity: "article", EntityID: id,
 		Details: map[string]any{"title": updated.Title, "slug": updated.Slug, "to": string(models.StatusPending)},
 	})
 	return updated, nil
@@ -1012,10 +1071,11 @@ func (s *ArticleService) schedule(id uint, at time.Time, userID *uint, tenantID 
 		return nil, err
 	}
 	if s.webhook != nil {
-		s.webhook.Dispatch(models.WebhookEventEntrySchedule, updated)
+		s.webhook.Dispatch(models.WebhookEventEntrySchedule, updated, tenantID)
 	}
+	tid := tenantID
 	s.audit.Log(AuditEvent{
-		UserID: userID, Action: "article.schedule", Entity: "article", EntityID: id,
+		UserID: userID, TenantID: &tid, Action: "article.schedule", Entity: "article", EntityID: id,
 		Details: map[string]any{"title": updated.Title, "slug": updated.Slug, "scheduled_at": at},
 	})
 	return updated, nil
@@ -1036,8 +1096,9 @@ func (s *ArticleService) archive(id uint, userID *uint, tenantID uint) (*models.
 	if err != nil {
 		return nil, err
 	}
+	tid := tenantID
 	s.audit.Log(AuditEvent{
-		UserID: userID, Action: "article.archive", Entity: "article", EntityID: id,
+		UserID: userID, TenantID: &tid, Action: "article.archive", Entity: "article", EntityID: id,
 		Details: map[string]any{"title": updated.Title, "slug": updated.Slug, "to": string(models.StatusArchived)},
 	})
 	return updated, nil
@@ -1047,37 +1108,42 @@ func (s *ArticleService) archive(id uint, userID *uint, tenantID uint) (*models.
 // or before now. Returns the number of articles flipped. Used by the
 // PublishScheduler worker.
 //
-// Multi-tenancy note: currently scans the default tenant only; a tenant-by-
-// tenant pass lands with PR-4 (RFC-001 §5).
+// Multi-tenancy: scans all tenants so scheduled articles in every tenant are
+// published by the background scheduler sweep.
 func (s *ArticleService) PublishDueScheduled(now time.Time) (int, error) {
-	due, err := s.repo.ListScheduledDue(now, models.DefaultTenantID)
+	due, err := s.repo.ListScheduledDueAllTenants(now)
 	if err != nil {
 		return 0, err
 	}
 	if len(due) == 0 {
 		return 0, nil
 	}
-	ids := make([]uint, 0, len(due))
+	// Group article IDs by tenant so BulkPublish stays within-tenant.
+	byTenant := make(map[uint][]uint)
 	for _, a := range due {
-		ids = append(ids, a.ID)
+		byTenant[a.TenantID] = append(byTenant[a.TenantID], a.ID)
 	}
-	n, err := s.repo.BulkPublish(ids, now, models.DefaultTenantID)
-	if err != nil {
-		return 0, err
+	var totalPublished int64
+	for tenantID, ids := range byTenant {
+		n, err := s.repo.BulkPublish(ids, now, tenantID)
+		if err != nil {
+			return int(totalPublished), err
+		}
+		if s.webhook != nil && n > 0 {
+			s.webhook.Dispatch(models.WebhookEventEntryPublish, map[string]interface{}{
+				"ids":   ids,
+				"count": n,
+				"mode":  "scheduled",
+			}, tenantID)
+		}
+		// Re-index auto-published articles so they become publicly searchable.
+		for _, id := range ids {
+			s.reindexByID(id, tenantID)
+		}
+		s.invalidateArticle(tenantID, ids...)
+		totalPublished += n
 	}
-	if s.webhook != nil && n > 0 {
-		s.webhook.Dispatch(models.WebhookEventEntryPublish, map[string]interface{}{
-			"ids":   ids,
-			"count": n,
-			"mode":  "scheduled",
-		})
-	}
-	// Re-index auto-published articles so they become publicly searchable.
-	for _, id := range ids {
-		s.reindexByID(id, models.DefaultTenantID)
-	}
-	s.invalidateArticle(models.DefaultTenantID, ids...)
-	return int(n), nil
+	return int(totalPublished), nil
 }
 
 // LikeArticle increments the like count for an article within the tenant.
@@ -1124,9 +1190,11 @@ func (s *ArticleService) GenerateFeed(tenantID uint) (string, error) {
 		item := rssItem{
 			Title:       a.Title,
 			Link:        articleURL,
-			PubDate:     a.PublishedAt.Format(time.RFC1123Z),
 			Description: a.Excerpt,
 			GUID:        articleURL,
+		}
+		if a.PublishedAt != nil {
+			item.PubDate = a.PublishedAt.Format(time.RFC1123Z)
 		}
 		if a.Author.DisplayName != "" {
 			item.Author = fmt.Sprintf("%s (%s)", a.Author.Email, a.Author.DisplayName)

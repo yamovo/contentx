@@ -752,6 +752,24 @@ definitions:
     required:
     - name
     type: object
+  github_com_yamovo_contentx_internal_models.TenantMembership:
+    properties:
+      created_at:
+        type: string
+      deleted_at:
+        $ref: '#/definitions/gorm.DeletedAt'
+      id:
+        type: integer
+      role_slug:
+        description: member | editor | admin
+        type: string
+      tenant_id:
+        type: integer
+      updated_at:
+        type: string
+      user_id:
+        type: integer
+    type: object
   github_com_yamovo_contentx_internal_models.ThemeConfig:
     properties:
       author:
@@ -820,6 +838,10 @@ definitions:
         type: integer
       status:
         $ref: '#/definitions/github_com_yamovo_contentx_internal_models.UserStatus'
+      tenant_memberships:
+        items:
+          $ref: '#/definitions/github_com_yamovo_contentx_internal_models.TenantMembership'
+        type: array
       updated_at:
         type: string
       username:
@@ -1130,7 +1152,10 @@ definitions:
         description: 'i18n: BCP-47 tag, defaults to "en"'
         type: string
       status:
-        description: draft (default) or published
+        description: |-
+          Status is retained for request compatibility, but draft/publish-enabled
+          types may only be created as drafts. Publishing must use PublishEntry so
+          callers cannot bypass the independent content.publish permission.
         type: string
     required:
     - data
@@ -1480,6 +1505,7 @@ definitions:
         additionalProperties: true
         type: object
       status:
+        description: Status transitions are rejected; use PublishEntry or UnpublishEntry.
         type: string
     type: object
   github_com_yamovo_contentx_internal_services.UpdateMediaRequest:
@@ -1715,6 +1741,79 @@ paths:
       summary: Restore backup
       tags:
       - Backup
+  /ai/rag/ask:
+    post:
+      consumes:
+      - application/json
+      description: Retrieve relevant content and optionally generate an answer
+      parameters:
+      - description: RAG query
+        in: body
+        name: body
+        required: true
+        schema:
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+      summary: RAG query
+      tags:
+      - AI
+  /ai/reindex:
+    post:
+      description: Rebuild all vector embeddings from published articles for the current
+        tenant
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+      summary: Reindex vector embeddings
+      tags:
+      - AI
+  /ai/search:
+    get:
+      description: Vector similarity search across published content chunks
+      parameters:
+      - description: Search query
+        in: query
+        name: q
+        required: true
+        type: string
+      - default: 5
+        description: Max results
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+      summary: Semantic search
+      tags:
+      - AI
+  /ai/status:
+    get:
+      description: Returns embedding provider, vector store, and index statistics
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+      summary: AI service status
+      tags:
+      - AI
   /analytics/dashboard:
     get:
       description: Returns dashboard statistics (requires analytics.view permission)
@@ -3691,7 +3790,8 @@ paths:
     post:
       consumes:
       - application/json
-      description: Create a new entry for a content type
+      description: Create a new entry. Draft/publish-enabled types always start as
+        draft; use the publish endpoint for publication.
       parameters:
       - description: Content Type UID
         in: path
@@ -3726,6 +3826,10 @@ paths:
             $ref: '#/definitions/internal_handlers.APIResponse'
         "404":
           description: Not Found
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "422":
+          description: Unprocessable Entity
           schema:
             $ref: '#/definitions/internal_handlers.APIResponse'
       security:
@@ -3800,7 +3904,8 @@ paths:
     put:
       consumes:
       - application/json
-      description: Update an existing entry
+      description: Update entry data. Publication status cannot be changed here; use
+        the publish or unpublish endpoint.
       parameters:
       - description: Content Type UID
         in: path
@@ -3836,6 +3941,10 @@ paths:
             $ref: '#/definitions/internal_handlers.APIResponse'
         "404":
           description: Not Found
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "422":
+          description: Unprocessable Entity
           schema:
             $ref: '#/definitions/internal_handlers.APIResponse'
       security:
@@ -4042,7 +4151,8 @@ paths:
     post:
       consumes:
       - application/json
-      description: Import entries from JSON data
+      description: Import entries from JSON data. Draft/publish-enabled types import
+        as drafts.
       parameters:
       - description: Content Type UID
         in: path
@@ -4076,6 +4186,10 @@ paths:
             $ref: '#/definitions/internal_handlers.APIResponse'
         "404":
           description: Not Found
+          schema:
+            $ref: '#/definitions/internal_handlers.APIResponse'
+        "422":
+          description: Unprocessable Entity
           schema:
             $ref: '#/definitions/internal_handlers.APIResponse'
       security:
@@ -5637,7 +5751,7 @@ paths:
       - System
   /system/tokens:
     get:
-      description: Returns all API tokens (admin only)
+      description: Returns API tokens scoped to the current tenant
       produces:
       - application/json
       responses:

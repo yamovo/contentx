@@ -20,22 +20,24 @@ type DeliveryOutcome struct {
 }
 
 // WebhookRepository defines data-access operations for webhooks, their
-// delivery logs and the persistent delivery queue.
+// delivery logs and the persistent delivery queue. Management queries are
+// tenant-scoped (RFC-001 §5); the delivery queue is shared across tenants
+// because each delivery row carries its own tenant_id from the owning webhook.
 type WebhookRepository interface {
 	Create(wh *models.Webhook) error
-	List() ([]models.Webhook, error)
-	GetByID(id uint) (*models.Webhook, error)
-	Delete(id uint) (rowsAffected int64, err error)
-	ListLogs(webhookID uint, limit int) ([]models.WebhookLog, error)
+	List(tenantID uint) ([]models.Webhook, error)
+	GetByID(id, tenantID uint) (*models.Webhook, error)
+	Delete(id, tenantID uint) (rowsAffected int64, err error)
+	ListLogs(webhookID uint, limit int, tenantID uint) ([]models.WebhookLog, error)
 	CreateLog(log *models.WebhookLog) error
-	ListActive() ([]models.Webhook, error)
+	ListActive(tenantID uint) ([]models.Webhook, error)
 
-	// ─── Persistent delivery queue ──────────────────────────────────────
+	// ─── Persistent delivery queue (shared worker, no tenant filter) ──
 	EnqueueDelivery(d *models.WebhookDelivery) error
 	ClaimDueDeliveries(now time.Time, limit int) ([]models.WebhookDelivery, error)
 	CompleteDelivery(id uint, outcome DeliveryOutcome) error
 	RequeueStaleDeliveries() (int64, error)
-	CountPendingDeliveries() (int64, error)
+	CountPendingDeliveries(tenantID uint) (int64, error)
 }
 
 // gormWebhookRepository implements WebhookRepository with GORM.
@@ -52,24 +54,29 @@ func (r *gormWebhookRepository) Create(wh *models.Webhook) error {
 	return r.db.Create(wh).Error
 }
 
-func (r *gormWebhookRepository) List() ([]models.Webhook, error) {
+func (r *gormWebhookRepository) List(tenantID uint) ([]models.Webhook, error) {
 	var webhooks []models.Webhook
-	if err := r.db.Order("created_at DESC").Find(&webhooks).Error; err != nil {
+	if err := r.db.Where("tenant_id = ?", tenantID).Order("created_at DESC").Find(&webhooks).Error; err != nil {
 		return nil, err
 	}
 	return webhooks, nil
 }
 
-func (r *gormWebhookRepository) GetByID(id uint) (*models.Webhook, error) {
+func (r *gormWebhookRepository) GetByID(id, tenantID uint) (*models.Webhook, error) {
 	var wh models.Webhook
-	if err := r.db.First(&wh, id).Error; err != nil {
+	if err := r.db.Where("id = ? AND tenant_id = ?", id, tenantID).First(&wh).Error; err != nil {
 		return nil, err
 	}
 	return &wh, nil
 }
 
-func (r *gormWebhookRepository) Delete(id uint) (int64, error) {
-	result := r.db.Delete(&models.Webhook{}, id)
+func (r *gormWebhookRepository) Delete(id, tenantID uint) (int64, error) {
+	// Locate within the tenant first so cross-tenant deletes are no-ops.
+	var wh models.Webhook
+	if err := r.db.Where("id = ? AND tenant_id = ?", id, tenantID).First(&wh).Error; err != nil {
+		return 0, err
+	}
+	result := r.db.Delete(&wh)
 	if result.Error != nil {
 		return 0, result.Error
 	}
@@ -80,12 +87,12 @@ func (r *gormWebhookRepository) Delete(id uint) (int64, error) {
 	return result.RowsAffected, nil
 }
 
-func (r *gormWebhookRepository) ListLogs(webhookID uint, limit int) ([]models.WebhookLog, error) {
+func (r *gormWebhookRepository) ListLogs(webhookID uint, limit int, tenantID uint) ([]models.WebhookLog, error) {
 	if limit <= 0 {
 		limit = 50
 	}
 	var logs []models.WebhookLog
-	if err := r.db.Where("webhook_id = ?", webhookID).
+	if err := r.db.Where("webhook_id = ? AND tenant_id = ?", webhookID, tenantID).
 		Order("created_at DESC").
 		Limit(limit).
 		Find(&logs).Error; err != nil {
@@ -98,9 +105,9 @@ func (r *gormWebhookRepository) CreateLog(log *models.WebhookLog) error {
 	return r.db.Create(log).Error
 }
 
-func (r *gormWebhookRepository) ListActive() ([]models.Webhook, error) {
+func (r *gormWebhookRepository) ListActive(tenantID uint) ([]models.Webhook, error) {
 	var webhooks []models.Webhook
-	if err := r.db.Where("is_active = ?", true).Find(&webhooks).Error; err != nil {
+	if err := r.db.Where("is_active = ? AND tenant_id = ?", true, tenantID).Find(&webhooks).Error; err != nil {
 		return nil, err
 	}
 	return webhooks, nil
@@ -181,11 +188,11 @@ func (r *gormWebhookRepository) RequeueStaleDeliveries() (int64, error) {
 	return res.RowsAffected, res.Error
 }
 
-// CountPendingDeliveries reports the current queue depth (pending rows).
-func (r *gormWebhookRepository) CountPendingDeliveries() (int64, error) {
+// CountPendingDeliveries reports the current queue depth for a tenant.
+func (r *gormWebhookRepository) CountPendingDeliveries(tenantID uint) (int64, error) {
 	var count int64
 	err := r.db.Model(&models.WebhookDelivery{}).
-		Where("status = ?", models.WebhookDeliveryPending).
+		Where("status = ? AND tenant_id = ?", models.WebhookDeliveryPending, tenantID).
 		Count(&count).Error
 	return count, err
 }

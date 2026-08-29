@@ -98,6 +98,14 @@ func TestUserService_Create_Success(t *testing.T) {
 	if user.Status != models.UserStatusActive {
 		t.Fatalf("expected default status active, got %s", user.Status)
 	}
+	var membership models.TenantMembership
+	if err := db.Where("tenant_id = ? AND user_id = ?", models.DefaultTenantID, user.ID).
+		First(&membership).Error; err != nil {
+		t.Fatalf("created user default membership: %v", err)
+	}
+	if membership.RoleSlug != models.TenantRoleMember {
+		t.Fatalf("created author membership role = %q, want %q", membership.RoleSlug, models.TenantRoleMember)
+	}
 }
 
 func TestUserService_Create_DuplicateUsername(t *testing.T) {
