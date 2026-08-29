@@ -21,11 +21,10 @@ export const useTenantStore = defineStore('tenant', () => {
   const tenants = ref<Tenant[]>([])
   const loading = ref(false)
 
-  const authStore = useAuthStore()
-
   // Only platform administrators may override the tenant context; everyone
-  // else always works inside the tenant bound to their session.
-  const canSwitch = computed(() => authStore.isAdmin)
+  // else always works inside the tenant bound to their session. The auth
+  // store is resolved lazily so the gate always reflects current state.
+  const canSwitch = computed(() => useAuthStore().isAdmin)
 
   function setHeaderTenantID(id: number | null) {
     if (id) {
