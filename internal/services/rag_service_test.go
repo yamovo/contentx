@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/yamovo/contentx/internal/models"
@@ -378,5 +379,158 @@ func TestRAGService_Ask(t *testing.T) {
 	}
 	if answer.Answer == "" {
 		t.Fatal("expected non-empty answer from dummy LLM")
+	}
+}
+
+// ─── Outbound policy (AI_ALLOW_OUTBOUND=false) ──────────────────────────────
+
+func TestRAGService_OutboundDisabled_BlocksExternalEmbedder(t *testing.T) {
+	db := setupTestDB(t)
+	// The OpenAI provider is constructed without making network calls; the
+	// outbound policy must refuse before any HTTP request is attempted.
+	embedder := NewEmbeddingProvider("openai", "test-key", "http://127.0.0.1:1", "text-embedding-test", 64)
+	rag := NewRAGService(db, embedder, NewMemoryVectorStore(), NewDummyLLM(), 500, 100, 5, 0.0)
+	rag.SetAllowOutbound(false)
+
+	if _, err := rag.Search(context.Background(), "query", 1, 5); !errors.Is(err, ErrAIOutboundDisabled) {
+		t.Fatalf("Search with external embedder should fail with ErrAIOutboundDisabled, got %v", err)
+	}
+	if _, err := rag.Retrieve(context.Background(), "query", 1, 5); !errors.Is(err, ErrAIOutboundDisabled) {
+		t.Fatalf("Retrieve with external embedder should fail with ErrAIOutboundDisabled, got %v", err)
+	}
+	article := &models.Article{Title: "T", Slug: "t-1", Content: "c", Status: models.StatusPublished, TenantID: 1}
+	if err := rag.IndexArticle(context.Background(), article); !errors.Is(err, ErrAIOutboundDisabled) {
+		t.Fatalf("IndexArticle with external embedder should fail with ErrAIOutboundDisabled, got %v", err)
+	}
+}
+
+func TestRAGService_OutboundDisabled_BlocksExternalLLMAsk(t *testing.T) {
+	db := setupTestDB(t)
+	embedder := NewDummyEmbeddingProvider(64)
+	llm := NewLLMProvider("openai", "test-key", "http://127.0.0.1:1", "test-model")
+	rag := NewRAGService(db, embedder, NewMemoryVectorStore(), llm, 500, 100, 5, 0.0)
+	rag.SetAllowOutbound(false)
+
+	if _, err := rag.Ask(context.Background(), "query", 1, 5); !errors.Is(err, ErrAIOutboundDisabled) {
+		t.Fatalf("Ask with external LLM should fail with ErrAIOutboundDisabled, got %v", err)
+	}
+}
+
+func TestRAGService_OutboundDisabled_AllowsLocalProviders(t *testing.T) {
+	db := setupTestDB(t)
+	rag := NewRAGService(db, NewDummyEmbeddingProvider(64), NewMemoryVectorStore(), NewDummyLLM(), 500, 100, 5, 0.0)
+	rag.SetAllowOutbound(false)
+
+	// Local providers are not affected by the outbound policy: the store is
+	// simply empty, so search succeeds with zero hits.
+	res, err := rag.Search(context.Background(), "query", 1, 5)
+	if err != nil {
+		t.Fatalf("Search with dummy providers should succeed with outbound disabled, got %v", err)
+	}
+	if res == nil || res.Total != 0 {
+		t.Fatalf("expected empty result, got %+v", res)
+	}
+	if _, err := rag.Ask(context.Background(), "query", 1, 5); err != nil {
+		t.Fatalf("Ask with dummy LLM should succeed with outbound disabled, got %v", err)
+	}
+}
+
+func TestRAGService_OutboundAllowedByDefault(t *testing.T) {
+	db := setupTestDB(t)
+	// A freshly constructed service (e.g. existing call sites that never call
+	// SetAllowOutbound) keeps the historical allow-by-default behavior.
+	embedder := NewEmbeddingProvider("openai", "test-key", "http://127.0.0.1:1", "text-embedding-test", 64)
+	rag := NewRAGService(db, embedder, NewMemoryVectorStore(), nil, 500, 100, 5, 0.0)
+
+	// The call itself may fail on the unreachable endpoint, but the error must
+	// NOT be the outbound-policy rejection.
+	_, err := rag.Search(context.Background(), "query", 1, 5)
+	if errors.Is(err, ErrAIOutboundDisabled) {
+		t.Fatal("default policy must allow outbound calls")
+	}
+}
+
+// ─── Cleanup-style reindex (orphan pruning) ─────────────────────────────────
+
+func TestRAGService_ReindexPrunesOrphans(t *testing.T) {
+	db := setupTestDB(t)
+	rag := NewRAGService(db, NewDummyEmbeddingProvider(64), NewMemoryVectorStore(), NewDummyLLM(), 500, 100, 5, 0.0)
+
+	author := createTestUser(t, db, "rag-prune-author", "author")
+	article := createTenantArticle(t, db, 1, author.ID, "Published Article")
+	if err := rag.IndexArticle(context.Background(), article); err != nil {
+		t.Fatalf("index article: %v", err)
+	}
+	tenantVectors := rag.Store().Count(1)
+	if tenantVectors == 0 {
+		t.Fatal("expected indexed vectors for the published article")
+	}
+
+	// Simulate orphans left by a crash or a missed sync: vector store entries
+	// and embedding rows for a document that no longer exists, in tenant 1
+	// and tenant 2.
+	seed := func(tenantID, docID uint) {
+		t.Helper()
+		if err := rag.Store().Upsert(context.Background(), []VectorEntry{{
+			ID: 0, TenantID: tenantID, DocType: "article", DocID: docID,
+			ChunkIndex: 0, Content: "orphan content", Embedding: make([]float32, 64),
+			Status: string(models.StatusPublished), Title: "Orphan", Model: "dummy",
+		}}); err != nil {
+			t.Fatalf("seed orphan vector: %v", err)
+		}
+		if err := db.Create(&models.DocumentEmbedding{
+			TenantID: tenantID, DocType: "article", DocID: docID,
+			ChunkIndex: 0, Content: "orphan content", Embedding: models.Float32Slice(make([]float32, 64)),
+			Status: string(models.StatusPublished), Title: "Orphan", Model: "dummy",
+		}).Error; err != nil {
+			t.Fatalf("seed orphan row: %v", err)
+		}
+	}
+	seed(1, 999)
+	seed(2, 888)
+	if got := rag.Store().Count(1); got != tenantVectors+1 {
+		t.Fatalf("expected %d vectors in tenant 1 before reindex, got %d", tenantVectors+1, got)
+	}
+
+	if _, err := rag.ReindexTenant(context.Background(), 1); err != nil {
+		t.Fatalf("reindex tenant 1: %v", err)
+	}
+
+	// Tenant 1: the orphan is gone from store and DB; the real article stays.
+	if got := rag.Store().Count(1); got != tenantVectors {
+		t.Fatalf("tenant 1 should hold %d vectors after prune, got %d", tenantVectors, got)
+	}
+	hits, err := rag.Search(context.Background(), "orphan", 1, 5)
+	if err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	for _, h := range hits.Hits {
+		if h.DocID == 999 {
+			t.Fatal("orphaned document must not be searchable after reindex")
+		}
+	}
+	var orphanRows int64
+	db.Model(&models.DocumentEmbedding{}).Where("doc_type = ? AND doc_id = ?", "article", 999).Count(&orphanRows)
+	if orphanRows != 0 {
+		t.Fatalf("orphaned embedding rows must be pruned, got %d", orphanRows)
+	}
+
+	// Tenant 2 was out of scope: its orphan must survive a tenant-scoped
+	// reindex untouched.
+	if got := rag.Store().Count(2); got != 1 {
+		t.Fatalf("tenant 2 orphan must survive tenant-scoped reindex, got %d vectors", got)
+	}
+
+	// A full reindex sweeps every tenant.
+	if _, err := rag.ReindexAll(context.Background()); err != nil {
+		t.Fatalf("reindex all: %v", err)
+	}
+	if got := rag.Store().Count(2); got != 0 {
+		t.Fatalf("tenant 2 orphan must be pruned by ReindexAll, got %d vectors", got)
+	}
+	var tenant2Orphans int64
+	db.Model(&models.DocumentEmbedding{}).Where("doc_type = ? AND doc_id = ?", "article", 888).Count(&tenant2Orphans)
+	if tenant2Orphans != 0 {
+		t.Fatalf("tenant 2 orphan rows must be pruned by ReindexAll, got %d", tenant2Orphans)
 	}
 }

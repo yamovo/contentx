@@ -15,6 +15,14 @@
 - **AI 配置收口**：`AIConfig` 正式进入 config 与 `.env.example`、`deploy/docker/.env.example`（`AI_ENABLED=false` 默认）；Swagger 重新生成补齐 `/ai/search`、`/ai/rag/ask`、`/ai/reindex`、`/ai/status`，消除 CI drift
 - **测试覆盖**：新增 MCP token 租户绑定、Authorizer 有效主体、HTTP 读权限与 drafts fail closed、RAG 权限、资源租户隔离回归；Go 全量 21 包与前端 type-check/lint/189 单测通过
 
+### Changed — RAG 最小安全闭环完成
+
+- **外发边界统一下沉到 Service 层**：`EmbeddingProvider`/`LLMProvider` 新增 `External()` 语义，`RAGService` 增加 `SetAllowOutbound` 策略并在所有 embedding 生成与 Ask 合成入口统一拦截。`AI_ALLOW_OUTBOUND=false` 时：REST Ask 维持 403，MCP `rag_ask` 返回工具错误，外部 Embedding 场景下的 Search/Retrieve/Index 也被拒绝；本地 dummy provider 不受影响。REST 与 MCP 装配点均显式应用策略并在外部 provider + 禁止外发组合下打 WARN 日志
+- **Reindex 改为清理式重建**：按"当前已发布文章"集合收敛，重建后清理向量存储与 `document_embeddings` 表中无对应已发布文档的孤儿向量（崩溃、失败或绕过同步路径的遗留数据）；租户级重建只清理本租户，全量重建清扫所有租户
+- **失败补偿**：文章同步路径（搜索索引 + RAG 向量）增加有界重试（3 次退避），瞬态故障自愈；外发策略拒绝属永久性错误不重试；清理式 reindex 作为最终收敛兜底。定时发布同步经复核已接线（`PublishDueScheduled` → `reindexByID`）
+- **MCP RAG 治理**：HTTP 会话的 `rag_search`/`rag_ask` 调用记入业务审计（携带验证过的用户与租户，动作 `mcp.rag_search`/`mcp.rag_ask`，与 REST AI 审计对齐）；`/api/v1/mcp` 新增独立按 IP 限流组（`MCP_RATE_LIMIT`，默认 60/分钟），叠加工具层 TopK 钳制形成成本边界
+- **测试**：外发策略（外部/本地 provider × 允许/禁止）、MCP 外发拒绝与审计链路、清理式重建孤儿清扫（租户内/全量）等回归覆盖
+
 ### Fixed — 评论跨租户归属与多租户边界验证收口
 
 - **评论父子归属 fail closed**：创建回复时父评论必须存在于当前租户且属于同一篇文章；此前父评论查不到时会静默入库外来 `parent_id`，而子评论预加载只按 `parent_id` 关联，租户 B 的评论可以渲染进租户 A 的公开评论树（跨租户数据泄漏）。`FindArticleComments` 与 `GetByID` 的 Children 预加载现均显式追加租户过滤，历史遗留的悬挂引用也不再外泄
@@ -63,12 +71,12 @@
 ### Changed — RAG 最小安全闭环（进行中）
 
 - **多 chunk 主逻辑修复**：`memoryVectorStore.removeLocked` 会删除文档全部分片，`Upsert` 使用 seen map 避免同一批次反复清理；同文档缩短更新和完整生命周期回归测试仍待补齐
-- **已发布内容主路径**：`IndexArticle` 拒绝非 published 内容，普通发布、下架、删除和批量操作已接入 RAG 同步；WarmUp/Reindex 孤儿清理、定时发布和失败补偿尚未闭环
-- **租户级 Reindex 原型**：后台任务脱离请求 context 并按当前 tenantID 查询，但当前仍是增量覆盖，缺少清理式重建、超时、状态、进度和结果审计
+- **已发布内容主路径**：`IndexArticle` 拒绝非 published 内容，普通发布、下架、删除和批量操作已接入 RAG 同步；孤儿清理、定时发布同步与失败补偿已闭环（见"RAG 最小安全闭环完成"）
+- **租户级 Reindex 原型**：后台任务脱离请求 context 并按当前 tenantID 查询；现已升级为清理式重建（见"RAG 最小安全闭环完成"）
 - **检索阈值**：新增 `AI_MIN_SCORE` 并传入向量检索；默认值仍为 `0.0`，无结果语义和模型/维度切换验证尚未完成
 - **REST AI 治理基础**：新增 `ai.read`、`ai.ask`、`ai.admin` 权限、独立 IP 限流组和 Search/Ask/Reindex 审计
-- **尚未统一的安全边界**：`AI_ALLOW_OUTBOUND=false` 当前只拦截 REST Ask；外部 Embedding、Reindex 和 MCP RAG 的外发拦截尚未统一，租户/Token 限流、审计及成本控制仍待收口
-- **MCP RAG 门控**：`rag_search` 和 `rag_ask` 已受 tenantID 分区约束并分别要求 `ai.read`/`ai.ask` 权限（见"MCP 主体再验证与 RAG 工具治理"）；在生产验收完成前保持 `AI_ENABLED=false`、`MCP_HTTP_ENABLED=false`
+- **外发边界**：`AI_ALLOW_OUTBOUND` 已统一下沉到 Service 层，覆盖 REST Search/Ask、外部 Embedding、Reindex 与 MCP（见"RAG 最小安全闭环完成"）
+- **MCP RAG 治理**：独立权限、审计与 IP 限流已就位（见"MCP 主体再验证与 RAG 工具治理"与"RAG 最小安全闭环完成"）；在生产验收完成前保持 `AI_ENABLED=false`、`MCP_HTTP_ENABLED=false`
 
 ### Documentation — 产品定位统一
 

@@ -76,7 +76,8 @@ func (a mcpAuthorizer) Resolve(h http.Header) (*mcp.WriterIdentity, error) {
 // mountMCPHTTP mounts the MCP server on the given API group over the SDK's
 // Streamable HTTP transport at /mcp, guarded by API-token auth. Write tools are
 // enabled via the injected Authorizer (per-call permission checks still apply).
-func mountMCPHTTP(api *gin.RouterGroup, deps mcp.Deps, tokenSvc *services.TokenService) {
+// Optional extra middleware (e.g. IP rate limiting) runs before token auth.
+func mountMCPHTTP(api *gin.RouterGroup, deps mcp.Deps, tokenSvc *services.TokenService, extra ...gin.HandlerFunc) {
 	// MCP_INCLUDE_DRAFTS is a local stdio escape hatch. Never carry it onto
 	// the network transport: HTTP tokens may read only published content even
 	// when an operator enables draft access for a trusted local agent.
@@ -93,5 +94,5 @@ func mountMCPHTTP(api *gin.RouterGroup, deps mcp.Deps, tokenSvc *services.TokenS
 		// prevent a stateful MCP session from retaining stale principal context.
 		Stateless: true,
 	})
-	api.Any("/mcp", mcpTokenAuth(tokenSvc), gin.WrapH(h))
+	api.Any("/mcp", append(extra, mcpTokenAuth(tokenSvc), gin.WrapH(h))...)
 }

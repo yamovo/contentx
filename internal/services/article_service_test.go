@@ -442,3 +442,68 @@ func containsStr(s, substr string) bool {
 	}
 	return false
 }
+
+// ─── Index sync retry (failure compensation) ────────────────────────────────
+
+// flakyRAGIndexer fails the first `failures` IndexArticle calls, then succeeds.
+type flakyRAGIndexer struct {
+	failures int
+	calls    int
+}
+
+func (f *flakyRAGIndexer) IndexArticle(_ context.Context, _ *models.Article) error {
+	f.calls++
+	if f.calls <= f.failures {
+		return errors.New("transient embedding outage")
+	}
+	return nil
+}
+
+func (f *flakyRAGIndexer) DeleteArticle(_ context.Context, _, _ uint) error { return nil }
+
+// policyRefusingRAGIndexer always refuses with the outbound-policy rejection.
+type policyRefusingRAGIndexer struct {
+	calls int
+}
+
+func (p *policyRefusingRAGIndexer) IndexArticle(_ context.Context, _ *models.Article) error {
+	p.calls++
+	return ErrAIOutboundDisabled
+}
+
+func (p *policyRefusingRAGIndexer) DeleteArticle(_ context.Context, _, _ uint) error {
+	return ErrAIOutboundDisabled
+}
+
+func TestArticleService_IndexRetryRecoversFromTransientFailure(t *testing.T) {
+	db := setupTestDB(t)
+	author := createTestUser(t, db, "retry-author", "author")
+	article := createTestArticle(t, db, author.ID, "Retry Article")
+
+	flaky := &flakyRAGIndexer{failures: 2}
+	svc := NewArticleService(db, "http://localhost:8080")
+	svc.SetRAGIndexer(flaky)
+
+	// indexArticle must retry past the transient failures and converge.
+	svc.indexArticle(article)
+	if flaky.calls != 3 {
+		t.Fatalf("expected 3 index attempts (2 transient failures + success), got %d", flaky.calls)
+	}
+}
+
+func TestArticleService_IndexRetryDoesNotRetryPolicyRefusal(t *testing.T) {
+	db := setupTestDB(t)
+	author := createTestUser(t, db, "policy-author", "author")
+	article := createTestArticle(t, db, author.ID, "Policy Article")
+
+	refusing := &policyRefusingRAGIndexer{}
+	svc := NewArticleService(db, "http://localhost:8080")
+	svc.SetRAGIndexer(refusing)
+
+	// A permanent outbound-policy rejection must fail fast: exactly one call,
+	// no pointless retries against a policy that will not change.
+	svc.indexArticle(article)
+	if refusing.calls != 1 {
+		t.Fatalf("policy refusal must not be retried, got %d calls", refusing.calls)
+	}
+}

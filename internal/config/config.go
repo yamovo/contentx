@@ -68,6 +68,10 @@ type MCPConfig struct {
 	// Default false: the network-exposed MCP surface is opt-in. When enabled it
 	// still requires a valid API token (models.APIToken).
 	HTTPEnabled bool
+	// RateLimit caps MCP HTTP requests per minute per IP. Default 60: enough
+	// headroom for agent tool-call bursts while bounding abuse and RAG cost.
+	// Set via MCP_RATE_LIMIT; <= 0 falls back to the default.
+	RateLimit int
 }
 
 // AIConfig holds AI/RAG settings: embedding generation, vector store, and
@@ -411,6 +415,7 @@ func Load() *Config {
 		MCP: MCPConfig{
 			IncludeDrafts: envBool("MCP_INCLUDE_DRAFTS", false),
 			HTTPEnabled:   envBool("MCP_HTTP_ENABLED", false),
+			RateLimit:     envInt("MCP_RATE_LIMIT", 60),
 		},
 		AI: AIConfig{
 			Enabled:            envBool("AI_ENABLED", false),

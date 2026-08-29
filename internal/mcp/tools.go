@@ -122,6 +122,32 @@ func (t *toolset) requirePermission(ctx context.Context, header http.Header, wan
 	return nil
 }
 
+// auditRAG records a successful RAG tool call for HTTP sessions, mirroring the
+// REST AI audit actions. Stdio sessions have no principal and stay silent, and
+// a nil Audit logger keeps deployments that opted out of auditing unaffected.
+func (t *toolset) auditRAG(ctx context.Context, action, query string, topK, results int) {
+	if t.deps.Audit == nil {
+		return
+	}
+	principal, ok := PrincipalFromContext(ctx)
+	if !ok {
+		return // stdio mode: local trusted use, nothing to attribute
+	}
+	userID := principal.UserID
+	tenantID := principal.TenantID
+	t.deps.Audit.Log(services.AuditEvent{
+		UserID:   &userID,
+		TenantID: &tenantID,
+		Action:   action,
+		Entity:   "article",
+		Details: map[string]any{
+			"query":   query,
+			"top_k":   topK,
+			"results": results,
+		},
+	})
+}
+
 // status returns the article status filter the read tools should enforce.
 // Empty string means "any status" and is only used when drafts are explicitly
 // allowed; otherwise callers only ever see published content.
@@ -460,6 +486,7 @@ func (t *toolset) ragSearch(ctx context.Context, req *mcpsdk.CallToolRequest, in
 	if err != nil {
 		return nil, ragSearchOutput{}, err
 	}
+	t.auditRAG(ctx, "mcp.rag_search", in.Query, in.TopK, result.Total)
 	out := ragSearchOutput{
 		Query:  result.Query,
 		Total:  result.Total,
@@ -515,6 +542,7 @@ func (t *toolset) ragAsk(ctx context.Context, req *mcpsdk.CallToolRequest, in ra
 	if err != nil {
 		return nil, ragAskOutput{}, err
 	}
+	t.auditRAG(ctx, "mcp.rag_ask", in.Query, in.TopK, len(result.Context))
 	out := ragAskOutput{
 		Query:   result.Query,
 		Answer:  result.Answer,

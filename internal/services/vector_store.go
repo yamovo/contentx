@@ -47,7 +47,17 @@ type VectorStore interface {
 	Search(ctx context.Context, query []float32, opts VectorSearchOpts) ([]VectorSearchResult, error)
 	Count(tenantID uint) int
 	LoadAll(ctx context.Context, entries []VectorEntry) error
+	// Prune removes entries whose document key (docType:docID) is not in keep
+	// and returns how many entries were removed. Used by the cleanup-style
+	// reindex to drop orphaned vectors. When tenantID > 0 pruning is scoped to
+	// that tenant; zero prunes all tenants.
+	Prune(ctx context.Context, tenantID uint, keep map[string]bool) (int, error)
 	Name() string
+}
+
+// vectorDocKey builds the document identity used by Prune keep-sets.
+func vectorDocKey(docType string, docID uint) string {
+	return fmt.Sprintf("%s:%d", docType, docID)
 }
 
 // ─── memoryVectorStore ───────────────────────────────────────────────────────
@@ -172,6 +182,37 @@ func (m *memoryVectorStore) LoadAll(_ context.Context, entries []VectorEntry) er
 		m.data[e.TenantID] = append(m.data[e.TenantID], e)
 	}
 	return nil
+}
+
+func (m *memoryVectorStore) Prune(_ context.Context, tenantID uint, keep map[string]bool) (int, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	removed := 0
+	if tenantID > 0 {
+		removed = m.pruneTenantLocked(tenantID, keep)
+		return removed, nil
+	}
+	for tid := range m.data {
+		removed += m.pruneTenantLocked(tid, keep)
+	}
+	return removed, nil
+}
+
+// pruneTenantLocked drops non-keep entries from one tenant partition and
+// returns how many entries were removed.
+func (m *memoryVectorStore) pruneTenantLocked(tenantID uint, keep map[string]bool) int {
+	slice := m.data[tenantID]
+	kept := slice[:0]
+	removed := 0
+	for _, e := range slice {
+		if keep[vectorDocKey(e.DocType, e.DocID)] {
+			kept = append(kept, e)
+		} else {
+			removed++
+		}
+	}
+	m.data[tenantID] = kept
+	return removed
 }
 
 // cosineSimilarity computes the cosine similarity between two vectors.

@@ -150,6 +150,11 @@ func RegisterRoutes(
 		)
 		ragSvc = services.NewRAGService(db, embedder, vecStore, llm,
 			cfg.AI.ChunkSize, cfg.AI.ChunkOverlap, cfg.AI.TopK, cfg.AI.MinScore)
+		ragSvc.SetAllowOutbound(cfg.AI.AllowOutbound)
+		if !cfg.AI.AllowOutbound && (embedder.External() || llm.External()) {
+			slog.Warn("AI_ALLOW_OUTBOUND=false with an external provider configured: " +
+				"operations that would call the external API (semantic search, ask, indexing) will be refused")
+		}
 		articleSvc.SetRAGIndexer(ragSvc)
 
 		// Warm up the vector index from the database on startup.
@@ -274,16 +279,23 @@ func RegisterRoutes(
 
 	// ─── MCP over Streamable HTTP (opt-in; own API-token auth) ─────────────
 	// Reuses the same read-only services as the stdio MCP mode. Sits outside the
-	// JWT-protected group and enforces API-token auth in mcpTokenAuth.
+	// JWT-protected group and enforces API-token auth in mcpTokenAuth. A
+	// dedicated per-IP rate limit bounds agent tool-call volume and RAG cost.
 	if cfg.MCP.HTTPEnabled {
+		rateLimitMCP := cfg.MCP.RateLimit
+		if rateLimitMCP <= 0 {
+			rateLimitMCP = 60
+		}
+		rl.Add("mcp", rateLimitMCP)
 		mountMCPHTTP(api, mcp.Deps{
 			Article:       articleSvc,
 			ContentType:   contentTypeSvc,
 			RAG:           ragSvc,
 			BaseURL:       cfg.Server.BaseURL,
 			IncludeDrafts: cfg.MCP.IncludeDrafts,
-		}, tokenSvc)
-		slog.Info("MCP HTTP endpoint enabled", "path", "/api/v1/mcp")
+			Audit:         auditLogger,
+		}, tokenSvc, middleware.GroupRateLimit(rl, "mcp"))
+		slog.Info("MCP HTTP endpoint enabled", "path", "/api/v1/mcp", "rate_limit_per_min", rateLimitMCP)
 	}
 
 	// ─── Protected API ─────────────────────────────────

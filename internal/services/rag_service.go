@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/yamovo/contentx/internal/errs"
 	"github.com/yamovo/contentx/internal/models"
 	"gorm.io/gorm"
 )
@@ -36,6 +37,10 @@ func (noopRAGIndexer) DeleteArticle(context.Context, uint, uint) error     { ret
 type LLMProvider interface {
 	Complete(ctx context.Context, systemPrompt, userPrompt string) (string, error)
 	Name() string
+	// External reports whether the provider calls an external (out-of-process)
+	// API. The RAG outbound policy (AI_ALLOW_OUTBOUND=false) refuses answer
+	// synthesis on external providers so content never leaves the host.
+	External() bool
 }
 
 // ─── dummyLLM ────────────────────────────────────────────────────────────────
@@ -44,6 +49,9 @@ type dummyLLM struct{}
 
 func NewDummyLLM() LLMProvider { return dummyLLM{} }
 func (dummyLLM) Name() string  { return "dummy" }
+func (dummyLLM) External() bool {
+	return false
+}
 func (dummyLLM) Complete(_ context.Context, _, userPrompt string) (string, error) {
 	return fmt.Sprintf("[dummy LLM] I would answer based on this question: %s", userPrompt), nil
 }
@@ -91,17 +99,23 @@ type RAGAnswer struct {
 // vector indexing, semantic search, and optional LLM answer synthesis.
 // It implements RAGIndexer so ArticleService can keep it in sync.
 type RAGService struct {
-	db           *gorm.DB
-	embedder     EmbeddingProvider
-	store        VectorStore
-	llm          LLMProvider
-	chunkSize    int
-	chunkOverlap int
-	defaultTopK  int
-	minScore     float64 // minimum cosine similarity to include in results
-	mu           sync.Mutex
-	indexing     bool // prevents concurrent ReindexAll
+	db            *gorm.DB
+	embedder      EmbeddingProvider
+	store         VectorStore
+	llm           LLMProvider
+	chunkSize     int
+	chunkOverlap  int
+	defaultTopK   int
+	minScore      float64 // minimum cosine similarity to include in results
+	allowOutbound bool    // when false, refuses calls to external embedding/LLM APIs
+	mu            sync.Mutex
+	indexing      bool // prevents concurrent ReindexAll
 }
+
+// ErrAIOutboundDisabled is returned by RAG operations that would call an
+// external embedding/LLM API while the outbound policy is disabled
+// (AI_ALLOW_OUTBOUND=false). Local (dummy) providers remain usable.
+var ErrAIOutboundDisabled = errs.ErrForbidden.WithMessage("outbound AI API calls are disabled (AI_ALLOW_OUTBOUND=false)")
 
 // NewRAGService creates a new RAG service. The embedder and store must be
 // non-nil; llm may be nil (Ask will return context only).
@@ -116,15 +130,33 @@ func NewRAGService(db *gorm.DB, embedder EmbeddingProvider, store VectorStore, l
 		topK = 5
 	}
 	return &RAGService{
-		db:           db,
-		embedder:     embedder,
-		store:        store,
-		llm:          llm,
-		chunkSize:    chunkSize,
-		chunkOverlap: chunkOverlap,
-		defaultTopK:  topK,
-		minScore:     minScore,
+		db:            db,
+		embedder:      embedder,
+		store:         store,
+		llm:           llm,
+		chunkSize:     chunkSize,
+		chunkOverlap:  chunkOverlap,
+		defaultTopK:   topK,
+		minScore:      minScore,
+		allowOutbound: true, // secure default is opt-in per deployment via SetAllowOutbound
 	}
+}
+
+// SetAllowOutbound applies the deployment's outbound policy. When false, any
+// operation that would call an external embedding/LLM API fails with
+// ErrAIOutboundDisabled; local (dummy) providers keep working. Both the REST
+// and MCP wiring call this so the boundary is enforced at the service layer
+// instead of per transport.
+func (s *RAGService) SetAllowOutbound(allow bool) { s.allowOutbound = allow }
+
+// embed generates embeddings through the configured provider after enforcing
+// the outbound policy. All internal embedding call sites funnel through here
+// so indexing, search, and retrieval share one guard.
+func (s *RAGService) embed(ctx context.Context, texts []string) ([][]float32, error) {
+	if !s.allowOutbound && s.embedder.External() {
+		return nil, ErrAIOutboundDisabled
+	}
+	return s.embedder.Embed(ctx, texts)
 }
 
 // Embedder returns the configured embedding provider (for health checks).
@@ -281,7 +313,7 @@ func (s *RAGService) IndexArticle(ctx context.Context, article *models.Article) 
 	}
 
 	// Generate embeddings in a single batch.
-	embeddings, err := s.embedder.Embed(ctx, chunks)
+	embeddings, err := s.embed(ctx, chunks)
 	if err != nil {
 		return fmt.Errorf("generate embeddings: %w", err)
 	}
@@ -367,7 +399,7 @@ func (s *RAGService) Search(ctx context.Context, query string, tenantID uint, to
 	if topK <= 0 {
 		topK = s.defaultTopK
 	}
-	embeddings, err := s.embedder.Embed(ctx, []string{query})
+	embeddings, err := s.embed(ctx, []string{query})
 	if err != nil {
 		return nil, fmt.Errorf("embed query: %w", err)
 	}
@@ -413,7 +445,7 @@ func (s *RAGService) Retrieve(ctx context.Context, query string, tenantID uint, 
 	if topK <= 0 {
 		topK = s.defaultTopK
 	}
-	embeddings, err := s.embedder.Embed(ctx, []string{query})
+	embeddings, err := s.embed(ctx, []string{query})
 	if err != nil {
 		return nil, fmt.Errorf("embed query: %w", err)
 	}
@@ -446,6 +478,12 @@ func (s *RAGService) Retrieve(ctx context.Context, query string, tenantID uint, 
 // optionally synthesises an answer using the configured LLM. If no LLM is
 // configured, only the retrieved context is returned.
 func (s *RAGService) Ask(ctx context.Context, query string, tenantID uint, topK int) (*RAGAnswer, error) {
+	// Refuse deterministically when answer synthesis would require an external
+	// LLM while outbound calls are disabled — identical behavior for REST and
+	// MCP callers instead of a transport-specific check.
+	if s.llm != nil && s.llm.External() && !s.allowOutbound {
+		return nil, ErrAIOutboundDisabled
+	}
 	start := time.Now()
 	chunks, err := s.Retrieve(ctx, query, tenantID, topK)
 	if err != nil {
@@ -510,6 +548,11 @@ func (s *RAGService) reindex(ctx context.Context, tenantID uint) (int, error) {
 	const batchSize = 100
 	var totalIndexed int
 	var offset int
+	// Every published article seen in this run. Anything absent from this set
+	// is an orphan (deleted/unpublished outside the sync paths, or a previous
+	// failure) and gets pruned from the store and the database below.
+	keepDocs := make(map[string]bool)
+	keepArticleIDs := make([]uint, 0, 256)
 
 	for {
 		var articles []models.Article
@@ -534,6 +577,8 @@ func (s *RAGService) reindex(ctx context.Context, tenantID uint) (int, error) {
 				slog.Warn("rag: failed to index article", "article_id", a.ID, "error", err)
 				continue
 			}
+			keepDocs[vectorDocKey("article", a.ID)] = true
+			keepArticleIDs = append(keepArticleIDs, a.ID)
 			totalIndexed++
 		}
 
@@ -543,8 +588,39 @@ func (s *RAGService) reindex(ctx context.Context, tenantID uint) (int, error) {
 		}
 	}
 
+	// Cleanup-style rebuild: drop in-store and on-disk vectors that are not
+	// backed by a published article in scope. A stale vector is worse than a
+	// missing one, so articles whose indexing failed are pruned as well.
+	if pruned, err := s.store.Prune(ctx, tenantID, keepDocs); err != nil {
+		slog.Warn("rag: vector store prune failed", "tenant_id", tenantID, "error", err)
+	} else if pruned > 0 {
+		slog.Info("rag: pruned orphaned store vectors", "count", pruned, "tenant_id", tenantID)
+	}
+	if prunedDB, err := s.pruneArticleEmbeddingRows(tenantID, keepArticleIDs); err != nil {
+		slog.Warn("rag: embedding row prune failed", "tenant_id", tenantID, "error", err)
+	} else if prunedDB > 0 {
+		slog.Info("rag: pruned orphaned embedding rows", "count", prunedDB, "tenant_id", tenantID)
+	}
+
 	slog.Info("rag: reindex complete", "indexed", totalIndexed, "tenant_id", tenantID)
 	return totalIndexed, nil
+}
+
+// pruneArticleEmbeddingRows deletes article embedding rows that are not
+// backed by a currently published article in scope (deleted articles,
+// unpublished content, or rows left behind by failed indexing runs).
+func (s *RAGService) pruneArticleEmbeddingRows(tenantID uint, keepArticleIDs []uint) (int64, error) {
+	q := s.db.Where("doc_type = ?", "article")
+	if tenantID > 0 {
+		q = q.Where("tenant_id = ?", tenantID)
+	}
+	if len(keepArticleIDs) > 0 {
+		q = q.Where("doc_id NOT IN ?", keepArticleIDs)
+	}
+	// Empty keep-set: every article embedding row in scope is an orphan, so
+	// the doc_type filter alone applies.
+	res := q.Delete(&models.DocumentEmbedding{})
+	return res.RowsAffected, res.Error
 }
 
 // WarmUp loads all existing published-content embeddings from the database

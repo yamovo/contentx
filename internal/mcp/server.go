@@ -106,6 +106,9 @@ type Deps struct {
 	// write tools (create/update/publish). Each call re-resolves current user,
 	// tenant, membership, and effective permissions from the request token.
 	Authorizer Authorizer
+	// Audit, when non-nil, records RAG tool usage (search/ask) for HTTP
+	// sessions, mirroring the REST AI audit trail. Nil keeps stdio silent.
+	Audit services.AuditLogger
 }
 
 // NewServer builds the local/transport-agnostic MCP surface. Stdio has no HTTP

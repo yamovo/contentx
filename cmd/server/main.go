@@ -226,6 +226,11 @@ func main() {
 			)
 			mcpRAGSvc = services.NewRAGService(db, embedder, vecStore, mcpLLM,
 				cfg.AI.ChunkSize, cfg.AI.ChunkOverlap, cfg.AI.TopK, cfg.AI.MinScore)
+			mcpRAGSvc.SetAllowOutbound(cfg.AI.AllowOutbound)
+			if !cfg.AI.AllowOutbound && (embedder.External() || mcpLLM.External()) {
+				slog.Warn("mcp: AI_ALLOW_OUTBOUND=false with an external provider configured: " +
+					"rag tools that would call the external API will be refused")
+			}
 			mcpArticleSvc.SetRAGIndexer(mcpRAGSvc)
 			if n, err := mcpRAGSvc.WarmUp(context.Background()); err != nil {
 				slog.Warn("mcp: rag warmup failed", "error", err)

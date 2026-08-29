@@ -24,6 +24,10 @@ type EmbeddingProvider interface {
 	Dimension() int
 	// Name returns a human-readable identifier (e.g. "openai", "dummy").
 	Name() string
+	// External reports whether the provider calls an external (out-of-process)
+	// API. The RAG outbound policy (AI_ALLOW_OUTBOUND=false) refuses embedding
+	// generation on external providers so content never leaves the host.
+	External() bool
 }
 
 // ─── dummyProvider (TF-IDF with feature hashing) ─────────────────────────────
@@ -46,6 +50,7 @@ func NewDummyEmbeddingProvider(dim int) EmbeddingProvider {
 
 func (d *dummyProvider) Name() string   { return "dummy" }
 func (d *dummyProvider) Dimension() int { return d.dim }
+func (d *dummyProvider) External() bool { return false }
 
 func (d *dummyProvider) Embed(_ context.Context, texts []string) ([][]float32, error) {
 	out := make([][]float32, len(texts))
@@ -254,6 +259,7 @@ func NewOpenAIEmbeddingProvider(apiKey, baseURL, model string, dim int) Embeddin
 }
 
 func (o *openaiProvider) Name() string   { return "openai" }
+func (o *openaiProvider) External() bool { return true }
 func (o *openaiProvider) Dimension() int { return o.dim }
 
 type embeddingRequest struct {

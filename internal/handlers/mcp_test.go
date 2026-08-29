@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -470,6 +471,158 @@ func TestMCPRAGPermissions(t *testing.T) {
 	})
 	if err != nil || askRes.IsError {
 		t.Fatalf("ai.ask rag_ask failed: err=%v result=%+v", err, askRes)
+	}
+}
+
+// TestMCPRAGOutboundPolicy proves the AI_ALLOW_OUTBOUND=false boundary holds
+// on the MCP transport: rag_ask must fail when the LLM is external, while
+// rag_search with the local dummy embedder keeps working.
+func TestMCPRAGOutboundPolicy(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupMCPTestDB(t)
+	user := createTestUserDB(t, db, "mcp-rag-outbound", "admin")
+	grantMCPMembership(t, db, user.ID, models.DefaultTenantID, models.TenantRoleAdmin)
+	article := createTestArticleDB(t, db, user.ID, "Outbound Policy Article")
+	article.TenantID = models.DefaultTenantID
+
+	articleSvc := services.NewArticleService(db, "http://localhost:8080")
+	articleSvc.SetSearchIndexer(services.NewBuiltinIndexer())
+	ragSvc := services.NewRAGService(
+		db,
+		services.NewDummyEmbeddingProvider(128),
+		services.NewMemoryVectorStore(),
+		// External (OpenAI-compatible) LLM pointed at an unreachable port: the
+		// outbound policy must refuse before any network attempt.
+		services.NewLLMProvider("openai", "test-key", "http://127.0.0.1:1", "test-model"),
+		500, 100, 5, 0.01,
+	)
+	ragSvc.SetAllowOutbound(false)
+	if err := ragSvc.IndexArticle(context.Background(), article); err != nil {
+		t.Fatalf("index RAG article: %v", err)
+	}
+
+	tokenSvc := services.NewTokenService(db)
+	r := gin.New()
+	mountMCPHTTP(r.Group("/api/v1"), mcp.Deps{
+		Article:     articleSvc,
+		ContentType: services.NewContentTypeService(db),
+		RAG:         ragSvc,
+		BaseURL:     "http://localhost:8080",
+	}, tokenSvc)
+	ts := httptest.NewServer(r)
+	defer ts.Close()
+	endpoint := ts.URL + "/api/v1/mcp"
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	session := mcpConnect(t, ctx, endpoint, mkToken(t, tokenSvc, user.ID, []string{permissions.AIRead, permissions.AIAsk}))
+	defer func() { _ = session.Close() }()
+
+	// rag_search uses the local dummy embedder: unaffected by the policy.
+	searchRes, err := session.CallTool(ctx, &mcpsdk.CallToolParams{
+		Name:      "rag_search",
+		Arguments: map[string]any{"query": "Outbound"},
+	})
+	if err != nil || searchRes.IsError {
+		t.Fatalf("local rag_search should work with outbound disabled: err=%v result=%+v", err, searchRes)
+	}
+
+	// rag_ask would call the external LLM: refused by the service layer.
+	askRes, err := session.CallTool(ctx, &mcpsdk.CallToolParams{
+		Name:      "rag_ask",
+		Arguments: map[string]any{"query": "What is this article about?"},
+	})
+	if err != nil {
+		t.Fatalf("rag_ask call errored at transport level: %v", err)
+	}
+	if !askRes.IsError {
+		t.Fatalf("rag_ask must fail with outbound disabled, got result=%+v", askRes)
+	}
+}
+
+// recordingAuditLogger captures audit events for assertions.
+type recordingAuditLogger struct {
+	mu     sync.Mutex
+	events []services.AuditEvent
+}
+
+func (r *recordingAuditLogger) Log(e services.AuditEvent) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.events = append(r.events, e)
+}
+
+// TestMCPRAGAuditTrail proves RAG tool usage on the HTTP transport lands in
+// the audit trail with the verified principal, mirroring REST AI auditing.
+func TestMCPRAGAuditTrail(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupMCPTestDB(t)
+	user := createTestUserDB(t, db, "mcp-rag-audit", "admin")
+	grantMCPMembership(t, db, user.ID, models.DefaultTenantID, models.TenantRoleAdmin)
+	article := createTestArticleDB(t, db, user.ID, "Audited RAG Article")
+	article.TenantID = models.DefaultTenantID
+
+	articleSvc := services.NewArticleService(db, "http://localhost:8080")
+	articleSvc.SetSearchIndexer(services.NewBuiltinIndexer())
+	ragSvc := services.NewRAGService(
+		db,
+		services.NewDummyEmbeddingProvider(128),
+		services.NewMemoryVectorStore(),
+		services.NewDummyLLM(),
+		500, 100, 5, 0.01,
+	)
+	if err := ragSvc.IndexArticle(context.Background(), article); err != nil {
+		t.Fatalf("index RAG article: %v", err)
+	}
+
+	audit := &recordingAuditLogger{}
+	tokenSvc := services.NewTokenService(db)
+	r := gin.New()
+	mountMCPHTTP(r.Group("/api/v1"), mcp.Deps{
+		Article:     articleSvc,
+		ContentType: services.NewContentTypeService(db),
+		RAG:         ragSvc,
+		BaseURL:     "http://localhost:8080",
+		Audit:       audit,
+	}, tokenSvc)
+	ts := httptest.NewServer(r)
+	defer ts.Close()
+	endpoint := ts.URL + "/api/v1/mcp"
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	session := mcpConnect(t, ctx, endpoint, mkToken(t, tokenSvc, user.ID, []string{permissions.AIRead, permissions.AIAsk}))
+	defer func() { _ = session.Close() }()
+
+	if _, err := session.CallTool(ctx, &mcpsdk.CallToolParams{
+		Name:      "rag_search",
+		Arguments: map[string]any{"query": "Audited"},
+	}); err != nil {
+		t.Fatalf("rag_search: %v", err)
+	}
+	if _, err := session.CallTool(ctx, &mcpsdk.CallToolParams{
+		Name:      "rag_ask",
+		Arguments: map[string]any{"query": "Summarise the article"},
+	}); err != nil {
+		t.Fatalf("rag_ask: %v", err)
+	}
+
+	audit.mu.Lock()
+	defer audit.mu.Unlock()
+	actions := map[string]bool{}
+	for _, e := range audit.events {
+		actions[e.Action] = true
+		if e.UserID == nil || *e.UserID != user.ID {
+			t.Fatalf("audit event must carry the verified user, got %+v", e)
+		}
+		if e.TenantID == nil || *e.TenantID != models.DefaultTenantID {
+			t.Fatalf("audit event must carry the tenant, got %+v", e)
+		}
+	}
+	if !actions["mcp.rag_search"] || !actions["mcp.rag_ask"] {
+		t.Fatalf("expected mcp.rag_search and mcp.rag_ask audit events, got %v", actions)
 	}
 }
 

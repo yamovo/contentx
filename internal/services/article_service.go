@@ -98,15 +98,15 @@ func (s *ArticleService) indexArticle(article *models.Article) {
 	idx := s.indexer()
 	if idx != nil {
 		doc := ArticleToSearchDoc(article)
-		if err := idx.Index(context.Background(), doc); err != nil {
-			slog.Warn("search index failed", "article_id", article.ID, "error", err)
-		}
+		s.retryIndexOp("search index", article.ID, func() error {
+			return idx.Index(context.Background(), doc)
+		})
 	}
 	// RAG vector index (best-effort; failures logged but non-fatal).
 	if s.rag != nil {
-		if err := s.rag.IndexArticle(context.Background(), article); err != nil {
-			slog.Warn("rag index failed", "article_id", article.ID, "error", err)
-		}
+		s.retryIndexOp("rag index", article.ID, func() error {
+			return s.rag.IndexArticle(context.Background(), article)
+		})
 	}
 }
 
@@ -118,16 +118,38 @@ func (s *ArticleService) unindexArticle(id uint, postType models.PostType, tenan
 		if postType == models.PostTypePage {
 			docType = "page"
 		}
-		if err := idx.Delete(context.Background(), id, docType, tenantID); err != nil {
-			slog.Warn("search unindex failed", "article_id", id, "error", err)
-		}
+		s.retryIndexOp("search unindex", id, func() error {
+			return idx.Delete(context.Background(), id, docType, tenantID)
+		})
 	}
 	// RAG vector index (best-effort).
 	if s.rag != nil {
-		if err := s.rag.DeleteArticle(context.Background(), id, tenantID); err != nil {
-			slog.Warn("rag unindex failed", "article_id", id, "error", err)
+		s.retryIndexOp("rag unindex", id, func() error {
+			return s.rag.DeleteArticle(context.Background(), id, tenantID)
+		})
+	}
+}
+
+// retryIndexOp runs a best-effort index write with a small bounded retry so
+// transient backend failures self-heal instead of leaving stale index state
+// until the next full reindex (the convergence backstop). Permanent policy
+// rejections (outbound disabled) are never retried.
+func (s *ArticleService) retryIndexOp(op string, articleID uint, fn func() error) {
+	delays := []time.Duration{0, 200 * time.Millisecond, 500 * time.Millisecond}
+	var err error
+	for i, delay := range delays {
+		if i > 0 {
+			time.Sleep(delay)
+		}
+		if err = fn(); err == nil {
+			return
+		}
+		if errors.Is(err, ErrAIOutboundDisabled) {
+			slog.Warn(op+" refused by outbound policy", "article_id", articleID)
+			return
 		}
 	}
+	slog.Warn(op+" failed after retries", "article_id", articleID, "error", err)
 }
 
 // reindexByID re-indexes a single article by ID (used after scheduled publish).

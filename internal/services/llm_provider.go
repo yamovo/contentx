@@ -37,6 +37,9 @@ func NewOpenAILLMProvider(apiKey, baseURL, model string) LLMProvider {
 }
 
 func (o *openaiLLMProvider) Name() string { return "openai" }
+func (o *openaiLLMProvider) External() bool {
+	return true
+}
 
 type chatMessage struct {
 	Role    string `json:"role"`
