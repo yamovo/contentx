@@ -146,7 +146,7 @@ v1.4.0 的 PostgreSQL 演练、审查修复和 CI 证据已经归档。以下是
 **下一主批次（按序）**
 
 3. ~~版本化审计事件 envelope + 高风险操作可靠写入。~~ — 已完成（2026-08-29）：迁移 013 一等关联字段、REST/MCP/后台任务统一信封、状态迁移与审计行同事务 fail-closed、活动日志关联筛选；前端 UI 筛选与 OTLP logs 属后续可观测性阶段。
-4. ~~租户管理 API 与成员管理（RFC-001 PR-5 后端部分）~~ — 已完成（2026-08-29）：`/admin/tenants` CRUD + 成员管理 + 最后管理员保护 + `tenants.*` 平台权限门禁 + 可靠审计；剩余为前端部分（切换器、租户页、tenant-aware Vue Query 缓存）。
+4. ~~租户管理 API、成员管理、切换器与 tenant-aware Vue Query 缓存（RFC-001 PR-5 前半）~~ — 已完成（2026-08-29）：后端 `/admin/tenants` CRUD + 成员管理 + 最后管理员保护 + `tenants.*` 平台权限门禁 + 可靠审计；前端租户管理页、平台管理员租户切换器（切换即清空查询缓存并全量刷新）、X-Tenant-ID 注入与 SDK 契约。
 5. RFC-002 第 5 步：schema version、字段级公开策略与仅向后兼容的 schema update。
 
 **保留（可插队）**
