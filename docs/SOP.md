@@ -51,6 +51,9 @@ Copy-Item .env.example .env
 | Webhook | `QUEUE_MAX_WORKERS`、`QUEUE_MAX_RETRIES`、`QUEUE_RETRY_DELAY` |
 | 监控 | `METRICS_ENABLED`、`METRICS_PATH`、`OTEL_ENABLED`、`OTEL_*` |
 | 搜索 | `SEARCH_ENGINE`、`MEILISEARCH_URL`、`MEILISEARCH_KEY` |
+| AI/RAG | `AI_ENABLED`、`AI_EMBEDDING_PROVIDER`、`AI_EMBEDDING_API_KEY`、`AI_EMBEDDING_DIMENSION`、`AI_LLM_PROVIDER`、`AI_LLM_API_KEY`、`AI_ALLOW_OUTBOUND`、`AI_RATE_LIMIT`、`AI_MIN_SCORE`、`AI_TOP_K` |
+| 公开内容交付 | `CONTENT_DELIVERY_ENABLED`、`CONTENT_DELIVERY_UIDS` |
+| MCP | `MCP_INCLUDE_DRAFTS`、`MCP_HTTP_ENABLED`、`MCP_RATE_LIMIT` |
 
 完整默认值和注释见 [`.env.example`](../.env.example)。
 
@@ -244,7 +247,9 @@ HTTP 恢复会使用脱离客户端取消信号的 10 秒有界上下文执行�
 
 确认指标和 trace 已在真实采集端出现，再宣布可观测性可用。开发机负载结果不能直接作为 SLA。
 
-## 8. MCP
+## 8. MCP 与公开内容交付
+
+### 8.1 MCP
 
 stdio：
 
@@ -252,7 +257,13 @@ stdio：
 go run ./cmd/server --mcp
 ```
 
-Streamable HTTP 默认关闭；启用后使用 `/api/v1/mcp`，并携带有明确权限的 API Token。创建、更新和发布工具分别检查对应权限。
+Streamable HTTP 默认关闭（`MCP_HTTP_ENABLED=false`）；启用后使用 `/api/v1/mcp`，并携带有明确权限的 API Token。要点：
+
+- 每次工具/资源调用都会按请求头重新验证 Token（用户状态、租户状态、成员资格和有效权限），HTTP 会话内权限撤销和租户变更立即生效。
+- `MCP_INCLUDE_DRAFTS` 仅对本地 stdio 生效，HTTP 传输强制只读已发布内容。
+- `rag_search` 与 `rag_ask` 分别要求 `ai.read` / `ai.ask` 权限，检索按 Token 的租户分区；`rag_ask` 会调用外部 LLM 并产生费用。
+- `MCP_RATE_LIMIT`（默认 60/分钟/IP）限制 HTTP 端点流量。
+- 当 `AI_ALLOW_OUTBOUND=false` 且配置了外部 provider 时，会外发的工具调用（如 `rag_ask`）会被拒绝，本地 dummy provider 不受影响。
 
 发布前至少验证：
 
@@ -262,6 +273,26 @@ Streamable HTTP 默认关闭；启用后使用 `/api/v1/mcp`，并携带有明�
 4. 有权限创建草稿
 5. 更新时的乐观锁冲突
 6. 显式发布
+7. 无 `ai.read` 的 Token 调用 `rag_search` 被拒绝；`rag_ask` 调用出现在审计日志中
+
+### 8.2 公开内容交付（RFC-002）
+
+默认关闭。启用需要两个条件同时满足：
+
+```bash
+CONTENT_DELIVERY_ENABLED=true
+CONTENT_DELIVERY_UIDS=products,articles   # 逗号分隔的 allowlist
+```
+
+行为契约：
+
+- 只提供 `GET /api/v1/public/content/:uid` 和 `GET /api/v1/public/content/:uid/:documentId`，只读。
+- 只返回已发布（`status=published` 且 `published_at` 已到）的条目；取消发布立即 404（`Cache-Control: no-store`）。
+- 匿名读取固定 default tenant；`X-Tenant-ID`、JWT 等头部一律被忽略。
+- 响应只含 `document_id`、`data`、`locale`、`published_at`、`updated_at`；不暴露租户、创建者或状态字段。
+- `page_size` 上限 50；非 allowlist 类型、未知类型与未知条目统一 404。
+
+注意：allowlist 表示"该类型的全部 Data 字段均可公开"。把敏感字段放进公开类型前，确认字段内容可公开；字段级公开策略交付前这是运营者的责任边界。
 
 ## 9. 发布检查
 

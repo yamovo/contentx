@@ -52,7 +52,8 @@ jobs:
 
       - name: Swagger drift check
         run: |
-          go install github.com/swaggo/swag/cmd/swag@latest
+          # Pinned to match the generator used locally; bump both together.
+          go install github.com/swaggo/swag/cmd/swag@v1.16.4
           swag init -g cmd/server/main.go --parseDependency --parseInternal -o docs/api
           git diff --exit-code docs/api/
 
