@@ -107,7 +107,7 @@
 | 范围 | 限制 |
 |---|---|
 | GraphQL | 仅支持公开只读查询 |
-| 动态内容公开交付 | ContentEntry 目前只有受保护的管理接口；published-only 公共 REST 契约仍在设计与实现中，不得直接复用管理 List/Get |
+| 动态内容公开交付 | RFC-002 第一切片已实现：默认关闭、UID allowlist、published-only 专用查询与最小公开 DTO（见"公开动态内容交付（第一切片）"）；schema version、字段级公开策略与 tenant B 匿名交付尚未交付 |
 | 语言与扩展 | 服务端当前使用 Go；语言策略正在验证，外部扩展尚无稳定 ABI，不应把 Go interface 或 `.so` 描述为插件生态 |
 | 日志与审计 | access log 已含 request ID/trace ID，业务审计也已落库与脱敏；ActivityLog 尚无 request/trace/span/source 等一等关联字段，高风险审计仍是 best-effort，OTLP logs、保留、导出和完整性策略未交付 |
 | S3 | MinIO 已实测；R2、AWS 和其他供应商需使用部署账户做上线前冒烟测试 |
@@ -123,7 +123,7 @@
 
 v1.4.0 的 PostgreSQL 演练、审查修复和 CI 证据已经归档。以下是当前未提交里程碑进入下一正式版本前必须关闭的新阻断项：
 
-1. 动态内容 create/update/import/translation 的发布权限绕过已关闭；公共内容交付上线前仍须通过 draft/publish/unpublish、allowlist、输出 DTO 和 tenant A/B 拒绝测试。
+1. 动态内容发布绕过与公开交付第一切片已完成：published-only、allowlist、输出 DTO、分页上限与 tenant 隔离测试全部通过；后续迭代仍须交付 schema version、字段级公开策略与仅向后兼容的 schema update。
 2. access/refresh、TenantMembership 角色、租户状态与 API Token/MCP principal 的统一验证已完成本地闭环（含 GraphQL/MCP/刷新链攻击矩阵）；须在远程 CI 复现通过并在开放真实 tenant B 前完成验收。
 3. ~~修复评论父子归属、平台审计日志和其他剩余跨租户边界~~ 已收口（评论回复 fail closed + 预加载租户过滤 + 审计链路测试）；后续如发现新的跨租户边界按同标准处理。
 4. ~~RAG 孤儿清理、定时发布同步、失败补偿、外发统一拦截、限流、审计和成本边界~~ 已收口（见"RAG 最小安全闭环完成"）；上线前仍须完成真实 provider 验证与持久化向量存储选型。

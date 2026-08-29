@@ -13,28 +13,29 @@ import (
 
 // Config holds all application configuration.
 type Config struct {
-	Server    ServerConfig
-	Database  DatabaseConfig
-	Redis     RedisConfig
-	JWT       JWTConfig
-	Auth      AuthConfig
-	Upload    UploadConfig
-	Mail      MailConfig
-	Search    SearchConfig
-	Cache     CacheConfig
-	Queue     QueueConfig
-	Plugin    PluginConfig
-	Theme     ThemeConfig
-	Backup    BackupConfig
-	Analytics AnalyticsConfig
-	Limits    LimitsConfig
-	CORS      CORSConfig
-	Log       LogConfig
-	I18n      I18nConfig
-	Metrics   MetricsConfig
-	Tracing   TracingConfig
-	MCP       MCPConfig
-	AI        AIConfig
+	Server          ServerConfig
+	Database        DatabaseConfig
+	Redis           RedisConfig
+	JWT             JWTConfig
+	Auth            AuthConfig
+	Upload          UploadConfig
+	Mail            MailConfig
+	Search          SearchConfig
+	Cache           CacheConfig
+	Queue           QueueConfig
+	Plugin          PluginConfig
+	Theme           ThemeConfig
+	Backup          BackupConfig
+	Analytics       AnalyticsConfig
+	Limits          LimitsConfig
+	CORS            CORSConfig
+	Log             LogConfig
+	I18n            I18nConfig
+	Metrics         MetricsConfig
+	Tracing         TracingConfig
+	MCP             MCPConfig
+	AI              AIConfig
+	ContentDelivery ContentDeliveryConfig
 }
 
 // I18nConfig holds internationalization settings.
@@ -95,6 +96,16 @@ type AIConfig struct {
 	LLMModel           string  // e.g. "gpt-4o-mini"
 	LLMAPIKey          string
 	LLMBaseURL         string
+}
+
+// ContentDeliveryConfig controls the RFC-002 public read-only delivery of
+// published dynamic content. Disabled by default; when enabled only content
+// types listed in UIDs are exposed, and only from the default tenant.
+type ContentDeliveryConfig struct {
+	Enabled bool
+	// UIDs is the explicit allowlist of content type UIDs open to anonymous
+	// reads. An empty list means no type is exposed even when Enabled is true.
+	UIDs []string
 }
 
 // ServerConfig holds HTTP server settings.
@@ -436,6 +447,10 @@ func Load() *Config {
 			LLMAPIKey:          envStr("AI_LLM_API_KEY", ""),
 			LLMBaseURL:         envStr("AI_LLM_BASE_URL", ""),
 		},
+		ContentDelivery: ContentDeliveryConfig{
+			Enabled: envBool("CONTENT_DELIVERY_ENABLED", false),
+			UIDs:    envList("CONTENT_DELIVERY_UIDS"),
+		},
 	}
 }
 
@@ -494,6 +509,23 @@ func envFloat(key string, def float64) float64 {
 		}
 	}
 	return def
+}
+
+// envList parses a comma-separated environment variable into a trimmed,
+// lower-cased string list. Empty values are dropped.
+func envList(key string) []string {
+	v := os.Getenv(key)
+	if v == "" {
+		return nil
+	}
+	parts := strings.Split(v, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if s := strings.ToLower(strings.TrimSpace(p)); s != "" {
+			out = append(out, s)
+		}
+	}
+	return out
 }
 
 func envDuration(key string, def time.Duration) time.Duration {

@@ -1625,6 +1625,19 @@ definitions:
     required:
     - scheduled_at
     type: object
+  internal_handlers.publicContentEntry:
+    properties:
+      data:
+        $ref: '#/definitions/github_com_yamovo_contentx_internal_models.JSONMap'
+      document_id:
+        type: string
+      locale:
+        type: string
+      published_at:
+        type: string
+      updated_at:
+        type: string
+    type: object
 host: localhost:8080
 info:
   contact: {}
@@ -4997,6 +5010,91 @@ paths:
       summary: Enable plugin
       tags:
       - Plugins
+  /public/content/{uid}:
+    get:
+      description: Public read-only list for an allowlisted content type. Published
+        entries of the default tenant only; pagination is capped; unknown or non-allowlisted
+        types return 404.
+      parameters:
+      - description: Content type UID (allowlisted)
+        in: path
+        name: uid
+        required: true
+        type: string
+      - default: 1
+        description: Page number (>= 1)
+        in: query
+        name: page
+        type: integer
+      - default: 20
+        description: Page size (1-50)
+        in: query
+        name: page_size
+        type: integer
+      - description: Filter by BCP-47 locale
+        in: query
+        name: locale
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          headers:
+            Cache-Control:
+              description: no-store
+              type: string
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Illegal pagination
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Type not allowlisted, unknown, or has no published entries
+          schema:
+            additionalProperties: true
+            type: object
+      summary: List published content entries (public)
+      tags:
+      - Public Content
+  /public/content/{uid}/{documentId}:
+    get:
+      description: Public read-only fetch of one published entry by its document ID.
+        Published entries of the default tenant only; unpublished or unknown documents
+        return 404.
+      parameters:
+      - description: Content type UID (allowlisted)
+        in: path
+        name: uid
+        required: true
+        type: string
+      - description: Entry document ID (UUID)
+        in: path
+        name: documentId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          headers:
+            Cache-Control:
+              description: no-store
+              type: string
+          schema:
+            $ref: '#/definitions/internal_handlers.publicContentEntry'
+        "404":
+          description: Type not allowlisted, unknown, unpublished, or missing entry
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Get a published content entry (public)
+      tags:
+      - Public Content
   /roles:
     get:
       description: Returns all roles (requires roles.view permission)

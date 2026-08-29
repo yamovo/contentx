@@ -15,6 +15,15 @@
 - **AI 配置收口**：`AIConfig` 正式进入 config 与 `.env.example`、`deploy/docker/.env.example`（`AI_ENABLED=false` 默认）；Swagger 重新生成补齐 `/ai/search`、`/ai/rag/ask`、`/ai/reindex`、`/ai/status`，消除 CI drift
 - **测试覆盖**：新增 MCP token 租户绑定、Authorizer 有效主体、HTTP 读权限与 drafts fail closed、RAG 权限、资源租户隔离回归；Go 全量 21 包与前端 type-check/lint/189 单测通过
 
+### Added — RFC-002 公开动态内容交付（第一切片）
+
+- **默认关闭的公开读取**：`CONTENT_DELIVERY_ENABLED=false` 为默认值；未开启时公开路由完全不注册。开启后提供 `GET /api/v1/public/content/:uid` 与 `GET /api/v1/public/content/:uid/:documentId`
+- **显式 UID allowlist**：`CONTENT_DELIVERY_UIDS`（逗号分隔）决定哪些类型可公开；非 allowlist 类型、未知类型、未知条目、未发布条目统一返回 404，无法探测内部状态
+- **published-only 专用查询**：新增 `PublicContentRepository`/`PublicContentService`，与管理查询零复用——查询硬编码 `status=published` 且 `published_at` 非空不晚于当前时间，匿名读取固定 default tenant，`X-Tenant-ID` 等头部一律忽略
+- **最小公开 DTO**：只返回 `document_id`、`data`、`locale`、`published_at`、`updated_at`；tenant、内容类型内部 ID、创建者/更新者与状态字段不暴露
+- **分页硬上限**：`page_size` 上限 50，显式非法分页返回 400；`Cache-Control: no-store` 保证取消发布立即生效
+- **测试矩阵**：draft/publish/unpublish 生命周期、非 allowlist 与未知类型同 404、分页边界、DTO 字段白名单、tenant B 同 UID 不可串读、头部不可切换租户，共 6 条集成回归；OpenAPI 同步更新
+
 ### Changed — RAG 最小安全闭环完成
 
 - **外发边界统一下沉到 Service 层**：`EmbeddingProvider`/`LLMProvider` 新增 `External()` 语义，`RAGService` 增加 `SetAllowOutbound` 策略并在所有 embedding 生成与 Ask 合成入口统一拦截。`AI_ALLOW_OUTBOUND=false` 时：REST Ask 维持 403，MCP `rag_ask` 返回工具错误，外部 Embedding 场景下的 Search/Retrieve/Index 也被拒绝；本地 dummy provider 不受影响。REST 与 MCP 装配点均显式应用策略并在外部 provider + 禁止外发组合下打 WARN 日志

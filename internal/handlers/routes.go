@@ -254,6 +254,18 @@ func RegisterRoutes(
 		// Public full-text search (forces status=published).
 		api.GET("/search", searchH.Search)
 
+		// RFC-002 public dynamic content delivery: opt-in via
+		// CONTENT_DELIVERY_ENABLED with an explicit UID allowlist. Disabled by
+		// default — the routes do not exist at all until an operator opts in.
+		if cfg.ContentDelivery.Enabled {
+			publicContentH := NewPublicContentHandler(
+				services.NewPublicContentService(repository.NewPublicContentRepository(db)),
+				cfg.ContentDelivery.UIDs,
+			)
+			api.GET("/public/content/:uid", publicContentH.List)
+			api.GET("/public/content/:uid/:documentId", publicContentH.Get)
+		}
+
 		// GraphQL (read-only public endpoint). Reuses the same service
 		// instances as the REST handlers; the schema exposes published
 		// articles, taxonomy, approved comments, public user profiles, and
