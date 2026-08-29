@@ -17,6 +17,7 @@ var platformPermissionSlugs = map[string]struct{}{
 	ThemesRead: {}, ThemesUpdate: {},
 	SystemRead:  {},
 	BackupsRead: {}, BackupsCreate: {}, BackupsRestore: {}, BackupsDelete: {},
+	TenantsRead: {}, TenantsManage: {},
 }
 
 // tenantPermissionModules contains resources whose data and actions are bound

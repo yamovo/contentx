@@ -15,6 +15,16 @@
 - **AI 配置收口**：`AIConfig` 正式进入 config 与 `.env.example`、`deploy/docker/.env.example`（`AI_ENABLED=false` 默认）；Swagger 重新生成补齐 `/ai/search`、`/ai/rag/ask`、`/ai/reindex`、`/ai/status`，消除 CI drift
 - **测试覆盖**：新增 MCP token 租户绑定、Authorizer 有效主体、HTTP 读权限与 drafts fail closed、RAG 权限、资源租户隔离回归；Go 全量 21 包与前端 type-check/lint/189 单测通过
 
+### Added — 平台租户管理 API（RFC-001 PR-5 前半）
+
+- **租户 CRUD**：`/api/v1/admin/tenants`（列表/详情/创建/更新），状态支持 active/suspended，slug 强制 URL 安全小写并唯一，`max_users` 配额钩子字段就位（计量逻辑按 §3.3 审查结论暂缓）
+- **成员管理**：`/admin/tenants/:id/members` 增删改查，角色限定 member/editor/admin 三档；冲突（重复成员）、未知用户/租户、非法角色分别返回 409/404/400
+- **最后管理员保护**：不能移除租户的最后一名 admin，避免租户管理孤儿
+- **平台权限门禁**：新增 `tenants.read`/`tenants.manage` 平台权限——租户成员角色永远无法触及身份面（防止租户管理员自我授权进入其他租户）；归属 `tenants.read` 可读、`tenants.manage` 可写
+- **审计**：tenant.create/update/member_add/member_role/member_remove 全部走 `LogReliable` 可靠写入（fail-closed），事件归属目标租户
+- **修复**：`ListMembers` 的裸 Table 查询补上软删除过滤，移除成员后成员清单与 admin 计数保持一致
+- **测试**：完整生命周期（创建→更新→成员增删改→最后管理员保护）、校验错误矩阵、平台权限门禁 403（真实中间件链）、审计溯源断言
+
 ### Added — 版本化审计事件 envelope 与可靠写入
 
 - **envelope 一等字段**：`activity_logs` 新增 `event_id`、`request_id`、`trace_id`、`span_id`、`source`（rest/mcp/background/system）、`actor_type`（user/token/anonymous/system）、`outcome`（success/failed/denied）列与关联索引（迁移 013，三数据库纯加列）；旧行空串表示"迁移前数据"，读取方按未知来源处理

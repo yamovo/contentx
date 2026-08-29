@@ -206,6 +206,8 @@ func RegisterRoutes(
 	backupH := NewBackupHandler(backupMgr, articleSvc, auditLogger).
 		WithCache(cacheDriver).
 		WithAuthCacheInvalidator(authUserCacheInvalidator.Invalidate)
+	tenantSvc := services.NewTenantService(repository.NewTenantRepository(db))
+	tenantSvc.SetAuditLogger(auditLogger)
 
 	// Rate limiter for specific groups (requests per minute).
 	const (
@@ -564,6 +566,22 @@ func RegisterRoutes(
 			backupGroup.GET("/:file/download", middleware.RequirePlatformPermission(permissions.BackupsRead), backupH.Download)
 			backupGroup.POST("/:file/restore", middleware.RequirePlatformPermission(permissions.BackupsRestore), backupH.Restore)
 			backupGroup.DELETE("/:file", middleware.RequirePlatformPermission(permissions.BackupsDelete), backupH.Delete)
+		}
+
+		// RFC-001 PR-5: platform tenant administration. Identity-plane
+		// operations are guarded by platform permissions only — a tenant
+		// membership role can never reach or amplify them.
+		tenantH := NewTenantHandler(tenantSvc)
+		tenantGroup := protected.Group("/admin/tenants")
+		{
+			tenantGroup.GET("", middleware.RequirePlatformPermission(permissions.TenantsRead), tenantH.List)
+			tenantGroup.GET("/:id", middleware.RequirePlatformPermission(permissions.TenantsRead), tenantH.Get)
+			tenantGroup.GET("/:id/members", middleware.RequirePlatformPermission(permissions.TenantsRead), tenantH.ListMembers)
+			tenantGroup.POST("", middleware.RequirePlatformPermission(permissions.TenantsManage), tenantH.Create)
+			tenantGroup.PUT("/:id", middleware.RequirePlatformPermission(permissions.TenantsManage), tenantH.Update)
+			tenantGroup.POST("/:id/members", middleware.RequirePlatformPermission(permissions.TenantsManage), tenantH.AddMember)
+			tenantGroup.PUT("/:id/members/:userId", middleware.RequirePlatformPermission(permissions.TenantsManage), tenantH.UpdateMemberRole)
+			tenantGroup.DELETE("/:id/members/:userId", middleware.RequirePlatformPermission(permissions.TenantsManage), tenantH.RemoveMember)
 		}
 	}
 

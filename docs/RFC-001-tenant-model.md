@@ -7,7 +7,7 @@
 | 日期 | 2026-08-07 |
 | 关联 | [ROADMAP §3 当前里程碑](./ROADMAP.md)、[STATUS §1 发布状态](./STATUS.md) |
 | 目标版本 | v1.5.0（未排期） |
-| 实施状态 | PR-1（迁移 008/009）、PR-2（租户上下文）、PR-3（Article 全链路租户化）、PR-4（Content/Webhook/Analytics/Token/评论/审计全量推广 + 横切隔离）已完成（2026-08-29，含 tenant A/B 攻击矩阵远程验证）；PR-5 拆分执行：前半（租户管理 API/成员管理/切换器/前端缓存）保留在下一主批次，后半（配额计量）经审查暂缓（触发条件见 [ROADMAP §3.3](./ROADMAP.md)）；PR-6 的多租户备份演练已在 v1.4.0 完成，OpenAPI/文档同步持续进行 |
+| 实施状态 | PR-1（迁移 008/009）、PR-2（租户上下文）、PR-3（Article 全链路租户化）、PR-4（Content/Webhook/Analytics/Token/评论/审计全量推广 + 横切隔离）已完成（2026-08-29，含 tenant A/B 攻击矩阵远程验证）；PR-5 拆分执行：后端部分（`/admin/tenants` CRUD + 成员管理 + 最后管理员保护 + `tenants.read`/`tenants.manage` 平台权限 + 可靠审计）已于 2026-08-29 交付，前端部分（切换器/租户页/tenant-aware 缓存）仍在待办，配额计量经审查暂缓（触发条件见 [ROADMAP §3.3](./ROADMAP.md)）；PR-6 的多租户备份演练已在 v1.4.0 完成，OpenAPI/文档同步持续进行 |
 
 ## 1. 背景与动机
 

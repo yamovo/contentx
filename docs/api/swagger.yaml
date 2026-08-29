@@ -962,6 +962,16 @@ definitions:
       webhook_id:
         type: integer
     type: object
+  github_com_yamovo_contentx_internal_services.AddMemberRequest:
+    properties:
+      role_slug:
+        type: string
+      user_id:
+        type: integer
+    required:
+    - role_slug
+    - user_id
+    type: object
   github_com_yamovo_contentx_internal_services.AddMenuItemRequest:
     properties:
       article_id:
@@ -1274,6 +1284,18 @@ definitions:
     required:
     - name
     type: object
+  github_com_yamovo_contentx_internal_services.CreateTenantRequest:
+    properties:
+      max_users:
+        type: integer
+      name:
+        type: string
+      slug:
+        type: string
+    required:
+    - name
+    - slug
+    type: object
   github_com_yamovo_contentx_internal_services.CreateTokenRequest:
     properties:
       expires_at:
@@ -1543,6 +1565,13 @@ definitions:
       title:
         type: string
     type: object
+  github_com_yamovo_contentx_internal_services.UpdateMemberRoleRequest:
+    properties:
+      role_slug:
+        type: string
+    required:
+    - role_slug
+    type: object
   github_com_yamovo_contentx_internal_services.UpdateMenuItemRequest:
     properties:
       css_class:
@@ -1587,6 +1616,15 @@ definitions:
       name:
         type: string
       slug:
+        type: string
+    type: object
+  github_com_yamovo_contentx_internal_services.UpdateTenantRequest:
+    properties:
+      max_users:
+        type: integer
+      name:
+        type: string
+      status:
         type: string
     type: object
   github_com_yamovo_contentx_internal_services.UpdateUserRequest:
@@ -1776,6 +1814,248 @@ paths:
       summary: Restore backup
       tags:
       - Backup
+  /admin/tenants:
+    get:
+      description: Returns every tenant with status and member quota hook.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: Requires tenants.read platform permission
+          schema:
+            additionalProperties: true
+            type: object
+      summary: List tenants (platform)
+      tags:
+      - Tenants
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Tenant payload
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/github_com_yamovo_contentx_internal_services.CreateTenantRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "409":
+          description: Slug already exists
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Create a tenant (platform)
+      tags:
+      - Tenants
+  /admin/tenants/{id}:
+    get:
+      parameters:
+      - description: Tenant ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Get a tenant (platform)
+      tags:
+      - Tenants
+    put:
+      consumes:
+      - application/json
+      description: Partial update of name, status (active/suspended), and max_users.
+      parameters:
+      - description: Tenant ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Fields to update
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/github_com_yamovo_contentx_internal_services.UpdateTenantRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Update a tenant (platform)
+      tags:
+      - Tenants
+  /admin/tenants/{id}/members:
+    get:
+      parameters:
+      - description: Tenant ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+      summary: List tenant members (platform)
+      tags:
+      - Tenants
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Tenant ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: User and role
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/github_com_yamovo_contentx_internal_services.AddMemberRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Invalid role
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Tenant or user not found
+          schema:
+            additionalProperties: true
+            type: object
+        "409":
+          description: Already a member
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Add a tenant member (platform)
+      tags:
+      - Tenants
+  /admin/tenants/{id}/members/{userId}:
+    delete:
+      description: The last admin of a tenant cannot be removed.
+      parameters:
+      - description: Tenant ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: User ID
+        in: path
+        name: userId
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Last admin protection
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Remove a tenant member (platform)
+      tags:
+      - Tenants
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: Tenant ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: User ID
+        in: path
+        name: userId
+        required: true
+        type: integer
+      - description: New role
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/github_com_yamovo_contentx_internal_services.UpdateMemberRoleRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Update a member's tenant role (platform)
+      tags:
+      - Tenants
   /ai/rag/ask:
     post:
       consumes:

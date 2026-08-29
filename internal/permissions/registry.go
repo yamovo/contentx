@@ -107,6 +107,9 @@ const (
 	AIRead  = "ai.read"  // semantic search and RAG status
 	AIAsk   = "ai.ask"   // RAG Q&A (may invoke LLM, incurring cost)
 	AIAdmin = "ai.admin" // reindex and manage AI settings
+
+	TenantsRead   = "tenants.read"   // list tenants and members (platform)
+	TenantsManage = "tenants.manage" // create/update tenants and manage members (platform)
 )
 
 // Definition describes one canonical permission persisted in the database and
@@ -197,6 +200,9 @@ var definitions = []Definition{
 	{BackupsCreate, "backups", "Create backups"},
 	{BackupsRestore, "backups", "Restore backups"},
 	{BackupsDelete, "backups", "Delete backups"},
+
+	{TenantsRead, "tenants", "List tenants and their members"},
+	{TenantsManage, "tenants", "Create tenants, update status, and manage members"},
 
 	{AIRead, "ai", "Semantic search and AI service status"},
 	{AIAsk, "ai", "RAG Q&A (may invoke LLM, incurring cost)"},
