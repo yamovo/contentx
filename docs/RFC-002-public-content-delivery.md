@@ -59,7 +59,7 @@ GET /api/v1/public/content/:uid/:documentId
 1. ~~关闭 create/update/import/translation 的发布权限绕过。~~ — 已完成并补充 Service/Handler 回归测试。
 2. ~~增加专用 published-only Repository 与 Service，不复用管理查询的 status 参数。~~ — 已交付 `PublicContentRepository`/`PublicContentService`。
 3. ~~增加默认关闭的公开交付配置、专用 Handler 和公开 DTO。~~ — `CONTENT_DELIVERY_ENABLED` + `CONTENT_DELIVERY_UIDS` allowlist、`PublicContentHandler` 与 `publicContentEntry` DTO 已交付。
-4. ~~生成 OpenAPI，并加入 TypeScript 消费者冒烟测试。~~ — OpenAPI 已同步；TypeScript 消费者冒烟测试待补。
+4. ~~生成 OpenAPI，并加入 TypeScript 消费者冒烟测试。~~ — OpenAPI 已同步；SDK `publicContent` 契约与消费者冒烟测试已交付。
 5. 增加 schema version、类型/字段公开策略和仅向后兼容的 schema update。
 6. 在域名或站点键租户解析完成前，不开放 tenant B 匿名交付。
 

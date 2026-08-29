@@ -23,6 +23,7 @@
 - **最小公开 DTO**：只返回 `document_id`、`data`、`locale`、`published_at`、`updated_at`；tenant、内容类型内部 ID、创建者/更新者与状态字段不暴露
 - **分页硬上限**：`page_size` 上限 50，显式非法分页返回 400；`Cache-Control: no-store` 保证取消发布立即生效
 - **测试矩阵**：draft/publish/unpublish 生命周期、非 allowlist 与未知类型同 404、分页边界、DTO 字段白名单、tenant B 同 UID 不可串读、头部不可切换租户，共 6 条集成回归；OpenAPI 同步更新
+- **TypeScript 消费者**：SDK 新增 `publicContent(uid).list/.get` 与 `PublicContentEntry` 公开契约类型，消费者冒烟测试固定公开字段白名单与 404 错误映射，不引用内部 Go 类型（RFC-002 第 4 步完成）
 
 ### Changed — RAG 最小安全闭环完成
 
