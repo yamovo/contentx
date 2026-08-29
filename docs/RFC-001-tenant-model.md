@@ -2,12 +2,12 @@
 
 | 项 | 值 |
 |---|---|
-| 状态 | **草稿（待评审）** |
+| 状态 | **已实施（多租户安全收口完成）** |
 | 作者 | ContentX 维护者 |
 | 日期 | 2026-08-07 |
 | 关联 | [ROADMAP §3 当前里程碑](./ROADMAP.md)、[STATUS §1 发布状态](./STATUS.md) |
 | 目标版本 | v1.5.0（未排期） |
-| 实施状态 | PR-1（迁移 008/009）、PR-2（租户上下文）、PR-3（Article 全链路租户化）已实现；PR-4 推广进行中：Article/Category/Tag/Comment/Media/Settings（含 Menu/SEO/Redirect）闭环完成（含跨租户拒绝测试），Content/Webhook/Analytics 待推广（2026-08-07，工作区未提交） |
+| 实施状态 | PR-1（迁移 008/009）、PR-2（租户上下文）、PR-3（Article 全链路租户化）、PR-4（Content/Webhook/Analytics/Token/评论/审计全量推广 + 横切隔离）已完成（2026-08-29，含 tenant A/B 攻击矩阵远程验证）；PR-5 拆分执行：前半（租户管理 API/成员管理/切换器/前端缓存）保留在下一主批次，后半（配额计量）经审查暂缓（触发条件见 [ROADMAP §3.3](./ROADMAP.md)）；PR-6 的多租户备份演练已在 v1.4.0 完成，OpenAPI/文档同步持续进行 |
 
 ## 1. 背景与动机
 

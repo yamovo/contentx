@@ -135,13 +135,31 @@ v1.4.0 的 PostgreSQL 演练、审查修复和 CI 证据已经归档。以下是
 
 ## 7. 下一步
 
-1. 继续验证 ADR-001 的语言中立公共/扩展边界；发布绕过前置修复已完成，下一步按 RFC-002 实现默认关闭的 published-only 公开 REST 切片。
-2. 多租户 P0 安全收口：剩余工作为远程 CI 复现攻击矩阵结果，并在开放真实 tenant B 前完成上线验收；租户管理 API、成员管理、切换器与 tenant-aware 前端缓存随之推进。
-3. RAG 生产化：真实 provider（OpenAI 兼容）端到端验证、模型/维度切换与 `AI_MIN_SCORE` 语义、pgvector/Qdrant 等持久化向量存储。
-4. 交付链验证：在真实 tag CI 运行 Linux amd64 SQLite、前端打包和 Release 产物冒烟测试。
-5. 同步 OpenAPI、SOP、部署文档和状态口径。
-6. 实现租户管理 API、成员管理、切换器和 tenant-aware Vue Query 缓存。
-7. 远程验证新增的 Playwright/ESLint、SDK 与 PostgreSQL/MySQL workflow，并为 `main` 配置 CI required checks。
+2026-08-29 对全部遗留需求完成价值审查（结论与理由见[路线图 §3.3](./ROADMAP.md)），统一待办如下：
+
+**立即执行**
+
+1. 为 `main` 配置 CI required checks 并固定 Swagger 生成器版本（防回归基础设施，成本极低）。
+2. SOP 与部署文档补 AI/RAG、公开内容交付、`MCP_RATE_LIMIT` 配置说明。
+
+**下一主批次（按序）**
+
+3. 版本化审计事件 envelope + 高风险操作可靠写入（outbox）——Agent 黄金路径的硬前置，REST/MCP/后台任务统一事件关联。
+4. 租户管理 API、成员管理、切换器与 tenant-aware Vue Query 缓存（RFC-001 PR-5 前半）。
+5. RFC-002 第 5 步：schema version、字段级公开策略与仅向后兼容的 schema update。
+
+**保留（可插队）**
+
+6. 真实 AI provider（OpenAI 兼容）端到端验证与 `AI_MIN_SCORE` 语义；依赖真实 API key。
+
+**暂缓（记录触发条件，不进入承诺里程碑）**
+
+7. 配额与用量计量——触发条件：开放 tenant B 或启动商业化。
+8. tenant B 匿名交付的域名/站点键解析——触发条件：首个多租户部署需求。
+9. 持久化向量存储（pgvector/Qdrant）——触发条件：检索规模或延迟实证瓶颈。
+10. 其他平台独立包（原生 CGO runner）——触发条件：真实平台需求。
+
+开放真实 tenant B 前的上线验收随第 4 项完成后进行；正式发版只需打 tag 触发已验证的发布流程。
 
 ## 8. 相关文档
 

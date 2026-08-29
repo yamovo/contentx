@@ -21,7 +21,7 @@
 5. **改善开发者采用与平台能力**：持久向量后端、多语言 SDK、框架示例和部署模板；外部插件与复杂商业化在真实需求验证后推进。
 6. **市场验证**：由设计合作伙伴、首次发布时间、首次受治理 Agent 修改时间、审计完整率和持续使用率决定后续投入。
 
-阶段顺序不等于暂停既有阻断项。当前仍须并行关闭多租户、RAG、Release 和 SDK 的生产风险；新能力先通过 [ADR-001](./ADR-001-language-and-extension-boundary.md) 和 [RFC-002](./RFC-002-public-content-delivery.md) 固定边界，再转为版本承诺。竞品与日志证据见 [RESEARCH-001](./RESEARCH-001-market-and-observability.md)；其结论是审计关联与高风险可靠写入必须在 Agent 黄金路径前完成。
+阶段顺序不等于暂停既有阻断项。多租户、RAG、Release 和 SDK 的生产风险已于 2026-08-29 关闭并通过远程验证；后续新能力仍先通过 [ADR-001](./ADR-001-language-and-extension-boundary.md) 和 [RFC-002](./RFC-002-public-content-delivery.md) 固定边界，再转为版本承诺。竞品与日志证据见 [RESEARCH-001](./RESEARCH-001-market-and-observability.md)；其结论是审计关联与高风险可靠写入必须在 Agent 黄金路径前完成，对应 §3.3 第 1 项。
 
 ## 2. 已完成里程碑
 
@@ -41,46 +41,64 @@
 
 1. ~~建立 [ADR-001](./ADR-001-language-and-extension-boundary.md) 的初始决策。~~ — 已完成：暂定 Go 核心，但公共 API、MCP、事件、SDK 和外部扩展保持语言中立；重写与外部扩展形态继续由验证证据决定。
 2. ~~关闭动态内容 create/update/import/translation 绕过独立发布流程的路径，并补权限拒绝回归。~~ — 已完成：草稿发布类型只能以 draft 创建/导入，更新 status 被拒绝，翻译不能直接发布。
-3. 按 [RFC-002](./RFC-002-public-content-delivery.md) 实现默认关闭、显式 allowlist、published-only 的公开动态内容 REST 列表和单项查询。
-4. 使用专用公开 DTO、分页上限和 default tenant 固定策略；同步 OpenAPI 与 TypeScript 消费者冒烟。
-5. 为内容模型增加 schema version、公开类型/字段策略和统一完整数据校验，再开放仅向后兼容的 schema update。
+3. ~~按 [RFC-002](./RFC-002-public-content-delivery.md) 实现默认关闭、显式 allowlist、published-only 的公开动态内容 REST 列表和单项查询。~~ — 已完成（2026-08-29）：`CONTENT_DELIVERY_ENABLED` + UID allowlist + 专用 published-only 查询 + 最小公开 DTO，远程 CI 验证。
+4. ~~使用专用公开 DTO、分页上限和 default tenant 固定策略；同步 OpenAPI 与 TypeScript 消费者冒烟。~~ — 已完成：6 条集成矩阵 + SDK `publicContent` 消费者契约测试；OpenAPI 零漂移。
+5. 为内容模型增加 schema version、公开类型/字段策略和统一完整数据校验，再开放仅向后兼容的 schema update。— **保留**（审查结论见 §3.3），在审计 envelope 批次之后执行。
 
 本批次退出条件：
 
 - ~~只有 create/update 权限的主体不能通过 status、导入或翻译公开内容。~~ — 已通过 Service 与 Handler 回归验证。
-- 公开动态内容接口默认关闭，永不返回草稿、非 allowlist 类型、私有/遗留字段或内部 actor/type 标识。
-- 一个非 Go 客户端无需理解内部 Go 类型即可完成公开内容消费流程。
-- OpenAPI 与实现零漂移，替换内部实现不会改变契约测试。
+- ~~公开动态内容接口默认关闭，永不返回草稿、非 allowlist 类型、私有/遗留字段或内部 actor/type 标识。~~ — 已通过集成矩阵验证（遗留字段按类型级 allowlist 处理，字段级策略见第 5 项）。
+- ~~一个非 Go 客户端无需理解内部 Go 类型即可完成公开内容消费流程。~~ — 已通过 SDK 消费者测试验证。
+- OpenAPI 与实现零漂移，替换内部实现不会改变契约测试。— 持续有效，CI drift 门禁覆盖。
 
 ### 3.2 已在进行的 P0 阻断项
 
-多租户和 RAG 已形成可运行原型，但生产安全退出条件尚未全部通过，当前状态与验证盲区见[项目状态](./STATUS.md)。
+多租户和 RAG 原型的生产安全退出条件已于 2026-08-29 全部关闭并在远程 CI 与 Release dispatch 验证，当前状态与证据见[项目状态](./STATUS.md)。
 
 按依赖顺序推进：
 
 1. ~~定义租户模型、租户上下文和迁移策略。~~ — 已完成：RFC-001 已产出；迁移 008/009 已实现。
-2. 完成 Repository 与横切能力的租户范围：核心内容查询已推进，Settings 的事务、范围唯一性及 SQLite/PostgreSQL/MySQL 验证已关闭；Token、评论关系和平台审计仍待关闭。
-3. 完成运行时 TenantGuard：统一 access/refresh、TenantMembership 角色、租户 active 状态和 API Token/MCP principal 再验证。
-4. 补齐 REST、GraphQL、MCP、Webhook、搜索、缓存和后台任务的真实 tenant A/B 攻击测试。
-5. 建立版本化审计事件 envelope，将 request/trace/span、tenant、actor、source 和 outcome 关联起来，并为发布、权限、租户与密钥操作增加可靠写入策略。
-6. 完成 RAG 最小安全闭环：清理孤儿向量、修复定时发布和失败补偿，将权限、外发、限流、审计和成本边界统一覆盖 REST/MCP。
-7. 交付链验证：Linux amd64 已改为 CGO 原生构建、携带 `web/dist` 并加入归档 smoke；手动 dispatch 只验证不发布，仍需远程 Ubuntu workflow，其他平台需原生 CGO runner 与同等 smoke 后再加入。
-8. 完成 TypeScript SDK 工程闭环：锁文件、typecheck/test/build/pack、示例和 CI 已落地；仍需远程空环境 `npm ci` 与消费者冒烟。
-9. 同步 OpenAPI、SOP 和部署文档。
-10. 租户管理 API、成员管理和切换器；tenant-aware Vue Query 缓存。
-11. 增加按租户与接口维度的配额及用量计量。
+2. ~~完成 Repository 与横切能力的租户范围。~~ — 已完成：核心内容、Settings（事务/范围唯一性/三数据库实测）、Token、评论父子关系与平台审计均已闭环并有拒绝测试。
+3. ~~完成运行时 TenantGuard：统一 access/refresh、TenantMembership 角色、租户 active 状态和 API Token/MCP principal 再验证。~~ — 已完成：刷新令牌每请求重校验租户/成员资格/角色，MCP HTTP 主体每次调用再验证并绑定会话。
+4. ~~补齐 REST、GraphQL、MCP、Webhook、搜索、缓存和后台任务的真实 tenant A/B 攻击测试。~~ — 已完成：16+ 条隔离测试 + 5 条 GraphQL 端到端攻击测试 + MCP/刷新链专项，覆盖上述全部面。
+5. 建立版本化审计事件 envelope，将 request/trace/span、tenant、actor、source 和 outcome 关联起来，并为发布、权限、租户与密钥操作增加可靠写入策略。— **保留，下一主批次首选**（审查结论见 §3.3）。
+6. ~~完成 RAG 最小安全闭环：清理孤儿向量、修复定时发布和失败补偿，将权限、外发、限流、审计和成本边界统一覆盖 REST/MCP。~~ — 已完成（2026-08-29）：外发边界下沉 Service 层、清理式 Reindex、有界重试、MCP 审计与独立限流。
+7. ~~交付链验证：Linux amd64 CGO 原生构建、携带 `web/dist` 并加入归档 smoke。~~ — 已完成：远程 dispatch `Release build (linux-amd64)` 全绿；其他平台原生 CGO runner 降级为候选（§3.3）。
+8. ~~完成 TypeScript SDK 工程闭环：锁文件、typecheck/test/build/pack、示例和 CI。~~ — 已完成：远程空环境 `npm ci` 连续多轮全绿，消费者契约测试覆盖。
+9. 同步 OpenAPI、SOP 和部署文档。— OpenAPI 已同步；SOP 与部署文档需补 AI/RAG、公开交付与 `MCP_RATE_LIMIT` 配置说明，随下一批次执行。
+10. 租户管理 API、成员管理和切换器；tenant-aware Vue Query 缓存。— **保留**（RFC-001 PR-5 前半，审查结论见 §3.3）。
+11. 增加按租户与接口维度的配额及用量计量。— **暂缓**（RFC-001 PR-5 后半，审查结论见 §3.3）。
 
 退出条件：
 
-- 所有业务数据表及全局/租户覆盖模型具有明确且经过验证的归属规则。
-- REST、GraphQL、Webhook、MCP、缓存、搜索和定时任务不能绕过租户边界。
-- 跨租户读取、更新、删除、标识符猜测和身份刷新均有拒绝测试。
-- RAG 的发布、下架、删除、缩短更新、WarmUp、Reindex 和失败恢复不产生可检索孤儿数据。
-- REST 与 MCP 的 AI 权限、外发、限流、审计和成本边界采用同一套可验证策略。
-- REST、MCP 和后台任务的高风险事件可按 event/request/trace 关联，审计写入故障不会静默丢失。
-- 数据迁移、备份和恢复支持租户字段并有升级验证。
-- 所有声明支持的独立包目标均在 tag CI 中完成迁移、启动、健康检查和管理后台冒烟测试。
-- TypeScript SDK 可从锁文件干净安装，并通过 typecheck、test、build 和 pack 验证。
+- ~~所有业务数据表及全局/租户覆盖模型具有明确且经过验证的归属规则。~~ — 已验证。
+- ~~REST、GraphQL、Webhook、MCP、缓存、搜索和定时任务不能绕过租户边界。~~ — 已有拒绝与隔离测试覆盖。
+- ~~跨租户读取、更新、删除、标识符猜测和身份刷新均有拒绝测试。~~ — 攻击矩阵全绿。
+- ~~RAG 的发布、下架、删除、缩短更新、WarmUp、Reindex 和失败恢复不产生可检索孤儿数据。~~ — 清理式 Reindex 后孤儿被清扫，回归覆盖。
+- ~~REST 与 MCP 的 AI 权限、外发、限流、审计和成本边界采用同一套可验证策略。~~ — 策略下沉 Service 层，REST/MCP 共用。
+- REST、MCP 和后台任务的高风险事件可按 event/request/trace 关联，审计写入故障不会静默丢失。— 未完成，转入 §3.3 第 1 项。
+- ~~数据迁移、备份和恢复支持租户字段并有升级验证。~~ — 迁移 008/009 与恢复演练已验证。
+- 所有声明支持的独立包目标均在 tag CI 中完成迁移、启动、健康检查和管理后台冒烟测试。— Linux amd64 已通过 dispatch 验证；正式 tag 发布时复跑。
+- ~~TypeScript SDK 可从锁文件干净安装，并通过 typecheck、test、build 和 pack 验证。~~ — 远程 CI 连续多轮全绿。
+
+### 3.3 需求审查结论（2026-08-29）
+
+对全部遗留需求按"产品价值 / 成本 / 依赖关系"审查，结论如下。审查原则：安全与数据正确性优先；有明确触发条件的低价值项降级为候选，不占用承诺里程碑；Agent 黄金路径是既定差异化方向，其前置依赖优先。
+
+| # | 需求 | 结论 | 理由 |
+|---|---|---|---|
+| 1 | 版本化审计事件 envelope + 高风险操作可靠写入（outbox） | **做，下一主批次首选** | Agent 黄金路径（阶段 3）的硬前置；RESEARCH-001 竞品证据显示统一审计已是成熟方向且 Strapi 将其放在付费版，开源自托管补齐可形成差异；现有 AuditLogger/ActivityLog 是演进基础，成本可控 |
+| 2 | 租户管理 API + 成员管理 + 切换器 + tenant-aware 前端缓存（RFC-001 PR-5 前半） | **做** | 多租户数据模型已完整但无管理入口，真实使用租户 B 的必要条件；纯工程实现无设计不确定性 |
+| 3 | RFC-002 第 5 步：schema version + 字段级公开策略 + 兼容 schema update | **做，次序在 1 之后** | 公开交付已上线，类型级 allowlist 兜底当前是安全的；字段级策略决定运营者能否放心推荐该功能，是"可用"到"可推荐"的差距 |
+| 4 | CI required checks for `main` + 固定 Swagger 生成器版本 | **做，立即** | 防回归的基础设施，成本极低；所有门禁已存在，只差分支保护与版本固定 |
+| 5 | SOP 与部署文档补 AI/公开交付/`MCP_RATE_LIMIT` 配置说明 | **做，立即** | 新配置已有但文档缺位，自托管产品的文档即产品 |
+| 6 | 真实 AI provider 端到端验证 + `AI_MIN_SCORE` 语义 | **保留，可插队** | 成本低（1-2 天）且让 RAG 从"可运行原型"变为"可诚实文档化"；依赖真实 API key |
+| 7 | 按租户与接口维度的配额与用量计量（PR-5 后半） | **暂缓** | 无计费、无真实 tenant B，计量没有消费方；schema 草案保留，触发条件：开放 tenant B 或启动商业化 |
+| 8 | tenant B 匿名交付的域名/站点键解析（RFC-002 第 6 步前置） | **暂缓** | 无真实多租户部署需求前是纯前置投资；触发条件：首个多租户部署/设计伙伴需求 |
+| 9 | 持久化向量存储（pgvector/Qdrant） | **暂缓** | 嵌入已持久化在 `document_embeddings` 且启动 WarmUp 重建，内存存储只是检索索引；触发条件：检索规模或延迟出现实证瓶颈 |
+| 10 | 其他平台独立包（Windows/macOS 原生 CGO runner） | **暂缓** | 自托管目标以 Linux 为主；触发条件：出现真实平台需求 |
+| 11 | Meilisearch、动态 GraphQL、计费/SSO、外部插件沙箱、媒体处理 | **维持候选** | 与既有内置能力重叠或属商业化范畴，无近期触发条件，不进入承诺 |
 
 ## 4. 持续改进队列
 
@@ -91,10 +109,10 @@
 | 高 | 测试覆盖率与执行时间 | 覆盖率门槛持续上调；慢包有基准与拆分方案 |
 | 高 | 真实后端 E2E | 覆盖角色权限、发布工作流、媒体、备份和 Webhook |
 | 高 | 语言中立契约验证 | OpenAPI/SDK 消费者不依赖 Go 类型；进程外扩展或 WASM spike 具备授权、超时和审计 |
-| 高 | 动态内容公开交付 | 默认关闭、published-only、显式类型/字段策略、租户攻击测试和取消发布即时失效 |
-| 高 | CI 必需检查 | Playwright、前端 ESLint、TypeScript SDK 及 PostgreSQL/MySQL Settings 门禁已写入 workflow；仍需远程验证、为 `main` 配置 required checks，并固定 Swagger 生成器版本 |
+| ~~高~~ | ~~动态内容公开交付~~ | ~~默认关闭、published-only、显式类型/字段策略、租户攻击测试和取消发布即时失效~~ — 第一切片已交付（2026-08-29）；字段级策略转入 §3.3 第 3 项 |
+| 高 | CI 必需检查 | 各门禁已写入 workflow 并远程验证；转入 §3.3 第 4 项：为 `main` 配置 required checks 并固定 Swagger 生成器版本 |
 | 高 | 可观测性真机验证 | Prometheus 指标与 OTLP trace 在真实采集端可查询 |
-| 高 | 审计关联与可靠写入 | 统一 event/request/trace、actor/source/outcome；高风险事件可重放且不重复，tenant A/B 隔离通过 |
+| 高 | 审计关联与可靠写入 | 统一 event/request/trace、actor/source/outcome；高风险事件可重放且不重复，tenant A/B 隔离通过 — 转入 §3.3 第 1 项作为下一主批次首选 |
 | 中 | 前端架构收口 | TOTP 迁入统一查询层；剩余路由使用 `pages/` 薄壳 |
 | 中 | 设计系统采用 | 主要列表、表单、空态、错误态使用共享 UI 组件 |
 | 中 | OpenAPI 维护 | 已挂载 REST 路由注释覆盖完整，生成结果零漂移 |
