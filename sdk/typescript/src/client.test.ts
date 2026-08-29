@@ -116,3 +116,66 @@ describe('ContentX response handling', () => {
     await expect(client.articles.list()).rejects.toBe(networkError)
   })
 })
+
+describe('public content delivery (RFC-002 consumer contract)', () => {
+  const fetchMock = vi.fn<Parameters<typeof fetch>, ReturnType<typeof fetch>>()
+  let client: ContentX
+
+  beforeEach(() => {
+    fetchMock.mockReset()
+    vi.stubGlobal('fetch', fetchMock)
+    client = new ContentX({ baseURL: 'https://contentx.test/api/v1', token: 'test-token' })
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('lists published entries through the public envelope contract', async () => {
+    const page = {
+      items: [
+        {
+          document_id: '11111111-1111-1111-1111-111111111111',
+          data: { title: 'T1 published' },
+          locale: 'en',
+          published_at: '2026-08-29T00:00:00Z',
+          updated_at: '2026-08-29T00:00:00Z',
+        },
+      ],
+      page: 1,
+      page_size: 20,
+      total: 1,
+      total_pages: 1,
+      has_next: false,
+      has_prev: false,
+    }
+    fetchMock.mockResolvedValueOnce(jsonResponse({ code: 0, message: 'success', data: page }))
+
+    const res = await client.publicContent('products').list({ page: 1, page_size: 20 })
+    expect(res.items[0].document_id).toBe('11111111-1111-1111-1111-111111111111')
+    expect(res.total).toBe(1)
+    // The consumer contract exposes only public fields.
+    expect(Object.keys(res.items[0]).sort()).toEqual([
+      'data',
+      'document_id',
+      'locale',
+      'published_at',
+      'updated_at',
+    ])
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://contentx.test/api/v1/public/content/products?page=1&page_size=20',
+      expect.objectContaining({ method: 'GET' }),
+    )
+  })
+
+  it('surfaces 404 for unknown or unpublished documents as a ContentXError', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse(
+      { code: -1, message: 'Resource not found', err_code: 'NOT_FOUND' },
+      { status: 404, statusText: 'Not Found' },
+    ))
+
+    await expect(
+      client.publicContent('products').get('99999999-9999-9999-9999-999999999999'),
+    ).rejects.toMatchObject({ name: 'ContentXError', status: 404, code: 'NOT_FOUND' })
+  })
+})

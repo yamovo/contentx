@@ -11,6 +11,7 @@ import type {
   Media,
   ContentType,
   ContentEntry,
+  PublicContentEntry,
   Webhook,
   CreateArticleInput,
   UpdateArticleInput,
@@ -217,6 +218,26 @@ export class ContentX {
 
       import: (json: string) =>
         this.post<{ imported: number }>(`/content/${uid}/import`, { json }),
+    }
+  }
+
+  // ─── Public Content (RFC-002) ───────────────────────────────
+
+  /**
+   * Public, read-only delivery of published dynamic content (RFC-002).
+   * Only content types on the server's CONTENT_DELIVERY_UIDS allowlist are
+   * exposed; unknown, unpublished, or non-allowlisted documents return 404.
+   * These reads are anonymous on the server: any token or tenant configured
+   * on this client is ignored for this surface, and unpublishing takes
+   * effect immediately (Cache-Control: no-store).
+   */
+  publicContent(uid: string) {
+    return {
+      list: (params?: { page?: number; page_size?: number; locale?: string }) =>
+        this.get<PaginatedResponse<PublicContentEntry>>(`/public/content/${uid}`, params),
+
+      get: (documentId: string) =>
+        this.get<PublicContentEntry>(`/public/content/${uid}/${documentId}`),
     }
   }
 

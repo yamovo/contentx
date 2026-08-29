@@ -157,6 +157,18 @@ export interface ContentEntry {
   updated_at: string
 }
 
+/**
+ * Public content entry (RFC-002): the published-only DTO exposed by
+ * /public/content/* — no tenant, actor, internal type ID, or status fields.
+ */
+export interface PublicContentEntry {
+  document_id: string
+  data: Record<string, unknown>
+  locale: string
+  published_at: string | null
+  updated_at: string
+}
+
 export interface Webhook {
   id: number
   name: string
