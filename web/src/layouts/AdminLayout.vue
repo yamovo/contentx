@@ -98,6 +98,8 @@
         </div>
 
         <div class="header-right">
+          <TenantSwitcher />
+
           <GlobalSearch />
 
           <el-tooltip content="切换主题">

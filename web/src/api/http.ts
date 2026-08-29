@@ -97,6 +97,13 @@ http.interceptors.request.use(
     if (authStore.token) {
       cfg.headers.Authorization = `Bearer ${authStore.token}`
     }
+    // Platform administrators can override the request tenant (RFC-001 §4.2);
+    // the backend re-validates membership and tenant status on every request,
+    // and non-admins never reach authorization with a forged header.
+    const tenantID = localStorage.getItem('current_tenant_id')
+    if (tenantID) {
+      cfg.headers['X-Tenant-ID'] = tenantID
+    }
     return cfg
   },
   (error) => Promise.reject(error)

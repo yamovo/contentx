@@ -22,6 +22,7 @@ const modulePermissions = {
   api_tokens: ['read', 'create', 'delete'],
   webhooks: ['read', 'create', 'delete'],
   backups: ['read', 'create', 'restore', 'delete'],
+  tenants: ['read', 'manage'],
 } as const
 
 type ModuleName = keyof typeof modulePermissions
@@ -142,6 +143,10 @@ export const PERMISSIONS = {
     create: permission('backups', 'create'),
     restore: permission('backups', 'restore'),
     delete: permission('backups', 'delete'),
+  },
+  tenants: {
+    read: permission('tenants', 'read'),
+    manage: permission('tenants', 'manage'),
   },
 } as const
 

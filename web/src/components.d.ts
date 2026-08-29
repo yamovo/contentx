@@ -67,6 +67,7 @@ declare module 'vue' {
     GlobalSearch: typeof import('./components/GlobalSearch.vue')['default']
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']
+    TenantSwitcher: typeof import('./components/TenantSwitcher.vue')['default']
   }
   export interface ComponentCustomProperties {
     vLoading: typeof import('element-plus/es')['ElLoadingDirective']

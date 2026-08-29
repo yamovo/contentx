@@ -298,6 +298,19 @@ const routes: RouteRecordRaw[] = [
         },
       },
 
+      // Tenants (platform administration, RFC-001 PR-5)
+      {
+        path: 'tenants',
+        name: 'TenantList',
+        component: () => import('@/pages/system/TenantListPage.vue'),
+        meta: {
+          title: '租户管理',
+          icon: 'Grid',
+          permission: PERMISSIONS.tenants.read,
+          adminOnly: true,
+        },
+      },
+
       // Profile (current user)
       {
         path: 'profile',
