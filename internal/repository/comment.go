@@ -145,9 +145,9 @@ func (r *gormCommentRepository) FindArticleComments(articleID, tenantID uint) ([
 	var comments []models.Comment
 	err := r.db.Where("article_id = ? AND status = ? AND parent_id IS NULL AND tenant_id = ?", articleID, "approved", tenantID).
 		Preload("User").
-			Preload("Children", func(db *gorm.DB) *gorm.DB {
-				return db.Where("status = ? AND tenant_id = ?", "approved", tenantID).Order("created_at ASC")
-			}).
+		Preload("Children", func(db *gorm.DB) *gorm.DB {
+			return db.Where("status = ? AND tenant_id = ?", "approved", tenantID).Order("created_at ASC")
+		}).
 		Preload("Children.User").
 		Order("is_sticky DESC, created_at DESC").
 		Find(&comments).Error
