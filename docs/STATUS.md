@@ -86,18 +86,21 @@
 | `golangci-lint run ./...` | 2026-08-29 通过，0 issues（修复 AI provider/migration 的 7 项告警；v2.12.2 与 CI 同版本） |
 | Go 模块完整性 | `go mod verify` 通过 |
 | 前端类型检查、lint、单测和构建 | 类型检查、ESLint 与 189 项单测 2026-08-29 通过；22 个文件 |
-| OpenAPI 漂移 | 2026-08-29 `swag init` 重新生成，`/ai/search`、`/ai/rag/ask`、`/ai/reindex`、`/ai/status` 已补齐，无 diff |
+| OpenAPI 漂移 | 2026-08-29 `swag init` 重新生成，`/ai/search`、`/ai/rag/ask`、`/ai/reindex`、`/ai/status` 与 `/public/content/*` 已补齐，无 diff |
+| RFC-002 公开交付测试 | 2026-08-29 本地全绿：draft/publish/unpublish 生命周期、allowlist 与未知类型同 404、分页硬上限、公开 DTO 字段白名单、tenant B 同 UID 隔离与头部伪造忽略；SDK 消费者契约测试 10/10 |
 | 动态内容发布边界 | `internal/services` 全量回归通过；`internal/handlers` 全量回归通过；新增 create/update/import/translation 拒绝与 unpublish 时间清理测试 |
 | Playwright E2E | 2026-08-22 本地 Chromium 35/35 通过；CI workflow 已加入 Chromium 安装与 E2E 门禁，仍待远程运行验证 |
 | Settings 租户覆盖 | SQLite 回归及 PostgreSQL 16/MySQL 8.4 真机测试通过；覆盖 001–012 迁移、全局/租户唯一性、覆盖合并、原子批量回滚和 009 安全降级 |
 | TypeScript SDK | v3 lockfile、8/8 单测、严格类型检查、ESM/CJS 构建、示例检查和 21 文件 pack dry-run 通过；CI 已加入 `npm ci/check/pack`，仍待远程空环境运行 |
-| Release 独立包 | Linux amd64 CI 路径已改为 CGO 原生构建并携带 `web/dist`；手动 dispatch 只验证不发布，Windows amd64 本地等价 smoke 通过，目标 Ubuntu 产物仍待远程 workflow |
+| Release 独立包 | 2026-08-29 远程 dispatch 验证通过：`Release build (linux-amd64)` 在 Ubuntu runner 完成 CGO 原生构建并携带 `web/dist`，解压后迁移、健康检查、首页与静态资源 smoke 全部通过（只验证不发布，release job 未触发） |
 | MinIO 真机集成 | 5 个场景通过 |
 | PostgreSQL 16.14 隔离恢复 | 2026-07-30 通过；见[演练报告](../reports/backup/pg-drill-20260730.md) |
 | RAG/AI 测试 | 现有 RAG Service 与 MCP RAG 测试全绿；新增外发策略（外部/本地 provider × 允许/禁止）、MCP 外发拒绝与审计链路、清理式重建孤儿清扫（租户内/全量）、索引同步有界重试回归 |
 | 多租户隔离测试 | 2026-08-29 本地全绿：16+ 条 `TestTenantIsolation_*`（Service/Repository + 审计链路）、MCP 主体/资源/RAG 回归、5 条 GraphQL 端到端攻击测试、5 项刷新令牌租户专项测试 |
 | RAG/AI 测试 | 现有 RAG Service 与 MCP RAG 测试全绿，MCP `rag_search`/`rag_ask` 权限门控已覆盖；孤儿向量、定时发布、外发关闭和成本边界尚无完整回归测试 |
 | 远程 CI `da3b408` | `test`（含 golangci-lint v2.12.2 与全量 Go 测试）、`sdk`（npm ci/check/pack）、`frontend`、`build`、`settings-databases` 全部成功；首轮失败的 lint 告警与 SDK lockfile 缺 Linux 原生依赖问题已修复 |
+| 远程 CI `10a4737`（含 RFC-002 + SDK 公开契约） | 2026-08-29 run 33245285148 全绿：`test`、`sdk`、`frontend`、`build`、`docker`、`settings-databases` 全部成功 |
+| Release 独立包远程验证 | 2026-08-29 dispatch `Release build (linux-amd64)` 成功（run 33246432921）：Ubuntu 22.04 CGO 原生构建 + `web/dist` 打包 + 解压后迁移/健康检查/首页/静态资源 smoke；只验证不发布 |
 | `git diff --check` | 通过 |
 
 上述结果证明当前工作区在本机通过，不等同于已提交代码或远程 CI 已通过。
@@ -127,8 +130,8 @@ v1.4.0 的 PostgreSQL 演练、审查修复和 CI 证据已经归档。以下是
 2. access/refresh、TenantMembership 角色、租户状态与 API Token/MCP principal 的统一验证已完成本地闭环（含 GraphQL/MCP/刷新链攻击矩阵）；须在远程 CI 复现通过并在开放真实 tenant B 前完成验收。
 3. ~~修复评论父子归属、平台审计日志和其他剩余跨租户边界~~ 已收口（评论回复 fail closed + 预加载租户过滤 + 审计链路测试）；后续如发现新的跨租户边界按同标准处理。
 4. ~~RAG 孤儿清理、定时发布同步、失败补偿、外发统一拦截、限流、审计和成本边界~~ 已收口（见"RAG 最小安全闭环完成"）；上线前仍须完成真实 provider 验证与持久化向量存储选型。
-5. 通过安全的手动 workflow 或正式 tag CI 验证 Ubuntu 22.04 上的 Linux amd64 CGO + SQLite + `web/dist` 独立包；其他平台须有原生 CGO runner 和同等 smoke 后再发布。
-6. 在远程 CI 验证 TypeScript SDK 的锁文件空环境安装、check 与 pack，并补发布前消费者冒烟测试。
+5. ~~通过安全的手动 workflow 或正式 tag CI 验证 Ubuntu 22.04 上的 Linux amd64 CGO + SQLite + `web/dist` 独立包~~ 已完成（2026-08-29 dispatch 全绿）；正式发布仍需打 tag 触发发布流程，其他平台须有原生 CGO runner 和同等 smoke。
+6. ~~在远程 CI 验证 TypeScript SDK 的锁文件空环境安装、check 与 pack~~ 已完成（2026-08-29 起 sdk job 连续多轮全绿，lockfile 缺 Linux 原生依赖问题已修复）；发布前消费者冒烟测试建议在 tag 发布流程中再跑一次。
 
 ## 7. 下一步
 
