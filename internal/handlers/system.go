@@ -318,6 +318,11 @@ func (h *SystemHandler) ActivityLog(c *gin.Context) {
 		Action:   c.Query("action"),
 		UserID:   c.Query("user_id"),
 		TenantID: tenantID,
+		// Envelope correlation filters (RESEARCH-001 §4).
+		RequestID: c.Query("request_id"),
+		TraceID:   c.Query("trace_id"),
+		Source:    c.Query("source"),
+		Outcome:   c.Query("outcome"),
 	}
 
 	logs, total, err := h.svc.ActivityLog(params)

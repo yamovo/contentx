@@ -29,6 +29,7 @@
 - 登录、注册、账户和接口维度限流
 - Webhook SSRF 防护、HMAC 和安全重试
 - 认证失败、账户锁定、权限拒绝和关键业务实体审计
+- 版本化审计 envelope（event/request/trace/span、source、actor type、outcome 一等字段）贯通 REST、MCP 与后台任务；状态迁移与审计行同事务提交（fail-closed），活动日志支持按关联字段筛选
 - 审计详情递归脱敏与 Webhook URL 凭据清理
 
 ### 数据、存储与运维
@@ -112,7 +113,7 @@
 | GraphQL | 仅支持公开只读查询 |
 | 动态内容公开交付 | RFC-002 第一切片已实现：默认关闭、UID allowlist、published-only 专用查询与最小公开 DTO（见"公开动态内容交付（第一切片）"）；schema version、字段级公开策略与 tenant B 匿名交付尚未交付 |
 | 语言与扩展 | 服务端当前使用 Go；语言策略正在验证，外部扩展尚无稳定 ABI，不应把 Go interface 或 `.so` 描述为插件生态 |
-| 日志与审计 | access log 已含 request ID/trace ID，业务审计也已落库与脱敏；ActivityLog 尚无 request/trace/span/source 等一等关联字段，高风险审计仍是 best-effort，OTLP logs、保留、导出和完整性策略未交付 |
+| 日志与审计 | 审计 envelope 关联与状态迁移 fail-closed 已交付（迁移 013）；Activity Log 前端 UI 的 envelope 筛选、OTLP logs、保留/导出和完整性策略未交付 |
 | S3 | MinIO 已实测；R2、AWS 和其他供应商需使用部署账户做上线前冒烟测试 |
 | 搜索 | 内置搜索可用；Meilisearch 尚未达到生产集成状态 |
 | 插件 | 仅支持编译期内置插件，不支持任意外部插件沙箱 |
@@ -139,12 +140,12 @@ v1.4.0 的 PostgreSQL 演练、审查修复和 CI 证据已经归档。以下是
 
 **立即执行**
 
-1. 为 `main` 配置 CI required checks 并固定 Swagger 生成器版本（防回归基础设施，成本极低）。
-2. SOP 与部署文档补 AI/RAG、公开内容交付、`MCP_RATE_LIMIT` 配置说明。
+1. ~~为 `main` 配置 CI required checks 并固定 Swagger 生成器版本。~~ — 已完成（2026-08-29）：分支保护要求 test/frontend/sdk/settings-databases/build 五项检查，swag 固定 v1.16.4。
+2. ~~SOP 与部署文档补 AI/RAG、公开内容交付、`MCP_RATE_LIMIT` 配置说明。~~ — 已完成（2026-08-29）。
 
 **下一主批次（按序）**
 
-3. 版本化审计事件 envelope + 高风险操作可靠写入（outbox）——Agent 黄金路径的硬前置，REST/MCP/后台任务统一事件关联。
+3. ~~版本化审计事件 envelope + 高风险操作可靠写入。~~ — 已完成（2026-08-29）：迁移 013 一等关联字段、REST/MCP/后台任务统一信封、状态迁移与审计行同事务 fail-closed、活动日志关联筛选；前端 UI 筛选与 OTLP logs 属后续可观测性阶段。
 4. 租户管理 API、成员管理、切换器与 tenant-aware Vue Query 缓存（RFC-001 PR-5 前半）。
 5. RFC-002 第 5 步：schema version、字段级公开策略与仅向后兼容的 schema update。
 

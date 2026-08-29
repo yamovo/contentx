@@ -354,11 +354,12 @@ func TestTenantMigration_DownDropsTables(t *testing.T) {
 	if err := m.Up(); err != nil {
 		t.Fatalf("Up() error: %v", err)
 	}
-	// 008 is not the newest migration anymore (012 through 009 sit above it),
-	// so roll back five steps to remove settings scope uniqueness, role
-	// normalization, the embedding table, and both multi-tenancy migrations.
-	if err := m.Down(5); err != nil {
-		t.Fatalf("Down(5) error: %v", err)
+	// 008 is not the newest migration anymore (013 through 009 sit above it),
+	// so roll back six steps to remove the audit envelope, settings scope
+	// uniqueness, role normalization, the embedding table, and both
+	// multi-tenancy migrations.
+	if err := m.Down(6); err != nil {
+		t.Fatalf("Down(6) error: %v", err)
 	}
 
 	if db.Migrator().HasTable(&models.Tenant{}) {
@@ -547,11 +548,12 @@ func TestTenantMigration009_DownRestoresSchema(t *testing.T) {
 	if err := m.Up(); err != nil {
 		t.Fatalf("Up() error: %v", err)
 	}
-	// Roll back 012 (settings scope uniqueness), 011 (role normalization), 010
-	// (embeddings), and 009 (tenant_id columns) to verify 009's Down restores
-	// the pre-multi-tenancy schema.
-	if err := m.Down(4); err != nil {
-		t.Fatalf("Down(4) error: %v", err)
+	// Roll back 013 (audit envelope no-op down), 012 (settings scope
+	// uniqueness), 011 (role normalization), 010 (embeddings), and 009
+	// (tenant_id columns) to verify 009's Down restores the pre-multi-tenancy
+	// schema.
+	if err := m.Down(5); err != nil {
+		t.Fatalf("Down(5) error: %v", err)
 	}
 
 	if db.Migrator().HasColumn(&models.Article{}, "TenantID") {

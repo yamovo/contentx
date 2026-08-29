@@ -142,32 +142,81 @@ func TestAuditLogger_RoleCreate(t *testing.T) {
 
 // TestAuditLogger_ArticlePublish verifies that publishing an article writes
 // an article.publish audit event with the status transition.
+// TestAuditLogger_ArticlePublish verifies the transactional transition audit:
+// publishing commits exactly one article.publish row together with the status
+// change, with full envelope provenance.
 func TestAuditLogger_ArticlePublish(t *testing.T) {
 	db := setupTestDB(t)
 	svc := NewArticleService(db, "http://localhost:8080")
-	capture := &captureAuditLogger{}
-	svc.SetAuditLogger(capture)
 
 	author := createTestUser(t, db, "audit-author", "author")
 	article := createTestArticle(t, db, author.ID, "Audit Publish Test")
 
-	_, err := svc.PublishAs(article.ID, models.DefaultTenantID, author.ID)
-	if err != nil {
+	if _, err := svc.PublishAs(article.ID, models.DefaultTenantID, author.ID); err != nil {
 		t.Fatalf("Publish() error: %v", err)
 	}
 
-	ev := capture.findAction("article.publish")
-	if ev == nil {
-		t.Fatalf("expected article.publish audit event, got: %+v", capture.Events())
+	var logs []models.ActivityLog
+	db.Where("action = ? AND entity_id = ?", "article.publish", article.ID).Find(&logs)
+	if len(logs) != 1 {
+		t.Fatalf("expected exactly 1 article.publish audit row, got %d", len(logs))
 	}
-	if ev.EntityID != article.ID {
-		t.Errorf("EntityID = %d, want %d", ev.EntityID, article.ID)
+	row := logs[0]
+	if row.UserID == nil || *row.UserID != author.ID {
+		t.Errorf("UserID = %v, want %d", row.UserID, author.ID)
 	}
-	if ev.Entity != "article" {
-		t.Errorf("Entity = %q, want article", ev.Entity)
+	if row.Source != SourceREST || row.ActorType != ActorUser || row.Outcome != OutcomeSuccess {
+		t.Errorf("provenance = source=%q actor=%q outcome=%q", row.Source, row.ActorType, row.Outcome)
 	}
-	if ev.UserID == nil || *ev.UserID != author.ID {
-		t.Errorf("UserID = %v, want %d", ev.UserID, author.ID)
+	if row.EventID == "" {
+		t.Error("EventID must be set on transition audit rows")
+	}
+	var count int64
+	db.Model(&models.ActivityLog{}).Where("entity_id = ? AND action LIKE ?", article.ID, "article.%").Count(&count)
+	if count != 1 {
+		t.Fatalf("expected 1 audit row per operation (no duplicates), got %d", count)
+	}
+}
+
+// TestAuditLogger_TransitionFailsClosed verifies that a status change cannot
+// commit when its audit record is rejected.
+func TestAuditLogger_TransitionFailsClosed(t *testing.T) {
+	db := setupTestDB(t)
+	repo := repository.NewArticleRepository(db)
+	svc := NewArticleServiceWithRepo(repo, "http://localhost:8080")
+
+	author := createTestUser(t, db, "failclosed-author", "author")
+	// A draft makes the rollback observable: the attempted transition is
+	// draft -> published, so a successful (but unaudited) publish would leave
+	// a published row behind.
+	draft := models.Article{
+		Title: "Fail Closed Draft", Slug: "fail-closed-draft",
+		Content: "<p>x</p>", AuthorID: author.ID,
+		Status: models.StatusDraft, TenantID: models.DefaultTenantID,
+	}
+	if err := db.Create(&draft).Error; err != nil {
+		t.Fatalf("create draft: %v", err)
+	}
+
+	// Force the audit insert to fail: drop the audit table. The transition
+	// must roll back and surface the failure.
+	if err := db.Migrator().DropTable(&models.ActivityLog{}); err != nil {
+		t.Fatalf("drop audit table: %v", err)
+	}
+	if _, err := svc.PublishAs(draft.ID, models.DefaultTenantID, author.ID); err == nil {
+		t.Fatal("publish must fail when its audit record cannot be written")
+	}
+
+	// Restore the table and verify the article was NOT transitioned.
+	if err := db.AutoMigrate(&models.ActivityLog{}); err != nil {
+		t.Fatalf("recreate audit table: %v", err)
+	}
+	var refreshed models.Article
+	if err := db.First(&refreshed, draft.ID).Error; err != nil {
+		t.Fatalf("reload article: %v", err)
+	}
+	if refreshed.Status != models.StatusDraft {
+		t.Fatalf("article status must remain draft (transaction rolled back), got %q", refreshed.Status)
 	}
 }
 
@@ -274,5 +323,126 @@ func TestAuditLogger_WebhookURLStripsCredentialsAndQuerySecrets(t *testing.T) {
 		if strings.Contains(gotURL, secret) {
 			t.Errorf("audited URL leaks %q: %s", secret, gotURL)
 		}
+	}
+}
+
+// ─── Versioned audit envelope (RESEARCH-001 §4) ─────────────────────────────
+
+func TestAuditLogger_EnvelopeFieldsPersisted(t *testing.T) {
+	db := setupTestDB(t)
+	logger := NewAuditLogger(repository.NewActivityLogRepository(db))
+
+	tenantID := uint(7)
+	userID := uint(3)
+	logger.Log(AuditEvent{
+		UserID:    &userID,
+		TenantID:  &tenantID,
+		Action:    "article.publish",
+		Entity:    "article",
+		EntityID:  11,
+		Source:    SourceREST,
+		ActorType: ActorUser,
+		Outcome:   OutcomeSuccess,
+		RequestID: "req-123",
+		TraceID:   "trace-456",
+		SpanID:    "span-789",
+	})
+
+	var logs []models.ActivityLog
+	db.Where("action = ?", "article.publish").Find(&logs)
+	if len(logs) != 1 {
+		t.Fatalf("expected 1 audit row, got %d", len(logs))
+	}
+	row := logs[0]
+	if row.EventID == "" {
+		t.Error("EventID must be generated when the event leaves it empty")
+	}
+	if row.RequestID != "req-123" || row.TraceID != "trace-456" || row.SpanID != "span-789" {
+		t.Errorf("correlation IDs not persisted: %+v", row)
+	}
+	if row.Source != SourceREST || row.ActorType != ActorUser || row.Outcome != OutcomeSuccess {
+		t.Errorf("provenance not persisted: source=%q actor=%q outcome=%q", row.Source, row.ActorType, row.Outcome)
+	}
+}
+
+func TestAuditLogger_LogReliableFailsClosed(t *testing.T) {
+	db := setupTestDB(t)
+	logger := NewAuditLogger(repository.NewActivityLogRepository(db))
+
+	tenantID := uint(7)
+	// A rejected write must surface as an error for the caller instead of
+	// being silently swallowed like best-effort Log.
+	if err := db.Migrator().DropTable(&models.ActivityLog{}); err != nil {
+		t.Fatalf("drop table: %v", err)
+	}
+	if err := logger.LogReliable(AuditEvent{Action: "article.unpublish", Entity: "article", TenantID: &tenantID}); err == nil {
+		t.Fatal("LogReliable must return an error when the write fails")
+	}
+}
+
+func TestAuditLogger_LogReliablePersistsOnHealthyDB(t *testing.T) {
+	db := setupTestDB(t)
+	logger := NewAuditLogger(repository.NewActivityLogRepository(db))
+
+	tenantID := uint(9)
+	if err := logger.LogReliable(AuditEvent{
+		TenantID:  &tenantID,
+		Action:    "article.unpublish",
+		Entity:    "article",
+		EntityID:  5,
+		Source:    SourceREST,
+		ActorType: ActorUser,
+		Outcome:   OutcomeSuccess,
+	}); err != nil {
+		t.Fatalf("LogReliable on healthy DB: %v", err)
+	}
+
+	var count int64
+	db.Model(&models.ActivityLog{}).Where("action = ? AND source = ?", "article.unpublish", SourceREST).Count(&count)
+	if count != 1 {
+		t.Fatalf("expected exactly 1 reliable audit row, got %d", count)
+	}
+}
+
+func TestSystemService_ActivityLogEnvelopeFilters(t *testing.T) {
+	db := setupTestDB(t)
+	svc := NewSystemService(db)
+
+	seed := func(action, requestID, traceID, source, outcome string) {
+		t.Helper()
+		if err := db.Create(&models.ActivityLog{
+			Action: action, Entity: "article",
+			RequestID: requestID, TraceID: traceID,
+			Source: source, ActorType: ActorUser, Outcome: outcome,
+		}).Error; err != nil {
+			t.Fatalf("seed log: %v", err)
+		}
+	}
+	seed("rest.event", "req-a", "trace-a", SourceREST, OutcomeSuccess)
+	seed("mcp.event", "req-b", "trace-b", SourceMCP, OutcomeDenied)
+	seed("bg.event", "", "", SourceBackground, OutcomeSuccess)
+
+	logs, total, err := svc.ActivityLog(ActivityLogParams{Page: 1, PageSize: 10, Source: SourceMCP, Outcome: OutcomeDenied})
+	if err != nil {
+		t.Fatalf("query: %v", err)
+	}
+	if total != 1 || len(logs) != 1 || logs[0].RequestID != "req-b" {
+		t.Fatalf("source+outcome filter should match only the MCP denial, got total=%d logs=%+v", total, logs)
+	}
+
+	_, total, err = svc.ActivityLog(ActivityLogParams{Page: 1, PageSize: 10, RequestID: "req-a"})
+	if err != nil {
+		t.Fatalf("query by request id: %v", err)
+	}
+	if total != 1 {
+		t.Fatalf("request_id filter should match 1 row, got %d", total)
+	}
+
+	_, total, err = svc.ActivityLog(ActivityLogParams{Page: 1, PageSize: 10, TraceID: "trace-b"})
+	if err != nil {
+		t.Fatalf("query by trace id: %v", err)
+	}
+	if total != 1 {
+		t.Fatalf("trace_id filter should match 1 row, got %d", total)
 	}
 }

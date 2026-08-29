@@ -15,6 +15,15 @@
 - **AI 配置收口**：`AIConfig` 正式进入 config 与 `.env.example`、`deploy/docker/.env.example`（`AI_ENABLED=false` 默认）；Swagger 重新生成补齐 `/ai/search`、`/ai/rag/ask`、`/ai/reindex`、`/ai/status`，消除 CI drift
 - **测试覆盖**：新增 MCP token 租户绑定、Authorizer 有效主体、HTTP 读权限与 drafts fail closed、RAG 权限、资源租户隔离回归；Go 全量 21 包与前端 type-check/lint/189 单测通过
 
+### Added — 版本化审计事件 envelope 与可靠写入
+
+- **envelope 一等字段**：`activity_logs` 新增 `event_id`、`request_id`、`trace_id`、`span_id`、`source`（rest/mcp/background/system）、`actor_type`（user/token/anonymous/system）、`outcome`（success/failed/denied）列与关联索引（迁移 013，三数据库纯加列）；旧行空串表示"迁移前数据"，读取方按未知来源处理
+- **全通道统一信封**：HTTP 中间件审计（source=rest + request/trace/actor/outcome）、MCP RAG 审计（source=mcp、actor=token，request/trace 经请求上下文注入）、后台定时发布审计（source=background、actor=system）共用同一 envelope
+- **状态迁移事务化审计（fail-closed）**：publish/unpublish/submit_review/schedule/archive/trash 的状态变更与审计行在**同一事务**提交——审计写入失败则迁移回滚，状态变更不可能脱离审计落地；每操作恰好一条业务事件（原五个事后审计点合并，消除重复）
+- **可靠写入 API**：`AuditLogger.LogReliable` 提供有界重试并向调用方返回持久化失败错误，供其余高风险操作使用
+- **关联查询**：活动日志 API 支持 `request_id`、`trace_id`、`source`、`outcome` 筛选
+- **测试**：envelope 持久化、fail-closed 回滚（draft 不被发布当审计失败）、可靠写入失败/成功、信封筛选、中间件与 MCP 溯源断言
+
 ### Added — RFC-002 公开动态内容交付（第一切片）
 
 - **默认关闭的公开读取**：`CONTENT_DELIVERY_ENABLED=false` 为默认值；未开启时公开路由完全不注册。开启后提供 `GET /api/v1/public/content/:uid` 与 `GET /api/v1/public/content/:uid/:documentId`

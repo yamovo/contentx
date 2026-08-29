@@ -553,6 +553,11 @@ func (r *recordingAuditLogger) Log(e services.AuditEvent) {
 	r.events = append(r.events, e)
 }
 
+func (r *recordingAuditLogger) LogReliable(e services.AuditEvent) error {
+	r.Log(e)
+	return nil
+}
+
 // TestMCPRAGAuditTrail proves RAG tool usage on the HTTP transport lands in
 // the audit trail with the verified principal, mirroring REST AI auditing.
 func TestMCPRAGAuditTrail(t *testing.T) {
@@ -619,6 +624,12 @@ func TestMCPRAGAuditTrail(t *testing.T) {
 		}
 		if e.TenantID == nil || *e.TenantID != models.DefaultTenantID {
 			t.Fatalf("audit event must carry the tenant, got %+v", e)
+		}
+		if e.Source != services.SourceMCP || e.ActorType != services.ActorToken {
+			t.Fatalf("MCP events must be sourced mcp/token, got source=%q actor=%q", e.Source, e.ActorType)
+		}
+		if e.Outcome != services.OutcomeSuccess {
+			t.Fatalf("successful tool calls must record outcome=success, got %q", e.Outcome)
 		}
 	}
 	if !actions["mcp.rag_search"] || !actions["mcp.rag_ask"] {

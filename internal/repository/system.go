@@ -13,6 +13,11 @@ type ActivityLogListFilter struct {
 	Action   string
 	UserID   string
 	TenantID uint // 0 = include all tenants (platform-level only)
+	// Envelope correlation filters. Empty values are ignored.
+	RequestID string
+	TraceID   string
+	Source    string
+	Outcome   string
 }
 
 // PluginRepository defines data-access operations for plugins.
@@ -167,6 +172,18 @@ func (r *gormSystemRepository) ListActivityLogs(filter ActivityLogListFilter) ([
 	}
 	if filter.UserID != "" {
 		query = query.Where("user_id = ?", filter.UserID)
+	}
+	if filter.RequestID != "" {
+		query = query.Where("request_id = ?", filter.RequestID)
+	}
+	if filter.TraceID != "" {
+		query = query.Where("trace_id = ?", filter.TraceID)
+	}
+	if filter.Source != "" {
+		query = query.Where("source = ?", filter.Source)
+	}
+	if filter.Outcome != "" {
+		query = query.Where("outcome = ?", filter.Outcome)
 	}
 
 	var total int64

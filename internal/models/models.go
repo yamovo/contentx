@@ -448,6 +448,18 @@ type ActivityLog struct {
 	Details   string    `gorm:"type:text" json:"details"`
 	IP        string    `gorm:"size:45" json:"ip"`
 	UserAgent string    `gorm:"size:512" json:"user_agent"`
+
+	// Versioned audit envelope (RESEARCH-001 §4): first-class correlation and
+	// provenance so a business event can be traced back to the request, trace,
+	// and channel that produced it. Empty strings mean legacy rows written
+	// before migration 013.
+	EventID   string `gorm:"size:36" json:"event_id"` // envelope instance UUID
+	RequestID string `gorm:"size:64;index" json:"request_id"`
+	TraceID   string `gorm:"size:32;index" json:"trace_id"`
+	SpanID    string `gorm:"size:16" json:"span_id"`
+	Source    string `gorm:"size:20;index" json:"source"`  // rest | mcp | background | system
+	ActorType string `gorm:"size:20" json:"actor_type"`    // user | token | anonymous | system
+	Outcome   string `gorm:"size:20;index" json:"outcome"` // success | failed | denied
 }
 
 // StringSlice is a []string that marshals to JSON for database storage.

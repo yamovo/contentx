@@ -66,6 +66,9 @@ type MockArticleRepository struct {
 	UniqueSlugSuffix  string // 返回 original + suffix
 	UpdateStatusCalls []mockUpdateStatusCall
 	BulkPublishCalls  []mockBulkPublishCall
+
+	UpdateStatusWithAuditErr error
+	AuditRows                []*models.ActivityLog
 }
 
 type mockUpdateStatusCall struct {
@@ -170,6 +173,28 @@ func (m *MockArticleRepository) UpdateStatus(id uint, status string, publishedAt
 	if m.UpdateStatusErr != nil {
 		return m.UpdateStatusErr
 	}
+	m.mutateStatus(id, status, publishedAt, scheduledAt)
+	return nil
+}
+
+func (m *MockArticleRepository) UpdateStatusWithAudit(id uint, status string, publishedAt, scheduledAt *time.Time, _ uint, auditLog *models.ActivityLog) error {
+	m.UpdateStatusCalls = append(m.UpdateStatusCalls, mockUpdateStatusCall{
+		ID: id, Status: status, PublishedAt: publishedAt, ScheduledAt: scheduledAt,
+	})
+	if m.UpdateStatusErr != nil {
+		return m.UpdateStatusErr
+	}
+	if m.UpdateStatusWithAuditErr != nil {
+		// Mirror the transactional repo: neither the status change nor the
+		// audit row is applied when the audit insert fails.
+		return m.UpdateStatusWithAuditErr
+	}
+	m.AuditRows = append(m.AuditRows, auditLog)
+	m.mutateStatus(id, status, publishedAt, scheduledAt)
+	return nil
+}
+
+func (m *MockArticleRepository) mutateStatus(id uint, status string, publishedAt, scheduledAt *time.Time) {
 	// Mirror the GORM repo: mutate the in-memory article so FindByID reflects
 	// the new state (enables workflow tests to assert post-transition status).
 	if a, ok := m.Articles[id]; ok {
@@ -181,7 +206,6 @@ func (m *MockArticleRepository) UpdateStatus(id uint, status string, publishedAt
 			a.ScheduledAt = scheduledAt
 		}
 	}
-	return nil
 }
 
 func (m *MockArticleRepository) BulkUpdateStatus(articleIDs []uint, status string, _ uint) (int64, error) {

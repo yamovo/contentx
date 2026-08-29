@@ -15,6 +15,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/yamovo/contentx/internal/config"
 	"github.com/yamovo/contentx/internal/models"
+	"github.com/yamovo/contentx/internal/services"
 	"gorm.io/gorm"
 )
 
@@ -243,6 +244,26 @@ func ActivityLogger(db *gorm.DB) gin.HandlerFunc {
 			IP:        c.ClientIP(),
 			UserAgent: c.Request.UserAgent(),
 		}
+		// Envelope provenance (RESEARCH-001 §4): correlate the row with the
+		// request ID set by RequestID(), the trace ID set by Tracing(), and
+		// classify channel, actor, and outcome.
+		if requestID, ok := c.Get("request_id"); ok {
+			if s, ok := requestID.(string); ok {
+				log.RequestID = s
+			}
+		}
+		if traceID, ok := c.Get("trace_id"); ok {
+			if s, ok := traceID.(string); ok {
+				log.TraceID = s
+			}
+		}
+		log.Source = services.SourceREST
+		if userID != nil {
+			log.ActorType = services.ActorUser
+		} else {
+			log.ActorType = services.ActorAnonymous
+		}
+		log.Outcome = outcome
 		// Scope the audit log to the resolved tenant when available.
 		if tenantID, ok := c.Get(ContextKeyTenant); ok {
 			if id, ok := tenantID.(uint); ok && id > 0 {

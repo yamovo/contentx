@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/yamovo/contentx/internal/config"
 	"github.com/yamovo/contentx/internal/models"
+	"github.com/yamovo/contentx/internal/services"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
@@ -482,5 +483,67 @@ func TestJoinStrings(t *testing.T) {
 	}
 	if got := joinStrings([]string{"a", "b", "c"}); got != "a, b, c" {
 		t.Fatalf("multi: %q", got)
+	}
+}
+
+func TestActivityLogger_EnvelopeProvenance(t *testing.T) {
+	db := setupActivityTestDB(t)
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	// The production chain runs RequestID (and Tracing when enabled) before
+	// ActivityLogger; simulate the request ID contribution here.
+	r.Use(func(c *gin.Context) {
+		c.Set("request_id", "req-envelope-1")
+		c.Set("trace_id", "trace-envelope-1")
+		c.Next()
+	})
+	r.Use(ActivityLogger(db))
+	r.POST("/api/v1/articles", func(c *gin.Context) {
+		c.Set(ContextKeyUser, &models.User{BaseModel: models.BaseModel{ID: 7}})
+		c.Status(http.StatusCreated)
+	})
+
+	if w := doRequest(r, http.MethodPost, "/api/v1/articles", nil); w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d", w.Code)
+	}
+
+	var log models.ActivityLog
+	if err := db.First(&log).Error; err != nil {
+		t.Fatalf("load log: %v", err)
+	}
+	if log.RequestID != "req-envelope-1" || log.TraceID != "trace-envelope-1" {
+		t.Errorf("correlation IDs not persisted: request=%q trace=%q", log.RequestID, log.TraceID)
+	}
+	if log.Source != services.SourceREST {
+		t.Errorf("source = %q, want %q", log.Source, services.SourceREST)
+	}
+	if log.ActorType != services.ActorUser {
+		t.Errorf("actor type = %q, want %q", log.ActorType, services.ActorUser)
+	}
+	if log.Outcome != services.OutcomeSuccess {
+		t.Errorf("outcome = %q, want %q", log.Outcome, services.OutcomeSuccess)
+	}
+}
+
+func TestActivityLogger_AnonymousFailureIsAnonymousDenied(t *testing.T) {
+	db := setupActivityTestDB(t)
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(ActivityLogger(db))
+	r.POST("/api/v1/articles", func(c *gin.Context) {
+		c.Status(http.StatusUnauthorized)
+	})
+
+	doRequest(r, http.MethodPost, "/api/v1/articles", nil)
+
+	var log models.ActivityLog
+	if err := db.First(&log).Error; err != nil {
+		t.Fatalf("load log: %v", err)
+	}
+	if log.ActorType != services.ActorAnonymous {
+		t.Errorf("anonymous failure must record actor_type=anonymous, got %q", log.ActorType)
+	}
+	if log.Outcome != services.OutcomeDenied {
+		t.Errorf("401 must record outcome=denied, got %q", log.Outcome)
 	}
 }

@@ -942,7 +942,29 @@ func (s *ArticleService) RestoreRevision(articleID, revisionID, tenantID, userID
 // It loads the article, checks the state machine, applies the update via the
 // repository, and returns the reloaded article. The caller is responsible for
 // webhook dispatch (so it can choose the right event name).
-func (s *ArticleService) transitionTo(id uint, target models.ArticleStatus, publishedAt, scheduledAt *time.Time, tenantID uint) (*models.Article, error) {
+// transitionAuditAction maps a target status to the audit action recorded for
+// the transition. All lifecycle transitions go through transitionTo, so each
+// operation produces exactly one business audit event (RESEARCH-001 §4).
+func transitionAuditAction(target models.ArticleStatus) string {
+	switch target {
+	case models.StatusPublished:
+		return "article.publish"
+	case models.StatusDraft:
+		return "article.unpublish"
+	case models.StatusPending:
+		return "article.submit_review"
+	case models.StatusScheduled:
+		return "article.schedule"
+	case models.StatusArchived:
+		return "article.archive"
+	case models.StatusTrash:
+		return "article.trash"
+	default:
+		return "article.status_change"
+	}
+}
+
+func (s *ArticleService) transitionTo(id uint, target models.ArticleStatus, publishedAt, scheduledAt *time.Time, tenantID uint, userID *uint) (*models.Article, error) {
 	article, err := s.repo.FindByID(id, tenantID)
 	if err != nil {
 		return nil, err
@@ -951,7 +973,31 @@ func (s *ArticleService) transitionTo(id uint, target models.ArticleStatus, publ
 		return nil, errs.ErrBadRequest.WithMessage(
 			fmt.Sprintf("illegal status transition: %s → %s", article.Status, target))
 	}
-	if err := s.repo.UpdateStatus(id, string(target), publishedAt, scheduledAt, tenantID); err != nil {
+	// The status change and its audit record commit atomically: a transition
+	// cannot land without its audit trail (fail-closed, RESEARCH-001 §4).
+	// There is no HTTP request context at the service layer, so the event
+	// carries no request/trace IDs; the ActivityLogger middleware separately
+	// records the same request with full correlation.
+	actorType := ActorUser
+	if userID == nil {
+		actorType = ActorSystem
+	}
+	tenant := tenantID
+	auditLog := buildLog(AuditEvent{
+		UserID:   userID,
+		TenantID: &tenant,
+		Action:   transitionAuditAction(target),
+		Entity:   "article",
+		EntityID: id,
+		Details: map[string]any{
+			"title": article.Title, "slug": article.Slug,
+			"from": string(article.Status), "to": string(target),
+		},
+		Source:    SourceREST,
+		ActorType: actorType,
+		Outcome:   OutcomeSuccess,
+	})
+	if err := s.repo.UpdateStatusWithAudit(id, string(target), publishedAt, scheduledAt, tenantID, auditLog); err != nil {
 		return nil, err
 	}
 	// Reload to reflect the persisted state (FindByID does not preload; for
@@ -994,18 +1040,13 @@ func (s *ArticleService) publish(id uint, userID *uint, tenantID uint) (*models.
 		now := time.Now()
 		publishedAt = &now
 	}
-	updated, err := s.transitionTo(id, models.StatusPublished, publishedAt, nil, tenantID)
+	updated, err := s.transitionTo(id, models.StatusPublished, publishedAt, nil, tenantID, userID)
 	if err != nil {
 		return nil, err
 	}
 	if s.webhook != nil {
 		s.webhook.Dispatch(models.WebhookEventEntryPublish, updated, tenantID)
 	}
-	tid := tenantID
-	s.audit.Log(AuditEvent{
-		UserID: userID, TenantID: &tid, Action: "article.publish", Entity: "article", EntityID: id,
-		Details: map[string]any{"title": updated.Title, "slug": updated.Slug, "from": string(current.Status), "to": string(models.StatusPublished)},
-	})
 	return updated, nil
 }
 
@@ -1022,18 +1063,13 @@ func (s *ArticleService) UnpublishAs(id, tenantID, userID uint) (*models.Article
 }
 
 func (s *ArticleService) unpublish(id uint, userID *uint, tenantID uint) (*models.Article, error) {
-	updated, err := s.transitionTo(id, models.StatusDraft, nil, nil, tenantID)
+	updated, err := s.transitionTo(id, models.StatusDraft, nil, nil, tenantID, userID)
 	if err != nil {
 		return nil, err
 	}
 	if s.webhook != nil {
 		s.webhook.Dispatch(models.WebhookEventEntryUnpublish, updated, tenantID)
 	}
-	tid := tenantID
-	s.audit.Log(AuditEvent{
-		UserID: userID, TenantID: &tid, Action: "article.unpublish", Entity: "article", EntityID: id,
-		Details: map[string]any{"title": updated.Title, "slug": updated.Slug, "to": string(models.StatusDraft)},
-	})
 	return updated, nil
 }
 
@@ -1048,15 +1084,10 @@ func (s *ArticleService) SubmitForReviewAs(id, tenantID, userID uint) (*models.A
 }
 
 func (s *ArticleService) submitForReview(id uint, userID *uint, tenantID uint) (*models.Article, error) {
-	updated, err := s.transitionTo(id, models.StatusPending, nil, nil, tenantID)
+	updated, err := s.transitionTo(id, models.StatusPending, nil, nil, tenantID, userID)
 	if err != nil {
 		return nil, err
 	}
-	tid := tenantID
-	s.audit.Log(AuditEvent{
-		UserID: userID, TenantID: &tid, Action: "article.submit_review", Entity: "article", EntityID: id,
-		Details: map[string]any{"title": updated.Title, "slug": updated.Slug, "to": string(models.StatusPending)},
-	})
 	return updated, nil
 }
 
@@ -1088,18 +1119,13 @@ func (s *ArticleService) schedule(id uint, at time.Time, userID *uint, tenantID 
 	if at.IsZero() {
 		return nil, errs.ErrBadRequest.WithMessage("scheduled_at is required")
 	}
-	updated, err := s.transitionTo(id, models.StatusScheduled, nil, &at, tenantID)
+	updated, err := s.transitionTo(id, models.StatusScheduled, nil, &at, tenantID, userID)
 	if err != nil {
 		return nil, err
 	}
 	if s.webhook != nil {
 		s.webhook.Dispatch(models.WebhookEventEntrySchedule, updated, tenantID)
 	}
-	tid := tenantID
-	s.audit.Log(AuditEvent{
-		UserID: userID, TenantID: &tid, Action: "article.schedule", Entity: "article", EntityID: id,
-		Details: map[string]any{"title": updated.Title, "slug": updated.Slug, "scheduled_at": at},
-	})
 	return updated, nil
 }
 
@@ -1114,15 +1140,10 @@ func (s *ArticleService) ArchiveAs(id, tenantID, userID uint) (*models.Article, 
 }
 
 func (s *ArticleService) archive(id uint, userID *uint, tenantID uint) (*models.Article, error) {
-	updated, err := s.transitionTo(id, models.StatusArchived, nil, nil, tenantID)
+	updated, err := s.transitionTo(id, models.StatusArchived, nil, nil, tenantID, userID)
 	if err != nil {
 		return nil, err
 	}
-	tid := tenantID
-	s.audit.Log(AuditEvent{
-		UserID: userID, TenantID: &tid, Action: "article.archive", Entity: "article", EntityID: id,
-		Details: map[string]any{"title": updated.Title, "slug": updated.Slug, "to": string(models.StatusArchived)},
-	})
 	return updated, nil
 }
 
@@ -1150,6 +1171,20 @@ func (s *ArticleService) PublishDueScheduled(now time.Time) (int, error) {
 		n, err := s.repo.BulkPublish(ids, now, tenantID)
 		if err != nil {
 			return int(totalPublished), err
+		}
+		if n > 0 {
+			// Background high-risk write: the scheduler flips content public
+			// without a request context, so the event carries no request/trace
+			// IDs but is explicitly attributed to the background source.
+			s.audit.Log(AuditEvent{
+				TenantID:  &tenantID,
+				Action:    "article.scheduled_publish",
+				Entity:    "article",
+				Details:   map[string]any{"ids": ids, "count": n, "mode": "scheduled"},
+				Source:    SourceBackground,
+				ActorType: ActorSystem,
+				Outcome:   OutcomeSuccess,
+			})
 		}
 		if s.webhook != nil && n > 0 {
 			s.webhook.Dispatch(models.WebhookEventEntryPublish, map[string]interface{}{

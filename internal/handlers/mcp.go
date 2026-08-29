@@ -30,6 +30,11 @@ func mcpTokenAuth(tokenSvc *services.TokenService) gin.HandlerFunc {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Invalid or expired API token"})
 			return
 		}
+		// Carry the request/trace IDs set by the RequestID and Tracing
+		// middleware onto the request context so MCP audit events correlate
+		// with the same request in access logs and traces.
+		ctx := mcp.WithRequestCorrelation(c.Request.Context(), c.GetString("request_id"), c.GetString("trace_id"))
+		c.Request = c.Request.WithContext(ctx)
 		c.Request = c.Request.WithContext(mcp.WithPrincipal(c.Request.Context(), mcp.Principal{
 			UserID:      principal.UserID,
 			TenantID:    principal.TenantID,

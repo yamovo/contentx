@@ -38,6 +38,34 @@ type principalCtxKey struct{}
 // tenantCtxKey is the context key for the per-request tenant in MCP tool calls.
 type tenantCtxKey struct{}
 
+// correlationCtxKey carries the HTTP request/trace IDs into tool calls so MCP
+// audit events correlate with the same request in access logs and traces.
+type correlationCtxKey struct{}
+
+// WithRequestCorrelation embeds the HTTP request and trace IDs on the request
+// context. The MCP HTTP auth middleware calls it; stdio has no correlation.
+func WithRequestCorrelation(ctx context.Context, requestID, traceID string) context.Context {
+	return context.WithValue(ctx, correlationCtxKey{}, correlation{requestID: requestID, traceID: traceID})
+}
+
+// CorrelationFromContext returns the request and trace IDs carried by
+// WithRequestCorrelation. Empty strings mean the caller had no HTTP context.
+func CorrelationFromContext(ctx context.Context) (requestID, traceID string) {
+	if ctx == nil {
+		return "", ""
+	}
+	if v, ok := ctx.Value(correlationCtxKey{}).(correlation); ok {
+		return v.requestID, v.traceID
+	}
+	return "", ""
+}
+
+// correlation keeps the pair readable without exposing positional values.
+type correlation struct {
+	requestID string
+	traceID   string
+}
+
 // WithPrincipal embeds a defensive copy of a verified principal in a request
 // context. HTTP authentication middleware must call this only after resolving
 // the token against current user, tenant, membership, and permissions state.

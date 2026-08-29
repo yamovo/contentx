@@ -79,6 +79,11 @@ type ArticleRepository interface {
 	// can flip an article to published (recording the time) or to scheduled
 	// (recording the planned time) atomically.
 	UpdateStatus(id uint, status string, publishedAt, scheduledAt *time.Time, tenantID uint) error
+	// UpdateStatusWithAudit commits the status change and its audit record in
+	// one transaction, so a high-risk transition cannot land without its audit
+	// trail (RESEARCH-001 §4 fail-closed strategy). The audit row is fully
+	// prepared by the service layer (envelope, redaction included).
+	UpdateStatusWithAudit(id uint, status string, publishedAt, scheduledAt *time.Time, tenantID uint, auditLog *models.ActivityLog) error
 
 	BulkPublish(articleIDs []uint, publishedAt time.Time, tenantID uint) (int64, error)
 	BulkUpdateStatus(articleIDs []uint, status string, tenantID uint) (int64, error)
@@ -379,6 +384,25 @@ func (r *gormArticleRepository) UpdateStatus(id uint, status string, publishedAt
 		updates["scheduled_at"] = *scheduledAt
 	}
 	return r.db.Model(&models.Article{}).Where("id = ? AND tenant_id = ?", id, tenantID).Updates(updates).Error
+}
+
+// UpdateStatusWithAudit commits the article status change and the prepared
+// audit row atomically: if either write fails, neither is applied.
+func (r *gormArticleRepository) UpdateStatusWithAudit(id uint, status string, publishedAt, scheduledAt *time.Time, tenantID uint, auditLog *models.ActivityLog) error {
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		updates := map[string]interface{}{"status": status}
+		if publishedAt != nil {
+			updates["published_at"] = *publishedAt
+		}
+		if scheduledAt != nil {
+			updates["scheduled_at"] = *scheduledAt
+		}
+		if err := tx.Model(&models.Article{}).Where("id = ? AND tenant_id = ?", id, tenantID).
+			Updates(updates).Error; err != nil {
+			return err
+		}
+		return tx.Create(auditLog).Error
+	})
 }
 
 func (r *gormArticleRepository) BulkUpdateStatus(articleIDs []uint, status string, tenantID uint) (int64, error) {

@@ -18,6 +18,11 @@ type ActivityLogParams struct {
 	Action   string
 	UserID   string
 	TenantID uint
+	// Envelope correlation filters (RESEARCH-001 §4). Empty values are ignored.
+	RequestID string
+	TraceID   string
+	Source    string
+	Outcome   string
 }
 
 // ---------- PluginService ----------
@@ -202,12 +207,16 @@ func (s *SystemService) Health() (bool, error) {
 // ActivityLog returns activity log entries with pagination and filters.
 func (s *SystemService) ActivityLog(params ActivityLogParams) ([]models.ActivityLog, int64, error) {
 	return s.repo.ListActivityLogs(repository.ActivityLogListFilter{
-		Page:     params.Page,
-		PageSize: params.PageSize,
-		Entity:   params.Entity,
-		Action:   params.Action,
-		UserID:   params.UserID,
-		TenantID: params.TenantID,
+		Page:      params.Page,
+		PageSize:  params.PageSize,
+		Entity:    params.Entity,
+		Action:    params.Action,
+		UserID:    params.UserID,
+		TenantID:  params.TenantID,
+		RequestID: params.RequestID,
+		TraceID:   params.TraceID,
+		Source:    params.Source,
+		Outcome:   params.Outcome,
 	})
 }
 

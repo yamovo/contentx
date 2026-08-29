@@ -135,6 +135,7 @@ func (t *toolset) auditRAG(ctx context.Context, action, query string, topK, resu
 	}
 	userID := principal.UserID
 	tenantID := principal.TenantID
+	requestID, traceID := CorrelationFromContext(ctx)
 	t.deps.Audit.Log(services.AuditEvent{
 		UserID:   &userID,
 		TenantID: &tenantID,
@@ -145,6 +146,11 @@ func (t *toolset) auditRAG(ctx context.Context, action, query string, topK, resu
 			"top_k":   topK,
 			"results": results,
 		},
+		RequestID: requestID,
+		TraceID:   traceID,
+		Source:    services.SourceMCP,
+		ActorType: services.ActorToken,
+		Outcome:   services.OutcomeSuccess,
 	})
 }
 
