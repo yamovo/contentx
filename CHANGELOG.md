@@ -23,7 +23,8 @@
 - **平台权限门禁**：新增 `tenants.read`/`tenants.manage` 平台权限——租户成员角色永远无法触及身份面（防止租户管理员自我授权进入其他租户）；归属 `tenants.read` 可读、`tenants.manage` 可写
 - **审计**：tenant.create/update/member_add/member_role/member_remove 全部走 `LogReliable` 可靠写入（fail-closed），事件归属目标租户
 - **修复**：`ListMembers` 的裸 Table 查询补上软删除过滤，移除成员后成员清单与 admin 计数保持一致
-- **测试**：完整生命周期（创建→更新→成员增删改→最后管理员保护）、校验错误矩阵、平台权限门禁 403（真实中间件链）、审计溯源断言
+- **前端管理界面**：租户管理页（`/admin/tenants`，创建/编辑/停用/启用 + 成员增删改对话框）、平台管理员租户切换器（切换即清空 Vue Query 缓存全量刷新）、axios 注入 `X-Tenant-ID`（仅平台管理员可切换，后端每请求复核成员资格与租户状态）；SDK `tenants.*` 契约方法与消费者测试
+- **测试**：完整生命周期（创建→更新→成员增删改→最后管理员保护）、校验错误矩阵、平台权限门禁 403（真实中间件链）、审计溯源断言；前端租户 store 单测（切换门禁、选择持久化、失效回退）
 
 ### Added — 版本化审计事件 envelope 与可靠写入
 
