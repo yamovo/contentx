@@ -6,6 +6,8 @@ ContentX 通过 REST API、只读 GraphQL 和 OpenAPI 向应用交付内容，�
 
 > 当前稳定版本为 `v1.4.0`。准确状态、已知限制与下一步计划见[项目状态](./docs/STATUS.md)。
 
+> **项目状态：功能冻结（2026-09-24）。** 作者后续没有精力继续主动开发，`v1.4.0` 为最终稳定版本，仓库保持公开，可正常使用、构建与下载。未完成的工作已整理为带验收标准的 [Issues](https://github.com/yamovo/contentx/issues)，欢迎社区贡献者认领；提交 PR 前请先阅读[贡献指南](./CONTRIBUTING.md)。
+
 ## 为什么选择 ContentX
 
 | 优势 | 带来的价值 |
@@ -37,7 +39,7 @@ ContentX 不以插件数量或功能堆叠为目标，而是集中在 **自托�
 | 工作流 | 草稿、提交审核、发布、取消发布、定时发布、归档、乐观锁冲突保护 |
 | 媒体 | 本地文件与 S3 兼容存储；MinIO 已完成真实上传、读取、删除和分片验证 |
 | 安全 | JWT、刷新令牌轮换、API Token、TOTP、RBAC、限流、审计日志 |
-| 接口 | REST、只读 GraphQL、OpenAPI、stdio MCP、Streamable HTTP MCP |
+| 接口 | 只读 GraphQL、OpenAPI、stdio MCP、Streamable HTTP MCP |
 | 运维 | SQLite、PostgreSQL、MySQL、Redis、备份恢复、Prometheus、OpenTelemetry |
 | 扩展 | Webhook 持久化投递、HMAC、SSRF 防护、重试与并发限制 |
 
@@ -122,8 +124,8 @@ npm run test:e2e
 |---|---|
 | [产品定位](./docs/POSITIONING.md) | 统一定位、差异化价值、选型比较和文案规则 |
 | [语言与扩展边界](./docs/ADR-001-language-and-extension-boundary.md) | 当前 Go 实现、语言中立契约和扩展策略的暂定决策 |
-| [公开动态内容交付](./docs/RFC-002-public-content-delivery.md) | published-only 公共内容 API 的安全契约与实施顺序 |
-| [产品需求](./docs/PRD.md) | 产品承诺范围、非目标和验收标准 |
+| [公开动态内容交付](./docs/RFC-002-public-content-delivery.md) | published-only 公共内容 API 的安全契约 |
+| [产品需求](./docs/PRD.md) | 产品承诺范围、非目标和版本验收标准 |
 | [项目状态](./docs/STATUS.md) | 当前版本、已交付能力、限制和发布阻断项 |
 | [路线图](./docs/ROADMAP.md) | 当前、下一里程碑及退出条件 |
 | [标准操作流程](./docs/SOP.md) | 开发、配置、验证、部署、备份和恢复 |
